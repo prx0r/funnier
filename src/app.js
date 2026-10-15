@@ -479,18 +479,22 @@ function laugh() {
   return true
 }
 function lfx() { return cur?.el?.querySelector('.lfx') || null }
-function particle(kind, x, delay = 0) {
+function particle(kind, delay = 0) {
+  // Instagram Live style: every laugh (yours and the crowd's) floats up from the laugh button on the right edge
   const L = lfx(); if (!L || L.childElementCount > 48) return
+  const b = cur?.el?.querySelector('.laughbtn'); const lr = L.getBoundingClientRect()
+  const br = b ? b.getBoundingClientRect() : { left: lr.right - 50, top: lr.top + lr.height / 2, width: 44, height: 44 }
   const p = document.createElement('span')
   p.className = 'lp ' + kind; p.innerHTML = LAUGH_MINI
   const r = Math.random()
-  p.style.cssText = `left:${x.toFixed(1)}%;--dx:${Math.round(r * 70 - 35)}px;--s:${(kind === 'mine' ? 0.9 : 0.55) + Math.random() * 0.5};--d:${(2.3 + Math.random() * 1.3).toFixed(2)}s;animation-delay:${delay}ms`
+  const x = br.left - lr.left + br.width / 2, y = br.top - lr.top + br.height * 0.2
+  p.style.cssText = `left:${x.toFixed(0)}px;top:${y.toFixed(0)}px;--dx:${Math.round(-10 - r * 46)}px;--w:${Math.round(8 + Math.random() * 14)}px;--s:${(kind === 'mine' ? 1 : 0.7) + Math.random() * 0.45};--d:${(2.4 + Math.random() * 1.2).toFixed(2)}s;animation-delay:${delay}ms`
   L.appendChild(p); setTimeout(() => p.remove(), 4200 + delay)
 }
 function laughBurst() {
   const b = q('.laughbtn'); if (b) { b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop'); setTimeout(() => b.classList.remove('pop'), 450) }
   if (reduced()) return
-  for (let i = 0; i < 5; i++) particle('mine', 50 + (Math.random() * 12 - 6), i * 40)
+  for (let i = 0; i < 3; i++) particle('mine', i * 70)
 }
 // other viewers' laughs: GET /laughs/:clip (1-second bins), minus your own, replayed as particles at those moments
 function prefetchLaughs(sc) {
@@ -509,7 +513,7 @@ function crowdTick(sc) {
   for (let k = sc.lastSec + 1; k <= s; k++) {
     const c = sc.hist[k] || 0; if (!c) continue
     const n = Math.min(6, Math.max(1, Math.round((6 * c) / sc.histMax)))
-    for (let i = 0; i < n; i++) particle('crowd', 8 + Math.random() * 84, Math.round((i * 900) / n))
+    for (let i = 0; i < n; i++) particle('crowd', Math.round((i * 900) / n))
   }
   sc.lastSec = s
 }
