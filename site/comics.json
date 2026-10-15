@@ -1,5 +1,5 @@
 {
- "_note": "Comedian profiles. Fill in bio (markdown-free text), photo (an https image you have rights to), facts, links. Empty fields show a placeholder. specials: verified against Wikipedia + official pages (Oct 2026); 'where' lists only the official home (Netflix originals, louisck.com) plus a JustWatch search, since availability varies by country.",
+ "_note": "Comedian profiles. Fill in bio (markdown-free text), photo (img/<slug>.jpg committed under site/img, or an https image you have rights to) + photoCredit/photoLicense/photoLicenseUrl/photoSource (Wikimedia Commons file page), facts, links. Empty fields show a placeholder. specials: verified against Wikipedia + official pages (Oct 2026); 'where' lists only the official home (Netflix originals, louisck.com) plus a JustWatch search, since availability varies by country.",
  "comics": {
   "Norm Macdonald": {
    "slug": "norm-macdonald",
@@ -10,7 +10,7 @@
     "Weekend Update anchor on SNL"
    ],
    "bio": "",
-   "photo": "",
+   "photo": "img/norm-macdonald.jpg",
    "links": {
     "YouTube": "https://www.youtube.com/@NormMacdonald"
    },
@@ -61,7 +61,12 @@
       }
      ]
     }
-   ]
+   ],
+   "photoCredit": "Greg2600",
+   "photoLicense": "CC BY-SA 2.0",
+   "photoLicenseUrl": "https://creativecommons.org/licenses/by-sa/2.0/",
+   "photoSource": "https://commons.wikimedia.org/wiki/File:Norm_MacDonald_(26378045703)_(cropped).jpg",
+   "photoNote": "resized"
   },
   "Louis C.K.": {
    "slug": "louis-ck",
@@ -71,7 +76,7 @@
     "Creator of Louie"
    ],
    "bio": "",
-   "photo": "",
+   "photo": "img/louis-ck.jpg",
    "links": {
     "YouTube": "https://www.youtube.com/@LouisCK"
    },
@@ -293,7 +298,12 @@
       }
      ]
     }
-   ]
+   ],
+   "photoCredit": "...some guy aka Flowizm",
+   "photoLicense": "CC BY 2.0",
+   "photoLicenseUrl": "https://creativecommons.org/licenses/by/2.0/",
+   "photoSource": "https://commons.wikimedia.org/wiki/File:Louis_CK_explaining.jpg",
+   "photoNote": "cropped and resized"
   },
   "Jerry Seinfeld": {
    "slug": "jerry-seinfeld",
@@ -303,7 +313,7 @@
     "Co-creator of Seinfeld"
    ],
    "bio": "",
-   "photo": "",
+   "photo": "img/jerry-seinfeld.jpg",
    "links": {},
    "specials": [
     {
@@ -365,7 +375,12 @@
       }
      ]
     }
-   ]
+   ],
+   "photoCredit": "Zafrir Keren",
+   "photoLicense": "CC BY-SA 3.0",
+   "photoLicenseUrl": "https://creativecommons.org/licenses/by-sa/3.0/",
+   "photoSource": "https://commons.wikimedia.org/wiki/File:Jerry_Seinfeld_2023.jpg",
+   "photoNote": "unmodified"
   },
   "Chris Rock": {
    "slug": "chris-rock",
@@ -375,7 +390,7 @@
     "Tamborine (2018)"
    ],
    "bio": "",
-   "photo": "",
+   "photo": "img/chris-rock.jpg",
    "links": {},
    "specials": [
     {
@@ -463,7 +478,12 @@
       }
      ]
     }
-   ]
+   ],
+   "photoCredit": "Andy Witchger",
+   "photoLicense": "CC BY 2.0",
+   "photoLicenseUrl": "https://creativecommons.org/licenses/by/2.0/",
+   "photoSource": "https://commons.wikimedia.org/wiki/File:Chris_Rock_-_Orpheum_Theatre_Minneapolis_3_17_(33376790795).jpg",
+   "photoNote": "cropped and resized"
   }
  },
  "ai": [

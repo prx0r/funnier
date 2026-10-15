@@ -37,7 +37,8 @@
   "topics": [
    "opinions"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "dur": 63
  },
  {
   "id": "OwlxYYtqHfc",
@@ -132,7 +133,9 @@
    "observational"
   ],
   "topics": [],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "dur": 404,
+  "needsCut": true
  },
  {
   "id": "vd8DfFp5ono",
@@ -286,7 +289,9 @@
   "topics": [
    "everyday"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "dur": 218,
+  "needsCut": true
  },
  {
   "id": "HfYzlSNHapA",
@@ -325,7 +330,8 @@
   "topics": [
    "career"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "dur": 46
  },
  {
   "id": "xnUWpegM9oY",

@@ -17,11 +17,19 @@ async function smoke(BASE) {
   ok(r.headers.get('access-control-allow-credentials') === 'true', 'CORS allow-credentials true')
   const pf = await fetch(BASE + '/votes', { method: 'OPTIONS', headers: { origin: 'https://funnier.si', 'access-control-request-method': 'POST', 'access-control-request-headers': 'authorization,content-type' } })
   ok(pf.status === 204 && pf.headers.get('access-control-allow-origin') === 'https://funnier.si', `preflight from funnier.si allowed (${pf.status})`)
+  const pw = await fetch(BASE + '/laughs', { method: 'OPTIONS', headers: { origin: 'https://www.funnier.si', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' } })
+  ok(pw.status === 204 && pw.headers.get('access-control-allow-origin') === 'https://www.funnier.si', `preflight from www.funnier.si allowed (${pw.status})`)
   ok(/authorization/i.test(pf.headers.get('access-control-allow-headers') || ''), 'preflight allows the authorization header')
   const bad = await fetch(BASE + '/me', { headers: { origin: 'https://evil.example' } })
   ok(!bad.headers.get('access-control-allow-origin'), 'unknown origin gets no CORS header')
   const st = await fetch(BASE + '/stats/clash/aaaaaaaaaaa/bbbbbbbbbbb')
   ok(st.status === 200, 'GET /stats/clash public -> 200')
+  for (const p of ['/laughs/aaaaaaaaaaa', '/clips/durations', '/clips/audio']) {
+    const x = await fetch(BASE + p, { headers: { origin: ORIGIN } }); let j = null; try { j = await x.json() } catch {}
+    ok(x.status === 200 && j && x.headers.get('access-control-allow-origin') === ORIGIN, `GET ${p} public + CORS -> 200`)
+  }
+  const lp = await fetch(BASE + '/laughs', { method: 'OPTIONS', headers: { origin: ORIGIN, 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' } })
+  ok(lp.status === 204 && lp.headers.get('access-control-allow-origin') === ORIGIN, `preflight POST /laughs allowed (${lp.status})`)
 }
 
 if (process.argv.includes('--remote-smoke')) {
@@ -40,7 +48,8 @@ const idToken = (sub, extra = {}, aud = CID) => new SignJWT({ email: sub + '@exa
 
 execSync('npx wrangler d1 execute funnier --local --file schema.sql', { stdio: 'ignore' })
 try { execSync('npx wrangler d1 execute funnier --local --file migrations/0002_avatar_seed.sql', { stdio: 'ignore' }) } catch {} // already applied -> duplicate column
-execSync(`npx wrangler d1 execute funnier --local --command "DELETE FROM votes; DELETE FROM friends; DELETE FROM invites; DELETE FROM invite_opens; DELETE FROM users;"`, { stdio: 'ignore' })
+execSync('npx wrangler d1 execute funnier --local --file migrations/0003_laughs_durations_audio.sql', { stdio: 'ignore' }) // idempotent
+execSync(`npx wrangler d1 execute funnier --local --command "DELETE FROM votes; DELETE FROM friends; DELETE FROM invites; DELETE FROM invite_opens; DELETE FROM users; DELETE FROM laughs; DELETE FROM clip_durations; DELETE FROM clip_audio;"`, { stdio: 'ignore' })
 const PORT = 8797, BASE = `http://127.0.0.1:${PORT}`
 const dev = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT), '--ip', '127.0.0.1',
   '--var', `GOOGLE_CLIENT_ID:${CID}`, '--var', 'ALLOW_TEST_JWKS:1', '--var', 'TEST_JWKS_URL:http://127.0.0.1:8798/jwks', '--var', 'SESSION_SECRET:local-test-secret-not-for-prod'], { stdio: ['ignore', 'pipe', 'pipe'], detached: true })
@@ -76,7 +85,7 @@ try {
 
   const A = 'clipAAAAAAA', B = 'clipBBBBBBB'
   r = await J('POST', '/invites', t1, { a: A, b: B, pick: 'a' }); const code = r.j?.code
-  ok(r.s === 200 && /^[A-Za-z0-9]{8}$/.test(code || '') && r.j.urls.includes('https://funnier.si/#i/' + code), 'POST /invites -> code + funnier.si / github.io URLs')
+  ok(r.s === 200 && /^[A-Za-z0-9]{8}$/.test(code || '') && r.j.urls.includes('https://www.funnier.si/#i/' + code) && r.j.url === 'https://www.funnier.si/#i/' + code, 'POST /invites -> code, primary www.funnier.si URL + github.io')
   r = await J('POST', '/invites', t1, { a: A, b: B, pick: 'a' }); ok(r.j?.code === code, 're-sharing the same clash reuses the code')
   r = await J('GET', '/invites/' + code, null); ok(r.s === 200 && r.j.inviter.username === 'DeadpanDuck42' && r.j.inviter.avatar_seed === 'k3j9x0q2ab' && r.j.inviter.google_avatar === null && r.j.open_id, 'anonymous open: inviter username/avatar + open_id')
   const anonOpen = r.j.open_id
@@ -115,6 +124,32 @@ try {
   r = await J('GET', `/stats/clash/${A}/${B}`)
   ok(r.s === 200 && r.j.total === 7 && r.j.countries.length === 1 && r.j.countries[0].cc === 'DE' && r.j.countries[0].pctA === 60, `global split + per-country only at >=5 (total ${r.j.total}, ${JSON.stringify(r.j.countries)})`)
   r = await J('POST', '/votes', t1, { votes: [{ a: A, b: A, winner: A }] }); ok(r.j.skipped === 1, 'invalid vote rows are skipped')
+
+  // ---- laughs: anonymous with a device id, 1 per 0.7s per user/device, 1-second histogram ----
+  const LC = 'laughClip01', dev = 'devAAAA1111', dev2 = 'devBBBB2222'
+  r = await J('POST', '/laughs', null, { clip: LC, t: 12.4 }); ok(r.s === 400 && r.j.error === 'device_required', 'anonymous laugh without a device id -> 400')
+  r = await J('POST', '/laughs', null, { clip: 'bad clip!', t: 1, device: dev }); ok(r.s === 400, 'laugh on a bad clip id -> 400')
+  r = await J('POST', '/laughs', null, { clip: LC, t: 12.4, device: dev }); ok(r.s === 200, 'anonymous laugh with a device id -> 200')
+  r = await J('POST', '/laughs', null, { clip: LC, t: 12.9, device: dev }); ok(r.s === 429 && r.j.error === 'rate_limited', 'second laugh within 0.7s from the same device -> 429')
+  r = await J('POST', '/laughs', null, { clip: LC, t: 12.7, device: dev2 }); ok(r.s === 200, 'another device is not rate-limited')
+  r = await J('POST', '/laughs', t1, { clip: LC, t: 30, device: dev }); ok(r.s === 200, 'signed-in laugh counts per user, not per device')
+  await sleep(750)
+  r = await J('POST', '/laughs', null, { clip: LC, t: 3, device: dev }); ok(r.s === 200, 'after 0.7s the same device can laugh again')
+  r = await J('GET', '/laughs/' + LC); ok(r.s === 200 && r.j.bins.length === 31 && r.j.bins[12] === 2 && r.j.bins[3] === 1 && r.j.bins[30] === 1 && r.j.total === 4 && r.j.max === 2, `GET /laughs/:clip -> 1-second histogram (${JSON.stringify(r.j?.bins?.filter(Boolean))})`)
+  // ---- learned durations ----
+  r = await J('POST', '/clips/durations', null, { durs: { durClip001: 245.2, durClip002: 61, 'bad id!': 10, durClip003: -4 } }); ok(r.s === 200 && r.j.saved === 2, 'POST /clips/durations keeps only valid ids/values')
+  for (let i = 0; i < 3; i++) await J('POST', '/clips/durations', null, { clip: 'durClip002', dur: 61 })
+  await J('POST', '/clips/durations', null, { clip: 'durClip002', dur: 600 })
+  r = await J('GET', '/clips/durations'); ok(r.s === 200 && r.j.durs.durClip001 === 245.2 && r.j.durs.durClip002 === 61, `GET /clips/durations merges reports, ignores an outlier (${JSON.stringify(r.j?.durs)})`)
+  // ---- crowd loudness: 3dB steps, normalised to the quietest clip, clamped -40..0 ----
+  r = await J('POST', '/clips/audio', null, { clip: 'audLoud0001', dir: 'meh', device: dev }); ok(r.s === 400, 'bad audio dir -> 400')
+  for (const d of ['dev00000001', 'dev00000002', 'dev00000003', 'dev00000004']) await J('POST', '/clips/audio', null, { clip: 'audLoud0001', dir: 'loud', device: d })
+  await J('POST', '/clips/audio', null, { clip: 'audLoud0001', dir: 'loud', device: 'dev00000001' }) // same device again: still one vote
+  r = await J('GET', '/clips/audio'); const al = r.j?.clips?.audLoud0001
+  ok(r.s === 200 && al?.loud === 4 && al.db === 6 && al.offset === -40 && r.j.default_offset === 0, `"too loud" x4 -> +6dB -> that clip attenuated (${JSON.stringify(al)}, default ${r.j?.default_offset})`)
+  for (const d of ['dev00000005', 'dev00000006', 'dev00000007']) await J('POST', '/clips/audio', null, { clip: 'audQuiet001', dir: 'quiet', device: d })
+  r = await J('GET', '/clips/audio')
+  ok(r.j.ref_db === -6 && r.j.clips.audQuiet001.offset === 0 && r.j.default_offset === -40 && r.j.clips.audLoud0001.offset === -40, `"too quiet" lowers everything else instead (ref ${r.j.ref_db}dB, others ${r.j.default_offset}, quiet clip ${r.j.clips.audQuiet001?.offset})`)
   r = await J('POST', '/auth/logout', t1); ok(r.s === 200 && /funnier_session=;/.test(r.h.get('set-cookie') || ''), 'logout clears the cookie')
 } catch (e) { fails.push(String(e)); console.log('ERROR', e, log.slice(-2000)) } finally { stop() }
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASS')

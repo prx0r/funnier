@@ -1,4 +1,4 @@
-// funnier-api: Google sign-in + accounts, votes, friends, invites, taste match and clash stats on Cloudflare Workers + D1.
+// funnier-api: Google sign-in + accounts, votes, friends, invites, taste match, clash stats, laughs, learned clip durations and crowd loudness on Cloudflare Workers + D1.
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
@@ -8,7 +8,7 @@ import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose'
 export const AVATARS = ['grin', 'deadpan', 'wink', 'shock', 'smirk', 'cool', 'nerd', 'tash', 'sleepy', 'tongue', 'monocle', 'clown']
 const SEED = /^[A-Za-z0-9_-]{1,40}$/ // avatar seed: the client renders a mascot from it (mascot-avatars)
 export const seedOf = (u) => (u?.avatar_seed && SEED.test(u.avatar_seed) ? u.avatar_seed : u?.avatar_id && AVATARS.includes(u.avatar_id) ? 'preset-' + u.avatar_id : null)
-const ORIGINS = ['https://prx0r.github.io', 'https://funnier.si', 'https://www.funnier.si']
+const ORIGINS = ['https://prx0r.github.io', 'https://www.funnier.si', 'https://funnier.si']
 const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
 const COOKIE = 'funnier_session'
 const SESSION_DAYS = 60
@@ -16,14 +16,14 @@ const GOOGLE_JWKS = 'https://www.googleapis.com/oauth2/v3/certs'
 const CLIP = /^[A-Za-z0-9_.:-]{1,64}$/
 const DAY = /^\d{4}-\d{2}-\d{2}$/
 const USERNAME = /^[A-Za-z0-9_]{3,20}$/ // shown as typed, unique case-insensitively
-const SHARE_BASES = ['https://funnier.si/', 'https://prx0r.github.io/characters/']
+const SHARE_BASES = ['https://www.funnier.si/', 'https://prx0r.github.io/characters/']
 const WHY_MAX = 40
 
 const app = new Hono()
 app.use('*', cors({
   origin: (o) => (ORIGINS.includes(o) || LOCAL.test(o || '') ? o : null),
   credentials: true,
-  allowHeaders: ['content-type', 'authorization'],
+  allowHeaders: ['content-type', 'authorization', 'x-funnier-device'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   maxAge: 86400,
 }))
@@ -144,6 +144,8 @@ app.delete('/me', auth, async (c) => {
     DB.prepare('DELETE FROM invite_opens WHERE code IN (SELECT code FROM invites WHERE inviter_id = ?)').bind(id),
     DB.prepare('UPDATE invite_opens SET opener_user_id = NULL WHERE opener_user_id = ?').bind(id),
     DB.prepare('DELETE FROM invites WHERE inviter_id = ?').bind(id),
+    DB.prepare('DELETE FROM laughs WHERE user_or_device = ?').bind('u:' + id),
+    DB.prepare('DELETE FROM clip_audio WHERE user_or_device = ?').bind('u:' + id),
     DB.prepare('DELETE FROM users WHERE id = ?').bind(id),
   ])
   deleteCookie(c, COOKIE, { path: '/', secure: true, sameSite: 'None' })
@@ -200,7 +202,7 @@ app.post('/invites', auth, async (c) => {
     }
     if (!k) return c.json({ error: 'try_again' }, 500)
   }
-  return c.json({ code: k, urls: SHARE_BASES.map((s) => s + '#i/' + k), url: SHARE_BASES[1] + '#i/' + k })
+  return c.json({ code: k, urls: SHARE_BASES.map((s) => s + '#i/' + k), url: SHARE_BASES[0] + '#i/' + k })
 })
 
 app.get('/invites/:code', async (c) => {
@@ -264,6 +266,87 @@ app.get('/me/taste', auth, async (c) => {
     WHERE f.user_id = ? GROUP BY f.friend_id ORDER BY shared DESC`).bind(u.id).all()
   const friends = (r.results || []).map((x) => ({ ...pub(x), since: x.since, shared: x.shared, agree: x.agree, match: x.shared >= 3 ? pct(x.agree, x.shared) : null }))
   return c.json({ friends, min_shared: 3 })
+})
+
+// ---------- clips: learned durations, crowd loudness, laughs (anonymous allowed: a random device id) ----------
+const DEVICE = /^[A-Za-z0-9_-]{8,64}$/
+const LAUGH_GAP_MS = 700 // one laugh per 0.7s per user/device
+const MAX_T = 6 * 3600
+async function voterOf(c, b) {
+  const uid = await sessionUid(c)
+  if (uid) return 'u:' + uid
+  const d = String(b?.device ?? c.req.header('x-funnier-device') ?? '')
+  return DEVICE.test(d) ? 'd:' + d : null
+}
+export function audioOffsets(rows) { // rows: [{clip, loud, quiet}] -> per-clip volume offsets (YouTube can only attenuate)
+  const STEP_DB = 3, out = {}
+  let ref = 0
+  for (const r of rows) {
+    const n = r.loud + r.quiet, net = r.loud - r.quiet
+    const steps = n >= 3 ? Math.round(Math.max(-4, Math.min(4, net / Math.sqrt(n)))) : 0
+    const db = STEP_DB * steps || 0 // + = the crowd hears it louder than the rest
+    out[r.clip] = { loud: r.loud, quiet: r.quiet, db }
+    ref = Math.min(ref, db) // normalise to the quietest clip's level
+  }
+  const off = (db) => Math.max(-40, Math.min(0, Math.round(100 * Math.pow(10, (ref - db) / 20)) - 100))
+  for (const k of Object.keys(out)) out[k].offset = off(out[k].db)
+  return { clips: out, ref_db: ref, default_offset: off(0) }
+}
+
+app.get('/clips/durations', async (c) => {
+  const r = await c.env.DB.prepare('SELECT clip, dur_sec, reports FROM clip_durations').all()
+  const durs = {}
+  for (const x of r.results || []) durs[x.clip] = Math.round(x.dur_sec * 10) / 10
+  c.header('cache-control', 'public, max-age=300')
+  return c.json({ durs })
+})
+app.post('/clips/durations', async (c) => {
+  const b = (await body(c)) || {}
+  const src = b.durs && typeof b.durs === 'object' ? b.durs : b.clip ? { [b.clip]: b.dur } : {}
+  const list = Object.entries(src).filter(([k, v]) => CLIP.test(k) && Number.isFinite(Number(v)) && Number(v) >= 1 && Number(v) <= MAX_T).slice(0, 100)
+  if (!list.length) return c.json({ error: 'no_durations' }, 400)
+  const DB = c.env.DB, t = now()
+  // a running mean (weight capped at 9 reports); a report >50% off an established value (3+ reports) is ignored
+  await DB.batch(list.map(([k, v]) => DB.prepare(`INSERT INTO clip_durations (clip, dur_sec, reports, updated_at) VALUES (?1, ?2, 1, ?3)
+    ON CONFLICT (clip) DO UPDATE SET
+      dur_sec = CASE WHEN reports >= 3 AND ABS(excluded.dur_sec - dur_sec) > 0.5 * dur_sec THEN dur_sec ELSE (dur_sec * MIN(reports, 9) + excluded.dur_sec) / (MIN(reports, 9) + 1) END,
+      reports = CASE WHEN reports >= 3 AND ABS(excluded.dur_sec - dur_sec) > 0.5 * dur_sec THEN reports ELSE reports + 1 END,
+      updated_at = ?3`).bind(k, Number(v), t)))
+  return c.json({ ok: true, saved: list.length })
+})
+
+app.get('/clips/audio', async (c) => {
+  const r = await c.env.DB.prepare(`SELECT clip, SUM(CASE WHEN dir = 'loud' THEN 1 ELSE 0 END) AS loud, SUM(CASE WHEN dir = 'quiet' THEN 1 ELSE 0 END) AS quiet FROM clip_audio GROUP BY clip`).all()
+  c.header('cache-control', 'public, max-age=120')
+  return c.json(audioOffsets((r.results || []).map((x) => ({ clip: x.clip, loud: Number(x.loud) || 0, quiet: Number(x.quiet) || 0 }))))
+})
+app.post('/clips/audio', async (c) => {
+  const b = (await body(c)) || {}
+  if (!CLIP.test(b.clip || '') || !['loud', 'quiet'].includes(b.dir)) return c.json({ error: 'bad_request' }, 400)
+  const who = await voterOf(c, b); if (!who) return c.json({ error: 'device_required' }, 400)
+  await c.env.DB.prepare(`INSERT INTO clip_audio (clip, user_or_device, dir, created_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT (clip, user_or_device) DO UPDATE SET dir = excluded.dir, created_at = excluded.created_at`).bind(b.clip, who, b.dir, now()).run()
+  return c.json({ ok: true })
+})
+
+app.post('/laughs', async (c) => {
+  const b = (await body(c)) || {}, t = Number(b.t)
+  if (!CLIP.test(b.clip || '') || !Number.isFinite(t) || t < 0 || t > MAX_T) return c.json({ error: 'bad_request' }, 400)
+  const who = await voterOf(c, b); if (!who) return c.json({ error: 'device_required' }, 400)
+  const DB = c.env.DB, ms = Date.now()
+  const last = await DB.prepare('SELECT MAX(created_at) AS at FROM laughs WHERE user_or_device = ?').bind(who).first()
+  if (last?.at && ms - last.at < LAUGH_GAP_MS) return c.json({ error: 'rate_limited', retry_ms: LAUGH_GAP_MS - (ms - last.at) }, 429)
+  await DB.prepare('INSERT INTO laughs (clip, t_sec, user_or_device, created_at) VALUES (?, ?, ?, ?)').bind(b.clip, Math.floor(t), who, ms).run()
+  return c.json({ ok: true })
+})
+app.get('/laughs/:clip', async (c) => {
+  const k = c.req.param('clip'); if (!CLIP.test(k)) return c.json({ error: 'bad_clip' }, 400)
+  const r = await c.env.DB.prepare('SELECT t_sec, COUNT(*) AS n FROM laughs WHERE clip = ? GROUP BY t_sec ORDER BY t_sec').bind(k).all()
+  const rows = r.results || [], len = rows.length ? rows[rows.length - 1].t_sec + 1 : 0, bins = new Array(len).fill(0)
+  let total = 0
+  for (const x of rows) { bins[x.t_sec] = x.n; total += x.n }
+  c.header('cache-control', 'public, max-age=30')
+  return c.json({ clip: k, bin_sec: 1, bins, total, max: bins.length ? Math.max(...bins) : 0 })
 })
 
 // ---------- public stats ----------

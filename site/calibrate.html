@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Calibrate · Funnier</title><meta name="theme-color" content="#07070a">
+<style>
+:root{--bg:#07070a;--panel:#131319;--line:#23232d;--text:#f3f1ec;--muted:#8d8b93;--red:#e8102e;--gold:#f5c76b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif}
+main{max-width:1100px;margin:0 auto;padding:28px 20px 60px}
+a{color:var(--gold)} .brand{font:700 22px/1 Impact,'Anton',sans-serif;letter-spacing:.04em;color:#ff3d55;text-decoration:none}
+h1{font-size:28px;margin:18px 0 4px} .muted{color:var(--muted);font-size:13px}
+.stage{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0}
+.pane{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;transition:box-shadow .2s}
+.pane.on{box-shadow:0 0 0 2px var(--red)}
+.pane .fr{position:relative;aspect-ratio:16/9;background:#000;border-radius:8px;overflow:hidden}
+.pane .fr>div,.pane iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.pane h3{margin:8px 2px 0;font-size:14px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:8px 0 16px}
+select,button,input[type=number]{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+button{cursor:pointer} button.pri{background:var(--red);border-color:var(--red);font-weight:700} button:disabled{opacity:.5;cursor:default}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+tr.cur td{background:rgba(232,16,46,.08)}
+td.t{max-width:380px} td.t small{display:block;color:var(--muted)}
+input[type=range]{width:160px;accent-color:var(--red)}
+.v{font:600 13px ui-monospace,monospace;width:34px;display:inline-block;text-align:right}
+textarea{width:100%;min-height:140px;background:#0d0d12;color:#c9c6cf;border:1px solid var(--line);border-radius:10px;padding:12px;font:13px/1.5 ui-monospace,monospace}
+.gate{max-width:520px;margin:80px auto;text-align:center}
+@media (max-width:760px){.stage{grid-template-columns:1fr}}
+</style></head><body><main id="app"><p class="muted">Loading…</p></main>
+<script>
+// Owner-only loudness calibration (unlisted). Open once with ?key=<anything> to unlock this browser.
+// Plays each clip's screening window alternating with a reference clip in YouTube's official player; you match levels by ear
+// with a 0-100 slider (YouTube can only attenuate, so set the LOUDEST clips down, never above 100) and copy a JSON patch of
+// `vol` values to paste into funnier/clips.json. Nothing is downloaded, recorded or analysed.
+const SHORT_MAX = 75
+const LSK = 'funnier.calKey', LSV = 'funnier.calVols'
+const app = document.getElementById('app')
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+const u = new URL(location.href)
+if (u.searchParams.get('key')) { localStorage.setItem(LSK, u.searchParams.get('key')); u.searchParams.delete('key'); history.replaceState(null, '', u.pathname + u.search) }
+if (!localStorage.getItem(LSK)) {
+  app.innerHTML = '<div class="gate"><a class="brand" href="./">FUNNIER</a><h1>Nothing to see here</h1><p class="muted">This page is unlisted.</p></div>'
+} else boot()
+
+function win(c) {
+  const s = Number(c.start) || 0
+  if (c.end != null && Number(c.end) > s) return [s, Number(c.end)]
+  const d = Number(c.dur) || Number(c.sec) || 0
+  return [s, s + (d > 0 ? Math.min(d - s, SHORT_MAX) : SHORT_MAX)]
+}
+async function boot() {
+  const clips = (await (await fetch('clips.json', { cache: 'no-cache' })).json()).filter((c) => c.status !== 'removed' && c.media === 'youtube')
+  const saved = (() => { try { return JSON.parse(localStorage.getItem(LSV)) || {} } catch { return {} } })()
+  const base = Object.fromEntries(clips.map((c) => [c.id, c.vol != null && c.vol !== '' ? Number(c.vol) : 100]))
+  const vols = Object.fromEntries(clips.map((c) => [c.id, Number.isFinite(saved[c.id]) ? saved[c.id] : base[c.id]]))
+  let refId = localStorage.getItem('funnier.calRef') || clips[0].id, curId = clips.find((c) => c.id !== refId)?.id, seg = 6, running = false, timer = null, side = 'ref'
+  app.innerHTML = `<a class="brand" href="./">FUNNIER</a><h1>Loudness calibration</h1>
+    <p class="muted">Alternates the reference and the clip every few seconds inside each clip's screening window. Match the clip to the reference by ear. YouTube can only turn things down: leave the quietest clip at 100 and lower the rest.</p>
+    <div class="bar"><label>Reference <select id="ref">${clips.map((c) => `<option value="${esc(c.id)}"${c.id === refId ? ' selected' : ''}>${esc(c.comic)}: ${esc(c.title)}</option>`).join('')}</select></label>
+      <label>Switch every <input id="seg" type="number" min="3" max="20" value="${seg}" style="width:64px">s</label>
+      <button id="go" class="pri">▶ Alternate</button><button id="stop">■ Stop</button><button id="next">Next clip →</button></div>
+    <div class="stage"><div class="pane" id="pref"><div class="fr"><div id="yref"></div></div><h3 id="href"></h3></div><div class="pane" id="pclip"><div class="fr"><div id="yclip"></div></div><h3 id="hclip"></h3></div></div>
+    <table><thead><tr><th>Clip</th><th>Window</th><th>vol</th><th></th></tr></thead><tbody id="rows"></tbody></table>
+    <h2 style="font-size:18px;margin-top:26px">Patch for clips.json</h2><p class="muted">Only changed values. Paste into clips.json (each id gets <code>"vol": n</code>) and commit.</p>
+    <textarea id="out" readonly></textarea><div class="bar"><button id="copy">Copy JSON</button><button id="reset">Reset sliders to clips.json</button></div>`
+  const $ = (s) => app.querySelector(s), byId = Object.fromEntries(clips.map((c) => [c.id, c]))
+  const fmt = (s) => Math.floor(s / 60) + ':' + String(Math.round(s % 60)).padStart(2, '0')
+  function rows() {
+    $('#rows').innerHTML = clips.map((c) => { const [a, b] = win(c); return `<tr data-id="${esc(c.id)}" class="${c.id === curId ? 'cur' : ''}">
+      <td class="t">${esc(c.comic)}${c.id === refId ? ' <b style="color:var(--gold)">(reference)</b>' : ''}<small>${esc(c.title)}${c.needsCut ? ' · needsCut' : ''}</small></td><td class="muted">${fmt(a)}–${fmt(b)}</td>
+      <td><input type="range" min="0" max="100" step="1" value="${vols[c.id]}" data-vol="${esc(c.id)}"> <span class="v">${vols[c.id]}</span></td>
+      <td><button data-pick="${esc(c.id)}">Audition</button></td></tr>` }).join('')
+    $('#rows').querySelectorAll('[data-vol]').forEach((r) => (r.oninput = () => { const id = r.dataset.vol; vols[id] = +r.value; r.nextElementSibling.textContent = r.value; save(); applyVol() }))
+    $('#rows').querySelectorAll('[data-pick]').forEach((b) => (b.onclick = () => { curId = b.dataset.pick; load(); rows() }))
+  }
+  function patch() {
+    const p = {}; for (const c of clips) if (vols[c.id] !== base[c.id]) p[c.id] = { vol: vols[c.id] }
+    $('#out').value = JSON.stringify(p, null, 1)
+  }
+  function save() { localStorage.setItem(LSV, JSON.stringify(vols)); patch() }
+  let YT, pr, pc
+  function applyVol() { try { pr?.setVolume(vols[refId]); pc?.setVolume(vols[curId]) } catch {} }
+  function mk(host, id) {
+    const [s] = win(byId[id])
+    return new YT.Player(host, { host: 'https://www.youtube-nocookie.com', videoId: id, playerVars: { rel: 0, playsinline: 1, start: Math.floor(s), controls: 1, modestbranding: 1 }, events: { onReady: applyVol } })
+  }
+  function load() {
+    stop()
+    $('#href').textContent = 'Reference: ' + byId[refId].comic + ' · ' + byId[refId].title
+    $('#hclip').textContent = curId ? 'Clip: ' + byId[curId].comic + ' · ' + byId[curId].title : ''
+    try { pr?.destroy(); pc?.destroy() } catch {}
+    $('#pref .fr').innerHTML = '<div id="yref"></div>'; $('#pclip .fr').innerHTML = '<div id="yclip"></div>'
+    pr = mk('yref', refId); pc = curId ? mk('yclip', curId) : null
+  }
+  // alternate: each player loops inside its own window; only one plays at a time
+  const pos = { ref: null, clip: null }
+  function play(which) {
+    side = which
+    const p = which === 'ref' ? pr : pc, o = which === 'ref' ? pc : pr, id = which === 'ref' ? refId : curId
+    const [a, b] = win(byId[id])
+    try { o?.pauseVideo() } catch {}
+    let t = pos[which] ?? a; if (t + seg > b) t = a
+    try { p.seekTo(t, true); p.playVideo(); applyVol() } catch {}
+    pos[which] = t + seg
+    $('#pref').classList.toggle('on', which === 'ref'); $('#pclip').classList.toggle('on', which === 'clip')
+  }
+  function go() { if (!pc) return; running = true; pos.ref = pos.clip = null; play('ref'); clearInterval(timer); timer = setInterval(() => running && play(side === 'ref' ? 'clip' : 'ref'), seg * 1000) }
+  function stop() { running = false; clearInterval(timer); try { pr?.pauseVideo(); pc?.pauseVideo() } catch {} $('#pref')?.classList.remove('on'); $('#pclip')?.classList.remove('on') }
+  $('#go').onclick = go; $('#stop').onclick = stop
+  $('#seg').onchange = (e) => { seg = Math.max(3, Math.min(20, +e.target.value || 6)); if (running) go() }
+  $('#ref').onchange = (e) => { refId = e.target.value; localStorage.setItem('funnier.calRef', refId); if (curId === refId) curId = clips.find((c) => c.id !== refId)?.id; load(); rows() }
+  $('#next').onclick = () => { const i = clips.findIndex((c) => c.id === curId); curId = clips.slice(i + 1).concat(clips.slice(0, i + 1)).find((c) => c.id !== refId)?.id; load(); rows(); go() }
+  $('#copy').onclick = async () => { try { await navigator.clipboard.writeText($('#out').value); $('#copy').textContent = 'Copied' } catch { $('#out').select() } setTimeout(() => ($('#copy').textContent = 'Copy JSON'), 1500) }
+  $('#reset').onclick = () => { Object.assign(vols, base); save(); rows(); applyVol() }
+  rows(); patch()
+  YT = await new Promise((res) => { window.onYouTubeIframeAPIReady = () => res(window.YT); const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s) })
+  load()
+}
+</script></body></html>
