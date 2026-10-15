@@ -1,0 +1,406 @@
+[
+ {
+  "id": "n3LMSflEN54",
+  "comic": "Norm Macdonald",
+  "title": "The Most Convoluted Joke Ever",
+  "channel": "Team Coco",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "talk-show",
+  "venue": "late-night",
+  "style": [
+   "storytelling",
+   "absurd",
+   "deadpan"
+  ],
+  "topics": [
+   "animals"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "gN02rRbOlUE",
+  "comic": "Norm Macdonald",
+  "title": "Too Many Opinions (Nothing Special)",
+  "channel": "Netflix Is A Joke",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 63,
+  "checked": "2026-10-15",
+  "format": "chat",
+  "venue": "special",
+  "style": [
+   "deadpan",
+   "observational"
+  ],
+  "topics": [
+   "opinions"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "OwlxYYtqHfc",
+  "comic": "Norm Macdonald",
+  "title": "Final Stand-Up on Letterman",
+  "channel": "Letterman",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "late-night",
+  "style": [
+   "one-liners",
+   "deadpan",
+   "dark"
+  ],
+  "topics": [
+   "death"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "EF-cw9bsLKs",
+  "comic": "Norm Macdonald",
+  "title": "The Best of Norm, Part 1",
+  "channel": "Letterman",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "talk-show",
+  "venue": "late-night",
+  "style": [
+   "absurd",
+   "deadpan",
+   "one-liners"
+  ],
+  "topics": [],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "-skA4GhVX7k",
+  "comic": "Norm Macdonald",
+  "title": "Stand-up about coronavirus",
+  "channel": "Norm Macdonald",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "home",
+  "style": [
+   "deadpan",
+   "dark"
+  ],
+  "topics": [
+   "pandemic"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "hoYUX3gqZs4",
+  "comic": "Norm Macdonald",
+  "title": "Stand-up about coronavirus pt. 2",
+  "channel": "Norm Macdonald",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "home",
+  "style": [
+   "deadpan",
+   "dark"
+  ],
+  "topics": [
+   "pandemic"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "IbEMYaXVEjw",
+  "comic": "Louis C.K.",
+  "title": "Clip from SORRY",
+  "channel": "Louis C.K.",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 404,
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "special",
+  "style": [
+   "dark",
+   "self-deprecating",
+   "observational"
+  ],
+  "topics": [],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "vd8DfFp5ono",
+  "comic": "Louis C.K.",
+  "title": "Homelessness (Back to the Garden)",
+  "channel": "Louis C.K.",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "special",
+  "style": [
+   "dark",
+   "observational"
+  ],
+  "topics": [
+   "society"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "nyuQjNCpqEI",
+  "comic": "Louis C.K.",
+  "title": "Jesus and the Fig Tree (Back to the Garden)",
+  "channel": "Louis C.K.",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "special",
+  "style": [
+   "absurd",
+   "storytelling"
+  ],
+  "topics": [
+   "religion"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "UdCpgrF6Txw",
+  "comic": "Louis C.K.",
+  "title": "Travel / Zoo (Dolby outtake)",
+  "channel": "Louis C.K.",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "special",
+  "style": [
+   "observational",
+   "rant"
+  ],
+  "topics": [
+   "travel",
+   "animals"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "GQ1vEb8d0UE",
+  "comic": "Louis C.K.",
+  "title": "92% (Dolby outtake)",
+  "channel": "Louis C.K.",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "special",
+  "style": [
+   "dark",
+   "observational"
+  ],
+  "topics": [],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "5XchZEx2SP0",
+  "comic": "Louis C.K.",
+  "title": "Abortion",
+  "channel": "Louis C.K.",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "special",
+  "style": [
+   "dark",
+   "rant"
+  ],
+  "topics": [
+   "politics"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "IwuarzMMHAg",
+  "comic": "Jerry Seinfeld",
+  "title": "Best of Jerry Seinfeld",
+  "channel": "Netflix Is A Joke",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "special",
+  "style": [
+   "observational",
+   "clean"
+  ],
+  "topics": [
+   "everyday"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "ckkXo5J6fWo",
+  "comic": "Jerry Seinfeld",
+  "title": "The First Time My Parents Saw My Act",
+  "channel": "Netflix Is A Joke",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "story",
+  "venue": "special",
+  "style": [
+   "storytelling",
+   "self-deprecating",
+   "clean"
+  ],
+  "topics": [
+   "family"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "s4Df4L6lAgs",
+  "comic": "Jerry Seinfeld",
+  "title": "Everything's Great and Also Sucks",
+  "channel": "Netflix Is A Joke",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 218,
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "special",
+  "style": [
+   "observational",
+   "rant",
+   "clean"
+  ],
+  "topics": [
+   "everyday"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "HfYzlSNHapA",
+  "comic": "Jerry Seinfeld",
+  "title": "Stand-Up on The Tonight Show",
+  "channel": "The Tonight Show",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "late-night",
+  "style": [
+   "observational",
+   "clean"
+  ],
+  "topics": [
+   "everyday"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "m2k7YKvmqQg",
+  "comic": "Jerry Seinfeld",
+  "title": "My First Joke",
+  "channel": "Netflix Is A Joke",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 46,
+  "checked": "2026-10-15",
+  "format": "story",
+  "venue": "special",
+  "style": [
+   "storytelling",
+   "clean"
+  ],
+  "topics": [
+   "career"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "xnUWpegM9oY",
+  "comic": "Chris Rock",
+  "title": "How to Win Fatherhood (Tamborine)",
+  "channel": "Netflix Is A Joke",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "special",
+  "style": [
+   "rant",
+   "observational"
+  ],
+  "topics": [
+   "family"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "5bbKnj1-mR0",
+  "comic": "Chris Rock",
+  "title": "God's Mistakes (Tamborine)",
+  "channel": "Netflix Is A Joke",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "special",
+  "style": [
+   "rant",
+   "dark"
+  ],
+  "topics": [
+   "religion"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "dUzaSm0aAKw",
+  "comic": "Chris Rock",
+  "title": "How Housewives Play Their Husbands",
+  "channel": "Netflix Is A Joke",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "late-night",
+  "style": [
+   "observational",
+   "rant"
+  ],
+  "topics": [
+   "relationships"
+  ],
+  "tagsSource": "draft"
+ },
+ {
+  "id": "KkXpKF4b5yA",
+  "comic": "Chris Rock",
+  "title": "Two Rules for a Relationship (Tamborine)",
+  "channel": "Netflix Is A Joke",
+  "kind": "human",
+  "media": "youtube",
+  "checked": "2026-10-15",
+  "format": "stand-up",
+  "venue": "special",
+  "style": [
+   "rant",
+   "observational"
+  ],
+  "topics": [
+   "relationships"
+  ],
+  "tagsSource": "draft"
+ }
+]

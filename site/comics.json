@@ -1,0 +1,476 @@
+{
+ "_note": "Comedian profiles. Fill in bio (markdown-free text), photo (an https image you have rights to), facts, links. Empty fields show a placeholder. specials: verified against Wikipedia + official pages (Oct 2026); 'where' lists only the official home (Netflix originals, louisck.com) plus a JustWatch search, since availability varies by country.",
+ "comics": {
+  "Norm Macdonald": {
+   "slug": "norm-macdonald",
+   "tagline": "The long way round to the punchline.",
+   "facts": [
+    "1959–2021",
+    "Canada",
+    "Weekend Update anchor on SNL"
+   ],
+   "bio": "",
+   "photo": "",
+   "links": {
+    "YouTube": "https://www.youtube.com/@NormMacdonald"
+   },
+   "specials": [
+    {
+     "id": "norm-me-doing-standup",
+     "title": "Me Doing Standup",
+     "year": 2011,
+     "distributor": "Comedy Central",
+     "where": [
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Norm%20Macdonald%20Me%20Doing%20Standup"
+      }
+     ]
+    },
+    {
+     "id": "norm-hitlers-dog",
+     "title": "Hitler's Dog, Gossip & Trickery",
+     "year": 2017,
+     "distributor": "Netflix",
+     "runtimeMin": 61,
+     "where": [
+      {
+       "name": "Netflix",
+       "url": "https://www.netflix.com/title/80134780"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Norm%20Macdonald%20Hitler%27s%20Dog%2C%20Gossip%20%26%20Trickery"
+      }
+     ]
+    },
+    {
+     "id": "norm-nothing-special",
+     "title": "Nothing Special",
+     "year": 2022,
+     "distributor": "Netflix",
+     "runtimeMin": 86,
+     "where": [
+      {
+       "name": "Netflix",
+       "url": "https://www.netflix.com/title/81128851"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Norm%20Macdonald%20Nothing%20Special"
+      }
+     ]
+    }
+   ]
+  },
+  "Louis C.K.": {
+   "slug": "louis-ck",
+   "tagline": "Dark, honest, and uncomfortably observant.",
+   "facts": [
+    "Born 1967",
+    "Creator of Louie"
+   ],
+   "bio": "",
+   "photo": "",
+   "links": {
+    "YouTube": "https://www.youtube.com/@LouisCK"
+   },
+   "specials": [
+    {
+     "id": "louis-shameless",
+     "title": "Shameless",
+     "year": 2007,
+     "distributor": "HBO",
+     "runtimeMin": 56,
+     "where": [
+      {
+       "name": "louisck.com",
+       "url": "https://louisck.com/products/shameless-audio-download"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Louis%20C.K.%20Shameless"
+      }
+     ]
+    },
+    {
+     "id": "louis-chewed-up",
+     "title": "Chewed Up",
+     "year": 2008,
+     "distributor": "Showtime",
+     "where": [
+      {
+       "name": "louisck.com",
+       "url": "https://louisck.com/products/chewed-up-video-download"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Louis%20C.K.%20Chewed%20Up"
+      }
+     ]
+    },
+    {
+     "id": "louis-hilarious",
+     "title": "Hilarious",
+     "year": 2010,
+     "distributor": "Epix",
+     "runtimeMin": 82,
+     "where": [
+      {
+       "name": "louisck.com",
+       "url": "https://louisck.com/products/hilarious-video-download"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Louis%20C.K.%20Hilarious"
+      }
+     ]
+    },
+    {
+     "id": "louis-beacon",
+     "title": "Live at the Beacon Theater",
+     "year": 2011,
+     "distributor": "louisck.com",
+     "runtimeMin": 62,
+     "where": [
+      {
+       "name": "louisck.com",
+       "url": "https://louisck.com/products/live-at-the-beacon-theater-video-download"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Louis%20C.K.%20Live%20at%20the%20Beacon%20Theater"
+      }
+     ]
+    },
+    {
+     "id": "louis-oh-my-god",
+     "title": "Oh My God",
+     "year": 2013,
+     "distributor": "HBO",
+     "runtimeMin": 58,
+     "where": [
+      {
+       "name": "louisck.com",
+       "url": "https://louisck.com/products/oh-my-god-video-download"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Louis%20C.K.%20Oh%20My%20God"
+      }
+     ]
+    },
+    {
+     "id": "louis-comedy-store",
+     "title": "Live at the Comedy Store",
+     "year": 2015,
+     "distributor": "louisck.com",
+     "runtimeMin": 66,
+     "where": [
+      {
+       "name": "louisck.com",
+       "url": "https://louisck.com/products/live-at-the-comedy-store-video-download"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Louis%20C.K.%20Live%20at%20the%20Comedy%20Store"
+      }
+     ]
+    },
+    {
+     "id": "louis-msg",
+     "title": "Live at Madison Square Garden",
+     "year": 2015,
+     "distributor": "louisck.com (audio)",
+     "where": [
+      {
+       "name": "louisck.com",
+       "url": "https://louisck.com/products/live-at-madison-square-garden-audio-download"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Louis%20C.K.%20Live%20at%20Madison%20Square%20Garden"
+      }
+     ]
+    },
+    {
+     "id": "louis-2017",
+     "title": "2017",
+     "year": 2017,
+     "distributor": "Netflix",
+     "runtimeMin": 74,
+     "where": [
+      {
+       "name": "Netflix",
+       "url": "https://www.netflix.com/title/80161109"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Louis%20C.K.%202017"
+      }
+     ]
+    },
+    {
+     "id": "louis-sincerely",
+     "title": "Sincerely Louis CK",
+     "year": 2020,
+     "distributor": "louisck.com",
+     "runtimeMin": 60,
+     "where": [
+      {
+       "name": "louisck.com",
+       "url": "https://louisck.com/products/sincerely-louis-ck-video"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Louis%20C.K.%20Sincerely%20Louis%20CK"
+      }
+     ]
+    },
+    {
+     "id": "louis-sorry",
+     "title": "Sorry",
+     "year": 2021,
+     "distributor": "louisck.com",
+     "runtimeMin": 63,
+     "where": [
+      {
+       "name": "louisck.com",
+       "url": "https://louisck.com/products/sorry"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Louis%20C.K.%20Sorry"
+      }
+     ]
+    },
+    {
+     "id": "louis-dolby",
+     "title": "Louis C.K. at The Dolby",
+     "year": 2023,
+     "distributor": "louisck.com",
+     "where": [
+      {
+       "name": "louisck.com",
+       "url": "https://louisck.com/products/louis-c-k-at-the-dolby"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Louis%20C.K.%20at%20The%20Dolby"
+      }
+     ]
+    },
+    {
+     "id": "louis-back-to-the-garden",
+     "title": "Back to the Garden",
+     "year": 2023,
+     "distributor": "louisck.com",
+     "where": [
+      {
+       "name": "louisck.com",
+       "url": "https://louisck.com/products/louis-ck-back-to-the-garden"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Louis%20C.K.%20Back%20to%20the%20Garden"
+      }
+     ]
+    },
+    {
+     "id": "louis-ridiculous",
+     "title": "Ridiculous",
+     "year": 2026,
+     "distributor": "Netflix",
+     "runtimeMin": 61,
+     "where": [
+      {
+       "name": "Netflix",
+       "url": "https://www.netflix.com/title/82639316"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Louis%20C.K.%20Ridiculous"
+      }
+     ]
+    }
+   ]
+  },
+  "Jerry Seinfeld": {
+   "slug": "jerry-seinfeld",
+   "tagline": "The precision engineer of everyday life.",
+   "facts": [
+    "Born 1954",
+    "Co-creator of Seinfeld"
+   ],
+   "bio": "",
+   "photo": "",
+   "links": {},
+   "specials": [
+    {
+     "id": "jerry-stand-up-confidential",
+     "title": "Stand-Up Confidential",
+     "year": 1987,
+     "distributor": "HBO",
+     "where": [
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Jerry%20Seinfeld%20Stand-Up%20Confidential"
+      }
+     ]
+    },
+    {
+     "id": "jerry-last-time",
+     "title": "I'm Telling You for the Last Time",
+     "year": 1998,
+     "distributor": "HBO",
+     "runtimeMin": 75,
+     "where": [
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Jerry%20Seinfeld%20I%27m%20Telling%20You%20for%20the%20Last%20Time"
+      }
+     ]
+    },
+    {
+     "id": "jerry-before-seinfeld",
+     "title": "Jerry Before Seinfeld",
+     "year": 2017,
+     "distributor": "Netflix",
+     "runtimeMin": 61,
+     "where": [
+      {
+       "name": "Netflix",
+       "url": "https://www.netflix.com/title/80163156"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Jerry%20Before%20Seinfeld"
+      }
+     ]
+    },
+    {
+     "id": "jerry-23-hours",
+     "title": "23 Hours to Kill",
+     "year": 2020,
+     "distributor": "Netflix",
+     "runtimeMin": 60,
+     "where": [
+      {
+       "name": "Netflix",
+       "url": "https://www.netflix.com/title/80170847"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Jerry%20Seinfeld%2023%20Hours%20to%20Kill"
+      }
+     ]
+    }
+   ]
+  },
+  "Chris Rock": {
+   "slug": "chris-rock",
+   "tagline": "Rhythm, repetition, and righteous rants.",
+   "facts": [
+    "Born 1965",
+    "Tamborine (2018)"
+   ],
+   "bio": "",
+   "photo": "",
+   "links": {},
+   "specials": [
+    {
+     "id": "rock-bring-the-pain",
+     "title": "Bring the Pain",
+     "year": 1996,
+     "distributor": "HBO",
+     "runtimeMin": 58,
+     "where": [
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Chris%20Rock%20Bring%20the%20Pain"
+      }
+     ]
+    },
+    {
+     "id": "rock-bigger-blacker",
+     "title": "Bigger & Blacker",
+     "year": 1999,
+     "distributor": "HBO",
+     "runtimeMin": 65,
+     "where": [
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Chris%20Rock%20Bigger%20%26%20Blacker"
+      }
+     ]
+    },
+    {
+     "id": "rock-never-scared",
+     "title": "Never Scared",
+     "year": 2004,
+     "distributor": "HBO",
+     "runtimeMin": 80,
+     "where": [
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Chris%20Rock%20Never%20Scared"
+      }
+     ]
+    },
+    {
+     "id": "rock-kill-the-messenger",
+     "title": "Kill the Messenger",
+     "year": 2008,
+     "distributor": "HBO",
+     "runtimeMin": 79,
+     "where": [
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Chris%20Rock%20Kill%20the%20Messenger"
+      }
+     ]
+    },
+    {
+     "id": "rock-tamborine",
+     "title": "Tamborine",
+     "year": 2018,
+     "distributor": "Netflix",
+     "runtimeMin": 64,
+     "where": [
+      {
+       "name": "Netflix",
+       "url": "https://www.netflix.com/title/80167498"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Chris%20Rock%20Tamborine"
+      }
+     ]
+    },
+    {
+     "id": "rock-selective-outrage",
+     "title": "Selective Outrage",
+     "year": 2023,
+     "distributor": "Netflix (live)",
+     "where": [
+      {
+       "name": "Netflix",
+       "url": "https://www.netflix.com/title/80167499"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Chris%20Rock%20Selective%20Outrage"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "ai": [
+  {
+   "name": "AI comedians",
+   "tagline": "In rehearsal. Train your own and premiere them here.",
+   "status": "soon"
+  }
+ ]
+}

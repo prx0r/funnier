@@ -1,0 +1,6 @@
+{
+  "apiBase": "https://funnier-api.tradesprior.workers.dev",
+  "googleClientId": "50738620553-fq7mdin3e3baiu3v3uoup40jlvajtqb0.apps.googleusercontent.com",
+  "shareBase": "https://prx0r.github.io/characters/",
+  "localApi": "http://127.0.0.1:8787"
+}

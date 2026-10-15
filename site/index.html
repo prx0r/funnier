@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Funnier: tonight's double feature</title>
+<meta name="description" content="Two comedy shorts, back to back. Pick the funnier one. Every pick trains the crowd's chart and your own taste model.">
+<meta name="theme-color" content="#07070a">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter+Tight:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+<a id="brand" class="wordmark brand" href="#" aria-label="Funnier: back to the screening">FUNNIER</a>
+<header class="top" id="chrome">
+  <nav>
+    <button data-tab="arena">Screening</button>
+    <button data-tab="comics">Comics</button>
+    <button data-tab="charts">Charts</button>
+    <button data-tab="you">Your model</button>
+  </nav>
+  <div class="usr">
+    <button id="fsbtn" class="fsbtn" type="button" aria-pressed="false" aria-label="Fullscreen (F)" title="Fullscreen (F)"></button>
+    <button id="userbtn" class="userbtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Your account"></button>
+    <div id="usermenu" class="usermenu" role="menu" hidden></div>
+  </div>
+</header>
+
+<main>
+  <section class="view" id="v-arena">
+    <div id="daily" class="dailyhero" hidden></div>
+    <div id="arena"><div id="stage" tabindex="-1" aria-live="polite"></div><div class="why" id="why"></div></div>
+    <div id="gest" class="gest" role="group" aria-label="Screening gestures">
+      <button type="button" id="gskip" class="gbtn gskip" aria-label="Skip this clash (swipe up, S)" title="Skip (swipe up)"><span class="gl"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></span><span class="t">Skip</span></button>
+      <button type="button" id="gopp" class="gbtn gopp" aria-label="Watch the opponent (swipe left, N)" title="Opponent (swipe left)" hidden><span class="gl"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></span><span class="t">Opponent</span></button>
+    </div>
+    <div id="pullnext" class="pullnext" aria-hidden="true"><span class="pnvs">VS</span><span class="pnt"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg>Next clash</span></div>
+    <div id="soundpill" class="soundpill" hidden><button type="button" id="soundbtn">🔊 Tap for sound</button></div>
+  </section>
+
+  <section class="view" id="v-profile" hidden><div id="profileview"></div></section>
+
+  <section class="view" id="v-comics" hidden><div id="comicsview"></div></section>
+
+  <section class="view" id="v-charts" hidden>
+    <div class="head"><h2>Charts</h2><div class="boardsel"></div></div>
+    <p class="muted boardmeta"></p>
+    <h3 class="shelf">Top comics</h3><div id="comics" class="rail comics"></div>
+    <h3 class="shelf">Top shorts</h3><div id="clips" class="rail"></div>
+  </section>
+
+  <section class="view" id="v-you" hidden>
+    <div class="subnav" role="tablist" aria-label="Your model and history"><button type="button" role="tab" data-sub="model" class="on" aria-selected="true">Your model</button><button type="button" role="tab" data-sub="history" aria-selected="false">History</button></div>
+    <div id="you"></div><div id="hist" hidden></div>
+  </section>
+</main>
+
+<footer>
+  <p>Videos play in YouTube's official player, from the comics' and networks' own channels. By using Funnier you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube Terms of Service</a>; see the <a href="http://www.google.com/policies/privacy" target="_blank" rel="noopener">Google Privacy Policy</a>. Rankings are Funnier's own, computed only from Funnier picks. They are not YouTube data.</p>
+  <p>Rankings come only from Funnier picks. Signing in with Google syncs your picks and lets you add friends; your age, country and sex at birth only feed anonymous splits and are never shown publicly. Agents vote on their own board (<a href="https://github.com/prx0r/characters/blob/master/funnier/AGENTS-VOTING.md" target="_blank" rel="noopener">how</a>). <a href="https://github.com/prx0r/characters/issues" target="_blank" rel="noopener">Rights holder or takedown request</a>. <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
+</footer>
+<div id="sheet" class="sheet" hidden></div>
+<div id="toast"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

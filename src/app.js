@@ -1,0 +1,1910 @@
+import { BrowserOAuthClient } from '@atproto/oauth-client-browser'
+import { renderAvatar, PALETTES } from 'mascot-avatars' // MIT, (c) 2026 s1dashu / Ato Augustine — see site/credits.html
+
+const COLLECTION = 'io.github.prx0r.funnier.vote'
+const BASE = new URL('.', location.href).href.replace(/#.*$/, '')
+const IS_LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname)
+const $ = (s) => document.querySelector(s)
+const LS = {
+  get: (k, d) => { try { return JSON.parse(localStorage.getItem('funnier.' + k)) ?? d } catch { return d } },
+  set: (k, v) => localStorage.setItem('funnier.' + k, JSON.stringify(v)),
+}
+
+let CLIPS = [], BYID = {}, BOARD = null, PAIRS = [], COMICS = {}, PUBVOTES = [], DAILY = [], DAILYRES = null
+let LANE = LS.get('lane', 'human'), BOARDKIND = 'all'
+const SHORT_MAX = 75 // seconds of each clip we screen when the clip is longer
+let client = null, agent = null, me = null
+let current = null
+
+// ---------- data ----------
+async function loadData() {
+  CLIPS = (await (await fetch('clips.json', { cache: 'no-cache' })).json()).filter((c) => c.status !== 'removed')
+  BYID = Object.fromEntries(CLIPS.map((c) => [c.id, c]))
+  try { BOARD = await (await fetch('data/leaderboard.json', { cache: 'no-cache' })).json() } catch { BOARD = null }
+  try { COMICS = (await (await fetch('comics.json', { cache: 'no-cache' })).json()).comics || {} } catch { COMICS = {} }
+  try { PUBVOTES = (await (await fetch('data/votes.json', { cache: 'no-cache' })).json()).votes || [] } catch { PUBVOTES = [] }
+  try { PAIRS = (await (await fetch('data/pairs.json', { cache: 'no-cache' })).json()).pairs || [] } catch { PAIRS = [] }
+  try { const d = await (await fetch('daily.json', { cache: 'no-cache' })).json(); DAILY = Array.isArray(d) ? d : [] } catch { DAILY = [] }
+  await loadDailyResults()
+}
+async function loadDailyResults() {
+  try { const r = await fetch('data/daily.json', { cache: 'no-cache' }); const d = r && r.ok !== false ? await r.json() : null; DAILYRES = d && typeof d === 'object' ? d : null } catch { DAILYRES = null }
+}
+
+// ---------- auth (AT Protocol OAuth) ----------
+async function initAuth() {
+  try {
+    client = await BrowserOAuthClient.load({
+      clientId: IS_LOCAL ? undefined : BASE + 'client-metadata.json',
+      handleResolver: 'https://bsky.social',
+    })
+    const r = await client.init()
+    if (r?.session) {
+      agent = r.session
+      me = { did: r.session.sub, handle: r.session.sub }
+      try {
+        const p = await (await fetch('https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=' + me.did)).json()
+        if (p.handle) me.handle = p.handle
+      } catch {}
+      await flushQueue()
+    }
+  } catch (e) { console.warn('auth init', e) }
+  paintAuth()
+}
+
+// Bluesky publishing is an advanced, opt-in extra that lives inside the account menu (hidden by default)
+function bskyHTML() {
+  if (me) return `<p class="um-note">Publishing picks to Bluesky as <b>@${esc(me.handle)}</b>.</p><button type="button" class="um-link" id="bskyout">Stop publishing to Bluesky</button>`
+  return `<form id="bskyin" class="um-bsky"><input id="handle" placeholder="you.bsky.social" autocomplete="username" required aria-label="Bluesky handle"><button>Connect</button></form><p class="um-note">Also writes each pick as a public record in your own Bluesky account.</p>`
+}
+function bindBsky(root) {
+  const o = root.querySelector('#bskyout')
+  if (o) o.onclick = async () => { try { await client.revoke(me.did) } catch {} me = null; agent = null; paintAuth() }
+  const f = root.querySelector('#bskyin')
+  if (f) f.onsubmit = async (e) => {
+    e.preventDefault()
+    const h = root.querySelector('#handle').value.trim().replace(/^@/, '')
+    if (!h || !client) return
+    try { await client.signIn(h, { scope: 'atproto transition:generic' }) }
+    catch (err) { toast('Bluesky sign-in failed: ' + (err.message || err)) }
+  }
+}
+function paintAuth() { paintUser() }
+
+function paintBanner() {
+  const b = $('#banner'); if (!b) return
+  const q = LS.get('queue', [])
+  b.textContent = me && q.length ? `Publishing ${q.length} pick(s) to Bluesky…` : ''
+}
+
+async function publish(v) {
+  const res = await agent.fetchHandler('/xrpc/com.atproto.repo.createRecord', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ repo: me.did, collection: COLLECTION,
+      record: { $type: COLLECTION, a: v.a, b: v.b, winner: v.winner, voter: 'human', basis: v.basis || 'watched', ...(v.why ? { why: v.why } : {}), ...(Number.isInteger(v.decisionMs) ? { ms: v.decisionMs } : {}), ...dailyFields(v), createdAt: v.createdAt } }),
+  })
+  if (!res.ok) throw new Error('createRecord ' + res.status + ' ' + (await res.text()))
+}
+
+async function flushQueue() {
+  let q = LS.get('queue', [])
+  while (q.length && agent) {
+    try { await publish(q[0]); q.shift(); LS.set('queue', q) } catch (e) { console.warn(e); break }
+  }
+  paintBanner()
+}
+
+// ---------- shared ----------
+function pairKey(a, b) { return [a, b].sort().join('|') }
+const sig = (x) => 1 / (1 + Math.exp(-x))
+const SCALE = 400 / Math.LN10
+const LATE_NIGHT = /coco|letterman|tonight|late/i
+function bumpSeen(...ids) { const s = LS.get('seen', {}); ids.forEach((i) => (s[i] = (s[i] || 0) + 1)); LS.set('seen', s) }
+
+// ---------- implicit signals -> confidence weight per pick ----------
+// decisionMs runs from the moment the Funnier buttons appear to the click.
+// <1.5s = snap pick (x1.25), >12s = hesitant (x0.7), otherwise x1.0.
+// Picking clip ONE in under 3s while less than 60% of clip TWO was watched = strong (x1.4): you didn't need the rest.
+// Old picks without signals keep weight 1.
+const SNAP_MS = 1500, SLOW_MS = 12000, LS_WIN_W = 1.2, LS_LOSE_W = 0.6
+function timingWeight(v) {
+  const ms = v && v.decisionMs
+  if (!Number.isFinite(ms)) return 1
+  let w = ms < SNAP_MS ? 1.25 : ms > SLOW_MS ? 0.7 : 1
+  if (v.winner === v.a && ms < 3000 && Number.isFinite(v.rightFrac) && v.rightFrac < 0.6) w = Math.max(w, 1.4)
+  return w
+}
+function voteWeight(v) {
+  let w = timingWeight(v)
+  // "Not funny -> next" on clip ONE, then a vote: picking clip TWO confirms it (x1.2), picking ONE anyway is a soft pick (x0.6).
+  // Skipping clip TWO to the ballot is the mirror image.
+  if (v && v.leftSkipped && !v.rightSkipped) w = v.winner === v.b ? Math.max(w, LS_WIN_W) : Math.min(w, LS_LOSE_W)
+  else if (v && v.rightSkipped && !v.leftSkipped) w = v.winner === v.a ? Math.max(w, LS_WIN_W) : Math.min(w, LS_LOSE_W)
+  return w
+}
+
+// Skips: leaving during a comic's clip = weak negative (SKIP_W = 0.3 of a pick) for that clip, its comic and its style tags.
+// Skips during the intro or the ballot, and 3-second passes, are stored but never penalise anyone.
+// "Not funny -> next" (stage left-skip / right-skip: ends that clip but stays in the clash) = CLIPSKIP_W = 0.4 of a loss.
+const SKIP_W = 0.3, CLIPSKIP_W = 0.4
+const PENAL = { left: SKIP_W, right: SKIP_W, 'left-skip': CLIPSKIP_W, 'right-skip': CLIPSKIP_W }
+const skipW = (k) => PENAL[k?.stage] || 0
+function clipSkips() { const a = LS.get('skips', []); return (Array.isArray(a) ? a : []).filter((k) => k && skipW(k) > 0 && BYID[k.clip]) }
+
+// ---------- your model: personal hierarchical Bradley-Terry, prior = crowd chart ----------
+function fitLocal() {
+  const votes = LS.get('votes', []).filter((v) => BYID[v.a] && BYID[v.b])
+  const g = {}
+  for (const c of BOARD?.boards?.all?.comics || []) if (c.bouts) g[c.comic] = (c.elo - 1500) / SCALE
+  const comics = [...new Set(CLIPS.map((c) => c.comic))]
+  const r = Object.fromEntries(comics.map((k) => [k, g[k] || 0]))
+  const o = Object.fromEntries(CLIPS.map((c) => [c.id, 0]))
+  const skips = clipSkips()
+  const bouts = {}
+  for (const v of votes) { bouts[v.a] = (bouts[v.a] || 0) + 1; bouts[v.b] = (bouts[v.b] || 0) + 1 }
+  for (let t = 0; t < 250; t++) {
+    const gr = Object.fromEntries(comics.map((k) => [k, -0.5 * (r[k] - (g[k] || 0))]))
+    const go = Object.fromEntries(CLIPS.map((c) => [c.id, -1.0 * o[c.id]]))
+    for (const v of votes) {
+      const A = BYID[v.a], B = BYID[v.b]
+      const W = v.winner === v.a ? A : B, L = W === A ? B : A
+      const p = voteWeight(v) * sig((r[L.comic] + o[L.id]) - (r[W.comic] + o[W.id]))
+      gr[W.comic] += p; gr[L.comic] -= p; go[W.id] += p; go[L.id] -= p
+    }
+    for (const sk of skips) { // skipped mid-clip: a weak loss (0.3 / 0.4 of a pick) for that clip vs an average clip
+      const C = BYID[sk.clip]; if (!C) continue
+      const p = skipW(sk) * sig(r[C.comic] + o[C.id])
+      gr[C.comic] -= p; go[C.id] -= p
+    }
+    for (const k of comics) r[k] += 0.08 * gr[k]
+    for (const c of CLIPS) o[c.id] += 0.08 * go[c.id]
+  }
+  return { r, o, bouts, n: votes.length, score: (id) => r[BYID[id].comic] + o[id] }
+}
+let MODEL = null
+const STYLES = ['deadpan', 'absurd', 'dark', 'observational', 'storytelling', 'rant', 'one-liners', 'self-deprecating', 'clean']
+const TYPES = {
+  deadpan: ['The Straight Face', 'You laugh hardest when nobody on stage does.'],
+  absurd: ['The Surrealist', 'Logic is optional. The weirder the turn, the bigger your laugh.'],
+  dark: ['The Gallows Crowd', 'Nothing is off-limits if the joke earns it.'],
+  observational: ['The Noticer', 'You love comics who say the thing everyone saw and nobody said.'],
+  storytelling: ['The Long-Game Listener', 'You will happily wait five minutes for one perfect payoff.'],
+  rant: ['The Choir', 'Give you a comic with a righteous head of steam and you are in.'],
+  'one-liners': ['The Punchline Purist', 'Setup, punch, next. No wasted words.'],
+  'self-deprecating': ['The Confessor', 'You trust a comic who makes themselves the target.'],
+  clean: ['The Craft Fan', 'You prize precision over shock.'],
+}
+function fitTraits() {
+  // pairwise logistic regression on style differences: P(A beats B) = sig(w . (xA - xB)), L2-regularised
+  const votes = LS.get('votes', []).filter((v) => BYID[v.a] && BYID[v.b])
+  const w = Object.fromEntries(STYLES.map((t) => [t, 0])), n = {}
+  const x = (c) => Object.fromEntries(STYLES.map((t) => [t, (c.style || []).includes(t) ? 1 : 0]))
+  const data = votes.map((v) => { const A = x(BYID[v.a]), B = x(BYID[v.b]); const d = {}; STYLES.forEach((t) => { d[t] = A[t] - B[t]; if (d[t]) n[t] = (n[t] || 0) + 1 }); return { d, y: v.winner === v.a ? 1 : 0, k: voteWeight(v) } })
+  for (const sk of clipSkips()) { const X = x(BYID[sk.clip]); if (STYLES.some((t) => X[t])) data.push({ d: X, y: 0, k: skipW(sk) }) }
+  for (let it = 0; it < 300; it++) {
+    const g = Object.fromEntries(STYLES.map((t) => [t, -0.6 * w[t]]))
+    for (const { d, y, k } of data) { const p = sig(STYLES.reduce((s, t) => s + w[t] * d[t], 0)); STYLES.forEach((t) => (g[t] += k * (y - p) * d[t])) }
+    STYLES.forEach((t) => (w[t] += 0.1 * g[t]))
+  }
+  return { w, n }
+}
+let TRAITS = { w: {}, n: {} }
+const traitScore = (c) => (c.style || []).reduce((s, t) => s + (TRAITS.w[t] || 0), 0)
+function humourType() {
+  const top = Object.entries(TRAITS.w).filter(([t]) => (TRAITS.n[t] || 0) >= 2).sort((a, b) => b[1] - a[1])
+  if (!top.length || top[0][1] < 0.15) return null
+  return { key: top[0][0], name: TYPES[top[0][0]][0], line: TYPES[top[0][0]][1], also: top[1] && top[1][1] > 0.15 ? top[1][0] : null }
+}
+
+// ---------- choosing the next double feature ----------
+function openPair(a, b) {
+  const done = new Set(LS.get('votes', []).map((v) => pairKey(v.a, v.b)))
+  const skipped = new Set(LS.get('skipped', []))
+  const A = BYID[a], B = BYID[b]
+  if (!A || !B || a === b || done.has(pairKey(a, b)) || skipped.has(pairKey(a, b))) return false
+  if (LANE === 'mixed') return A.kind !== B.kind || Math.random() < 0.25
+  return A.kind === LANE && B.kind === LANE
+}
+function pool() { return CLIPS.filter((c) => LANE === 'mixed' || c.kind === LANE) }
+const shuffle = (a) => a.map((x) => [Math.random(), x]).sort((p, q) => p[0] - q[0]).map((p) => p[1])
+
+function pickForYou() {
+  // your model's favourite unseen matchup: its top clip vs the clip it knows least about
+  const P = pool(); if (P.length < 2) return null
+  const fy = (c) => MODEL.score(c.id) + traitScore(c) + 0.3 * Math.random()
+  const top = [...P].sort((x, y) => fy(y) - fy(x))
+  for (const a of top.slice(0, 6)) {
+    const opp = P.filter((b) => b.comic !== a.comic && openPair(a.id, b.id)).sort((x, y) => (MODEL.bouts[x.id] || 0) - (MODEL.bouts[y.id] || 0) || Math.random() - 0.5)
+    if (opp.length) return [a, opp[0]]
+  }
+  return null
+}
+function pickTraining() {
+  // the pairs the crowd chart is least sure about (computed by the tally)
+  const ranked = PAIRS.filter((p) => openPair(p.a, p.b)).slice(0, 40)
+  if (!ranked.length) return null
+  let x = Math.random() * ranked.reduce((s, p) => s + p.w, 0)
+  for (const p of ranked) { x -= p.w; if (x <= 0) return [BYID[p.a], BYID[p.b]] }
+  return [BYID[ranked[0].a], BYID[ranked[0].b]]
+}
+function pickExplore() {
+  const seen = LS.get('seen', {}), P = shuffle(pool()).sort((x, y) => (seen[x.id] || 0) - (seen[y.id] || 0))
+  for (const a of P) {
+    const opts = P.filter((b) => openPair(a.id, b.id))
+    if (!opts.length) continue
+    const cross = opts.filter((b) => b.comic !== a.comic)
+    return [a, (cross.length ? cross : opts)[0]]
+  }
+  return null
+}
+const MODES = {
+  foryou: ['Picked for you', pickForYou],
+  training: ['Training the crowd chart', pickTraining],
+  explore: ['Exploring something new', pickExplore],
+  shared: ['A friend shared this clash', () => null],
+  daily: ['Daily clash', () => null],
+  rewatch: ['Rewatching from your history', () => null],
+}
+function pickPair() {
+  const n = LS.get('votes', []).length
+  const w = n < 6 ? { training: 0.55, explore: 0.45, foryou: 0 } : { foryou: 0.4, training: 0.4, explore: 0.2 }
+  let x = Math.random(), mode = 'explore'
+  for (const k of Object.keys(w)) { x -= w[k]; if (x <= 0) { mode = k; break } }
+  const order = [mode, ...Object.keys(MODES).filter((k) => k !== mode)]
+  for (const m of order) {
+    const p = MODES[m][1]()
+    if (p) { const pair = Math.random() < 0.5 ? p : [p[1], p[0]]; pair.mode = m; return pair }
+  }
+  return null
+}
+
+// ---------- players ----------
+let ytReady = null
+function loadYT() {
+  if (ytReady) return ytReady
+  ytReady = new Promise((res) => {
+    window.onYouTubeIframeAPIReady = () => res(window.YT)
+    const t = document.createElement('script'); t.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(t)
+  })
+  return ytReady
+}
+// ---------- volume: YouTube's setVolume can only attenuate (0-100), so loud clips get turned down, never quiet ones up past 100 ----------
+// effective = clamp(clip.vol (editorial, default 100) + your local offset from "Too loud"/"Too quiet") x your volume slider
+const AUD_STEP = 15
+const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x))
+function userVol() { return 100 } // no master slider: per-clip editorial vol + your too-loud/quiet offsets only
+function audioMap() { const m = LS.get('audio', {}); return m && typeof m === 'object' && !Array.isArray(m) ? m : {} }
+function clipVol(c) {
+  const base = c?.vol != null && c.vol !== '' && Number.isFinite(Number(c.vol)) ? clamp(Number(c.vol), 0, 100) : 100
+  const off = Number(audioMap()[c?.id]?.off) || 0
+  return Math.round(clamp(base + off, 0, 100) * userVol() / 100)
+}
+function audioFeedback(clip, kind) {
+  if (!clip || (kind !== 'loud' && kind !== 'quiet')) return
+  const m = audioMap(), r = m[clip.id] && typeof m[clip.id] === 'object' ? m[clip.id] : { off: 0, loud: 0, quiet: 0 }
+  r[kind] = (Number(r[kind]) || 0) + 1
+  r.off = clamp((Number(r.off) || 0) + (kind === 'loud' ? -AUD_STEP : AUD_STEP), -60, 30)
+  r.at = new Date().toISOString(); m[clip.id] = r; LS.set('audio', m)
+  toast(kind === 'loud' ? `Noted. ${clip.comic} plays ${AUD_STEP}% quieter next time.` : `Noted. ${clip.comic} plays a little louder next time (up to full volume).`)
+}
+// ---------- sound: never wait for a tap. Start muted when the browser refuses sound, one pill to unmute ----------
+let soundOK = false // set by any tap/keypress this visit: later clips play with sound
+const soundAllowed = () => soundOK || !!(typeof navigator !== 'undefined' && navigator.userActivation?.hasBeenActive)
+function soundPill(on) { const p = $('#soundpill'); if (p) p.hidden = !on }
+function soundOn() {
+  soundOK = true; LS.set('interacted', true); soundPill(false)
+  const s = stage === 'left' ? screens.L : stage === 'right' ? screens.R : null
+  s?.unmute()
+}
+class Screen {
+  constructor(side, clip, hostId) { this.side = side; this.clip = clip; this.hostId = hostId; this.started = false; this.ready = new Promise((res) => (this._ready = res)) }
+  async mount() {
+    const c = this.clip, host = document.getElementById(this.hostId)
+    this.start = c.start || 0
+    if (!host) return
+    if (c.media === 'audio') {
+      host.innerHTML = `<audio preload="auto" controls src="${esc(c.src)}"></audio>`
+      this.a = host.querySelector('audio')
+      this.a.onloadedmetadata = () => { this.applyVol(); this._ready() }
+      this.a.onended = () => (this.ended = true)
+      return
+    }
+    const YT = await loadYT()
+    if (this.dead || !document.getElementById(this.hostId)) return
+    const res = this._ready
+    this.p = new YT.Player(this.hostId, {
+      host: 'https://www.youtube-nocookie.com', videoId: c.id,
+      playerVars: { rel: 0, playsinline: 1, start: this.start, controls: 1, modestbranding: 1 },
+      events: { onReady: () => { this.applyVol(); res() }, onStateChange: (e) => { if (e.data === 0) this.ended = true } },
+    })
+  }
+  applyVol() { const v = clipVol(this.clip); try { if (this.a) this.a.volume = v / 100; else this.p?.setVolume?.(v) } catch {} }
+  dur() { const d = this.a ? this.a.duration : this.p?.getDuration?.(); return d || this.clip.sec || 0 }
+  end() { const d = this.dur(); return this.clip.end || (d ? Math.min(d, this.start + SHORT_MAX) : this.start + SHORT_MAX) }
+  t() { return this.a ? this.a.currentTime : this.p?.getCurrentTime?.() || 0 }
+  playing() { return this.a ? !this.a.paused : this.p?.getPlayerState?.() === 1 }
+  progress() { const s = this.start, e = this.end(); return Math.max(0, Math.min(1, (this.t() - s) / Math.max(1, e - s))) }
+  done() { return this.ended || (this.started && this.t() >= this.end() - 0.3) }
+  async play() {
+    await this.ready; if (this.dead) return
+    this.started = true; this.wantPlay = true; this.applyVol()
+    const muted = !soundAllowed()
+    if (this.a) {
+      this.a.muted = muted
+      try { await this.a.play() } catch { this.a.muted = true; try { await this.a.play() } catch {} }
+      if (this.a.muted) soundPill(true)
+      return
+    }
+    try { muted ? this.p.mute() : this.p.unMute() } catch {}
+    if (muted) soundPill(true)
+    this.p.playVideo()
+    setTimeout(() => { // autoplay with sound refused: play muted, one "Tap for sound" pill
+      if (this.dead || !this.wantPlay) return // paused or skipped since: don't restart it behind the next clip
+      const st = this.p?.getPlayerState?.()
+      if (st !== 1 && st !== 3) { try { this.p.mute(); this.p.playVideo() } catch {} soundPill(true) }
+      else if (this.p?.isMuted?.()) soundPill(true)
+    }, 1500)
+  }
+  unmute() {
+    try {
+      if (this.a) { this.a.muted = false; if (this.a.paused && this.wantPlay) this.a.play().catch(() => {}) }
+      else { this.p?.unMute?.(); this.applyVol(); if (this.wantPlay && !this.playing()) this.p?.playVideo?.() }
+    } catch {}
+  }
+  toggle() { // tap on the gesture layer: unmute, play/pause
+    if (this.a) { if (this.a.muted) { soundOn(); return } this.a.paused ? this.a.play().catch(() => {}) : this.a.pause(); return }
+    try { if (this.p?.isMuted?.()) { soundOn(); return } } catch {}
+    this.playing() ? this.pause() : this.p?.playVideo?.()
+  }
+  // called every tick: accumulates real seconds watched, notices seeks back (replay) and jumps ahead (skip)
+  track() {
+    this.watched = this.watched || 0; this.replays = this.replays || 0
+    let t = 0, on = false
+    try { t = this.t(); on = this.playing() } catch { return }
+    if (!Number.isFinite(t)) return
+    if (this.lastT == null) { if (on) this.lastT = t; return } // start tracking at first real playback
+    const d = t - this.lastT
+    if (on && d > 0 && d < 2) this.watched += d
+    if (d < -2) this.replays++
+    if (d > 5) this.jumped = true
+    this.lastT = t
+  }
+  screened() { return Math.max(1, this.end() - this.start) }
+  // the watch minimum: min(30s, 80% of what we screen), or the clip played to its end
+  enough() { return this.ended || (this.watched || 0) >= Math.min(30, 0.8 * this.screened()) - 0.5 || (this.started && this.t() >= this.end() - 0.3 && (this.watched || 0) > 3 && !this.jumped) }
+  pause() { this.wantPlay = false; try { this.a ? this.a.pause() : this.p?.pauseVideo?.() } catch {} }
+  destroy() { this.dead = true; try { this.a?.pause() } catch {} try { this.p?.destroy?.() } catch {} }
+}
+
+// ---------- the screening: intro face-off -> clip ONE full screen -> clip TWO -> 3s ballot ----------
+// stages: intro | left | right | vote | done
+const VOTE_MS = 3000, INTRO_MS = 2500
+let screens = {}, stage = 'idle', tick = null, armed = false, armedAt = 0, prediction = null
+let cur = null, nScreen = 0, timers = [], userStarted = false, moving = false
+const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
+const later = (f, ms) => { const t = setTimeout(f, ms); timers.push(t); return t }
+const clearTimers = () => { timers.forEach(clearTimeout); timers = [] }
+const q = (sel) => cur?.el?.querySelector(sel) || null
+const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+function signals() {
+  // what the screening tells us about this pick, without asking
+  const L = screens.L, R = screens.R, out = {}
+  if (!L || !R) return out
+  const r1 = (x) => Math.round(x * 10) / 10
+  out.leftWatchedSec = r1(L.watched || 0); out.rightWatchedSec = r1(R.watched || 0)
+  try { out.rightFrac = Math.round(100 * Math.min(1, (R.watched || 0) / R.screened())) / 100 } catch {}
+  out.replayed = (L.replays || 0) + (R.replays || 0) > 0
+  out.skippedAhead = !!(L.jumped || R.jumped)
+  if (L.skipped) out.leftSkipped = true
+  if (R.skipped) out.rightSkipped = true
+  return out
+}
+function chip(c) { return c.kind === 'ai' ? '<span class="chip ai">AI</span>' : '' }
+function crowdOf(comic) { const c = BOARD?.boards?.all?.comics?.find((x) => x.comic === comic && x.bouts); return c ? Math.round(c.elo) : null }
+// the face-off card: the clip's own thumbnail is the main event (authentic: it's the set you're about to see).
+// Caption sits BELOW the picture; nothing is laid over it. YouTube's 16:9 hq720 still (no letterbox bars), falling back
+// to hqdefault (4:3 with bars, zoomed to hide them). Only non-YouTube clips use the comic's comics.json photo, if any.
+function faceCard(c, side) {
+  const P = COMICS[c.comic] || {}, r = crowdOf(c.comic)
+  const photo = typeof P.photo === 'string' && /^https:\/\//.test(P.photo) ? P.photo : ''
+  const img = c.media === 'youtube'
+    ? `<img class="fimg still" src="https://i.ytimg.com/vi/${esc(c.id)}/hq720.jpg" alt="${esc(c.comic)}: ${esc(c.title || '')}" decoding="async" onerror="this.onerror=null;this.classList.add('lb');this.src='${thumb(esc(c.id))}'">`
+    : photo ? `<img class="fimg portrait" src="${esc(photo)}" alt="${esc(c.comic)}" decoding="async">`
+      : `<span class="fimg none">${esc(c.comic)}</span>`
+  return `<div class="face ${side}"><div class="fpic">${img}</div>
+    <div class="ftext"><b>${esc(c.comic)}${chip(c)}</b><span>${esc(P.tagline || c.title || '')}</span><em>${r ? r + ' crowd rating' : 'Unrated'}</em></div></div>`
+}
+// the only label above the cards: who challenged you (shared links). Everything else stays quiet.
+function introLine() {
+  if (current?.mode !== 'shared') return ''
+  const inv = sharedRound?.invite
+  if (inv?.inviter?.username && !inv.self) return `<span class="challenge">${avatarHTML(inv.inviter)}<span><b>${esc(inv.inviter.username)}</b> challenged you</span></span>`
+  return `<span class="challenge">${sharedRound?.pick ? 'A friend challenged you. Do you agree?' : 'A friend sent you this clash'}</span>`
+}
+function slideHTML(a, b, n, first) {
+  const shot = (c, side) => `<button class="pick ${side}" data-side="${side}" aria-label="${esc(c.comic)} was funnier">
+      <span class="pimg" ${c.media === 'youtube' ? `style="background-image:url(${thumb(c.id)})"` : ''}></span>
+      <span class="pname">${esc(c.comic)}</span><span class="logo">FUNNIER</span></button>`
+  const scr = (c, side) => `<div class="screen ${side} small" data-side="${side}">
+      <div class="frame"><div id="p${side}${n}"></div><div class="shield" aria-hidden="true"></div></div>
+      <div class="label"><span class="side">${side === 'L' ? '1' : '2'}</span><div class="meta"><h3>${esc(c.comic)}${chip(c)}</h3><p>${esc(c.title)} · ${esc(c.channel || '')}</p></div></div>
+      <div class="prog"><i></i></div></div>`
+  return `<div class="slide" data-n="${n}">
+    <div class="intro">
+      <div class="introbar">${introLine()}</div>
+      <div class="faceoff">${faceCard(a, 'L')}<span class="vsx">VS</span>${faceCard(b, 'R')}</div>
+      <div class="introfoot"></div>
+    </div>
+    <div class="theatre">${scr(a, 'L')}${scr(b, 'R')}<div class="peek" aria-hidden="true"><span class="pkimg" ${b.media === 'youtube' ? `style="background-image:url(${thumb(b.id)})"` : ''}></span><span class="pkcap"><b>#2</b> ${esc(b.comic)}</span></div></div>
+    <div class="ballot"><p class="bq">Which was funnier?</p><div class="picks">${shot(a, 'L')}${shot(b, 'R')}</div>
+      <div class="audiofb" role="group" aria-label="Sound level feedback"><span>Sound off?</span>${[['L', '#1'], ['R', '#2']].map(([sd, n]) => `<button type="button" data-aud="${sd}" data-k="loud">${n} too loud</button><button type="button" data-aud="${sd}" data-k="quiet">${n} too quiet</button>`).join('')}</div>
+      <div class="count"><i></i></div><p class="hint">Tap one, or ← / →. No pick in 3s = pass.</p>
+      <p class="friendres" aria-live="polite"></p></div>
+  </div>`
+}
+
+function laneSelect() {
+  const box = $('#lanebox'); if (!box) return
+  box.innerHTML = `<select id="lane" aria-label="Lineup">${[['human', 'Human comics'], ['ai', 'AI comics'], ['mixed', 'Human vs AI']].map(([k, l]) => `<option value="${k}" ${LANE === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`
+  $('#lane').onchange = (e) => { LANE = e.target.value; LS.set('lane', LANE); goNext(null) }
+}
+
+function setStage(s) {
+  stage = s
+  if (cur?.el) cur.el.dataset.stage = s
+  document.body.classList.toggle('in-theatre', s === 'left' || s === 'right')
+  if (s !== 'left' && s !== 'right') soundPill(false)
+  if (s === 'right') { // the peek now previews the ballot, not clip two
+    const pk = q('.peek'); if (pk) pk.innerHTML = '<span class="pkimg pkvote">Which was funnier?</span><span class="pkcap"><b>Vote</b></span>'
+  }
+  paintRail()
+  updateChrome()
+}
+function stopScreening() {
+  clearInterval(tick); tick = null; clearTimers(); clearTimeout(advT); advT = null
+  Object.values(screens).forEach((s) => s.destroy()); screens = {}; armed = false; armedAt = 0
+  document.body.classList.remove('in-theatre')
+}
+
+// builds the next screening; when `old` is given, the old one slides up and away (TikTok-style)
+function newRound(first) { mountScreening(first, null) }
+function mountScreening(first, oldEl) {
+  current = takeClash() || pickPair()
+  if (current?.mode !== 'shared') sharedRound = null
+  const host = $('#stage')
+  if (!host) return
+  if (!current) {
+    const msg = LANE === 'ai' ? 'The AI comics are still in rehearsal. Their first sets premiere here soon.' : LANE === 'mixed' ? 'Human vs AI opens when the first AI sets premiere.' : "You've seen every clash on the bill. New shorts arrive daily."
+    host.querySelectorAll('.slide').forEach((x) => x !== oldEl && x.remove())
+    host.insertAdjacentHTML('beforeend', `<div class="slide empty-slide"><p class="empty">${msg}</p></div>`)
+    finishSlide(host, oldEl); cur = { el: host.lastElementChild, n: ++nScreen }; setStage('done'); updateChrome()
+    return
+  }
+  const [a, b] = current, n = ++nScreen
+  const pL = MODEL ? sig(MODEL.score(a.id) + traitScore(a) - MODEL.score(b.id) - traitScore(b)) : 0.5
+  prediction = { p: pL, side: pL >= 0.5 ? 'L' : 'R' }
+  host.insertAdjacentHTML('beforeend', slideHTML(a, b, n, first))
+  const el = host.lastElementChild
+  cur = { el, n, a, b }
+  finishSlide(host, oldEl)
+  screens = { L: new Screen('L', a, 'pL' + n), R: new Screen('R', b, 'pR' + n) }
+  screens.L.mount(); screens.R.mount()
+  setStage('intro')
+  bindSlide(el)
+  // the face-off: title card, then ONE flashes in, then TWO
+  el.classList.add('show-title')
+  later(() => el.classList.add('show-L'), reduced() ? 0 : 500)
+  later(() => el.classList.add('show-R'), reduced() ? 0 : 1200)
+  later(() => stage === 'intro' && cur?.el === el && startClip('L'), INTRO_MS) // never wait for a tap
+  paintDaily()
+}
+function finishSlide(host, oldEl) {
+  const el = host.lastElementChild
+  if (!oldEl) { host.querySelectorAll('.slide').forEach((x) => x !== el && x.remove()); return }
+  if (reduced()) { oldEl.remove(); return }
+  el.classList.add('enter'); void el.offsetWidth
+  const th = oldEl.querySelector('.theatre')
+  if (th && (oldEl.dataset.stage === 'left' || oldEl.dataset.stage === 'right')) {
+    th.style.transition = 'transform .45s cubic-bezier(.2,.8,.2,1),opacity .45s'
+    th.style.transform = `translate3d(0,${-innerHeight}px,0)`; th.style.opacity = '0'
+    oldEl.dataset.stage = 'leaving'; oldEl.classList.add('leave-fade')
+  } else oldEl.classList.add('leave')
+  el.classList.remove('enter')
+  setTimeout(() => oldEl.remove(), 520)
+}
+function bindSlide(el) {
+  el.querySelector('.intro').onclick = () => { if (stage === 'intro') { userStarted = true; startClip('L') } }
+  el.querySelectorAll('.pick').forEach((x) => (x.onclick = (e) => { e.stopPropagation(); vote(x.dataset.side) }))
+  el.querySelectorAll('.shield').forEach((sh) => (sh.onclick = () => {
+    if (now() - dragEndAt < 400) return // the tail of a swipe, not a tap
+    if (tapRevealed) { tapRevealed = false; return } // chrome was hidden: this tap only brings it back
+    screens[sh.closest('.screen').dataset.side]?.toggle()
+  }))
+  el.querySelectorAll('[data-aud]').forEach((bt) => (bt.onclick = (e) => {
+    e.stopPropagation()
+    pauseBallot('Countdown paused. Pick when you\u2019re ready.')
+    const sd = bt.dataset.aud, clip = sd === 'L' ? cur?.a : cur?.b
+    audioFeedback(clip, bt.dataset.k)
+    bt.parentElement?.querySelectorAll(`[data-aud="${sd}"]`).forEach((x) => (x.disabled = true)); bt.classList.add('on')
+  }))
+}
+// a tap on the ballot that isn't a pick (share, sound feedback) pauses the 3s countdown; that pick gets no timing signal
+function pauseBallot(msg) {
+  if (!(stage === 'vote' && armed)) return
+  sharedDuringBallot = true; clearTimers()
+  const bar = q('.count i'); if (bar) { const t = getComputedStyle(bar).transform; bar.style.transition = 'none'; bar.style.transform = t }
+  const h = q('.ballot .hint'); if (h) h.textContent = msg
+}
+// "Not funny -> next": ends the clip on screen but stays in the clash. Clip ONE -> clip TWO; clip TWO -> the ballot.
+// Logged in funnier.skips as stage 'left-skip' / 'right-skip' and counted as 0.4 of a loss for that clip, its comic and styles.
+function skipClip() {
+  if (!current || !cur || moving || (stage !== 'left' && stage !== 'right')) return false
+  const side = stage === 'left' ? 'L' : 'R', sc = screens[side]; if (!sc) return false
+  sc.track(); sc.skipped = true; sc.pause()
+  const c = sc.clip, [a, b] = current
+  const rec = { a: a.id, b: b.id, stage: side === 'L' ? 'left-skip' : 'right-skip', comics: [c.comic], comic: c.comic, clip: c.id, ...(current.daily ? { daily: current.daily } : {}),
+    style: Array.isArray(c.style) ? c.style : [], watchedSec: Math.round(10 * (sc.watched || 0)) / 10, at: new Date().toISOString() }
+  LS.set('skips', [...LS.get('skips', []), rec].slice(-500))
+  try { MODEL = fitLocal(); TRAITS = fitTraits() } catch {}
+  if (side === 'L') { toast('Skipped to #2. Noted against that clip.'); startClip('R') } else startVote()
+  return true
+}
+
+function startClip(side) {
+  if (!cur || !screens[side]) return
+  clearTimers()
+  setStage(side === 'L' ? 'left' : 'right')
+  bumpShown(screens[side].clip.comic)
+  for (const s of ['L', 'R']) {
+    const sc = cur.el.querySelector(`.screen.${s}`)
+    sc?.classList.toggle('big', s === side); sc?.classList.toggle('small', s !== side)
+    sc?.classList.toggle('gone', side === 'R' && s === 'L')
+  }
+  if (side === 'R') screens.L.pause()
+  screens[side].play()
+  runTick()
+}
+function runTick() {
+  clearInterval(tick)
+  tick = setInterval(() => {
+    const L = screens.L, R = screens.R; if (!L || !R || !cur) return
+    for (const s of ['L', 'R']) {
+      const sc = screens[s]; sc.track()
+      const pg = cur.el.querySelector(`.screen.${s} .prog i`)
+      if (pg) pg.style.transform = `scaleX(${sc.started ? sc.progress() : 0})`
+    }
+    // keyboard focus gets swallowed by the YouTube iframe: take it back
+    const ae = document.activeElement
+    if (ae && ae.tagName === 'IFRAME') { try { ae.blur() } catch {} $('#stage')?.focus?.({ preventScroll: true }) }
+    if (stage === 'left' && L.done()) { L.pause(); startClip('R') }
+    else if (stage === 'right' && R.done()) { R.pause(); startVote() }
+  }, 250)
+}
+function startVote() {
+  clearInterval(tick); tick = null
+  setStage('vote')
+  armed = true; armedAt = now(); sharedDuringBallot = false // decision time runs from the moment the FUNNIER logos appear
+  const bar = q('.count i')
+  if (bar) { bar.style.transition = 'none'; bar.style.transform = 'scaleX(1)'; void bar.offsetWidth; bar.style.transition = `transform ${VOTE_MS}ms linear`; bar.style.transform = 'scaleX(0)' }
+  later(() => { if (stage === 'vote' && armed) pass() }, VOTE_MS + 60)
+}
+function pass() {
+  if (!current) return
+  const [a, b] = current
+  armed = false
+  LS.set('passes', [...LS.get('passes', []), { a: a.id, b: b.id, ...signals(), ...(current.daily ? { daily: current.daily } : {}), at: new Date().toISOString() }].slice(-300))
+  LS.set('skipped', [...LS.get('skipped', []), pairKey(a.id, b.id)].slice(-500)); bumpSeen(a.id, b.id)
+  toast('No pick, so it\u2019s a pass. Neither comic loses anything.')
+  goNext(null); paintHistory()
+}
+
+// swipe up / wheel / ArrowUp / PageDown / S / the rail's Skip: leave this screening at any stage
+function skipClash() {
+  if (!current || moving || stage === 'done' || stage === 'idle') return goNext(null)
+  const [a, b] = current, sg = signals()
+  const on = stage === 'left' ? [a] : stage === 'right' ? [b] : stage === 'vote' ? [a, b] : []
+  const sc = stage === 'left' ? screens.L : stage === 'right' ? screens.R : null
+  const rec = { a: a.id, b: b.id, stage, comics: on.map((c) => c.comic), clip: sc ? sc.clip.id : null,
+    watchedSec: sc ? Math.round(10 * (sc.watched || 0)) / 10 : 0, ...sg, ...(current.daily ? { daily: current.daily } : {}), at: new Date().toISOString() }
+  if (stage === 'vote' && armedAt) rec.decisionMs = Math.round(now() - armedAt)
+  LS.set('skips', [...LS.get('skips', []), rec].slice(-500))
+  LS.set('skipped', [...LS.get('skipped', []), pairKey(a.id, b.id)].slice(-500)); bumpSeen(a.id, b.id)
+  if (sc) { MODEL = fitLocal(); TRAITS = fitTraits(); paintYou() }
+  goNext(null); paintHistory()
+}
+function goNext() {
+  if (moving) return
+  moving = true; setTimeout(() => (moving = false), 650)
+  const oldEl = cur?.el || null
+  stopScreening()
+  mountScreening(false, oldEl)
+}
+function bumpShown(comic) { const s = LS.get('shown', {}); s[comic] = (s[comic] || 0) + 1; LS.set('shown', s) }
+
+async function vote(side) {
+  if (!current || !armed || stage !== 'vote') return
+  armed = false; setStage('done')
+  const [a, b] = current
+  const decisionMs = armedAt && !sharedDuringBallot ? Math.max(0, Math.round(now() - armedAt)) : undefined
+  const sg = signals()
+  const v = { a: a.id, b: b.id, winner: side === 'L' ? a.id : b.id, voter: 'human', basis: 'watched', mode: current.mode, decisionMs, ...sg, createdAt: new Date().toISOString() }
+  if (current.mode === 'daily' && DAY_RE.test(String(current.daily || ''))) v.daily = current.daily
+  v.weight = voteWeight(v)
+  q(`.pick.${side}`)?.classList.add('won')
+  bumpSeen(a.id, b.id)
+  const fl = friendLine(a, b, v.winner)
+  if (fl) { v.friend = fl.agree ? 'agree' : 'disagree'; const fe = q('.friendres'); if (fe) { fe.textContent = fl.text; fe.classList.add('on', fl.agree ? 'agree' : 'disagree') } }
+  if (v.daily) loadDailyResults().then(() => { paintDaily(); const w = $('#why .rcworld'); const D = dailyFor(v.daily); if (w && D) w.innerHTML = worldLine(D) }).catch(() => {})
+  // the watch minimum still applies: both clips at least ~30s (or to the end)
+  const okL = screens.L?.skipped || screens.L?.enough(), okR = screens.R?.skipped || screens.R?.enough()
+  if (!(okL && okR) || (screens.L?.skipped && screens.R?.skipped)) {
+    LS.set('partials', [...LS.get('partials', []), v].slice(-300))
+    toast('It only counts when both clips were watched for 30s or to the end.')
+    askWhy(v, true, fl)
+    scheduleAdvance(fl ? 2400 : v.daily ? 1600 : 700)
+    paintDaily(); paintHistory()
+    return
+  }
+  // latest pick per pair counts (same rule as the public tally), so a rewatch replaces the old pick
+  LS.set('votes', [...LS.get('votes', []).filter((x) => !x || pairKey(x.a, x.b) !== pairKey(a.id, b.id)), v])
+  const preds = LS.get('preds', []); preds.push({ p: prediction.p, hit: prediction.side === side }); LS.set('preds', preds.slice(-200))
+  const dur = LS.get('dur', {}); dur[a.id] = screens.L.dur(); dur[b.id] = screens.R.dur(); LS.set('dur', dur)
+  const guess = MODEL && MODEL.n >= 3 ? (prediction.side === side ? ' Your model called it.' : ' Your model guessed the other one.') : ''
+  scheduleAdvance(fl ? 2400 : v.daily ? 1600 : reduced() ? 300 : 900)
+  askWhy(v, false, fl, guess.trim())
+  if (agent) {
+    try { await publish(v) }
+    catch { LS.set('queue', [...LS.get('queue', []), v]); toast('Saved. It\u2019ll publish when Bluesky responds.') }
+  } else LS.set('queue', [...LS.get('queue', []), v].slice(-300))
+  MODEL = fitLocal(); TRAITS = fitTraits()
+  paintBanner(); paintYou(); paintDaily(); paintHistory()
+}
+const arenaOn = () => !$('#v-arena')?.hidden
+document.addEventListener('keydown', (e) => {
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || !arenaOn()) return
+  if (e.metaKey || e.ctrlKey || e.altKey) return
+  if ((e.key === 'ArrowRight' || e.key === 'n' || e.key === 'N') && (stage === 'left' || stage === 'right')) { e.preventDefault(); skipClip() }
+  else if (e.key === 'ArrowLeft') vote('L')
+  else if (e.key === 'ArrowRight') vote('R')
+  else if (e.key === 'ArrowUp' || e.key === 'PageDown' || e.key === 's' || e.key === 'S') { e.preventDefault(); skipClash() }
+  else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen() }
+  else if ((e.key === ' ' || e.key === 'Enter') && stage === 'intro' && e.target === document.body) { e.preventDefault(); userStarted = true; startClip('L') }
+})
+// ---------- gestures: drag up = next clash, drag left = the opponent. The stage follows the finger (transforms only). ----------
+let dragEndAt = 0, committing = false
+const isClip = () => stage === 'left' || stage === 'right'
+function dragLayer() { // what moves under the finger on a vertical drag
+  if (!cur?.el) return null
+  return cur.el.querySelector(isClip() ? '.theatre' : stage === 'intro' ? '.intro' : '.ballot') || cur.el
+}
+function setPull(p, armedUp) { // the next face-off card rising from the bottom
+  const pn = $('#pullnext'); if (!pn) return
+  if (p == null) { pn.style.transition = 'transform .35s cubic-bezier(.2,.9,.3,1),opacity .3s'; pn.style.transform = ''; pn.style.opacity = ''; pn.classList.remove('armed'); return }
+  pn.style.transition = 'none'
+  pn.style.transform = `translate3d(-50%,${Math.round((1 - Math.min(1, p)) * 100)}%,0)`
+  pn.style.opacity = String(Math.min(1, p * 1.6)); pn.classList.toggle('armed', !!armedUp)
+}
+function bindGestures() {
+  const stageEl = $('#stage'); if (!stageEl) return
+  let x0 = 0, y0 = 0, t0 = 0, lx = 0, ly = 0, lt = 0, vx = 0, vy = 0, axis = null, active = false, raf = 0, dx = 0, dy = 0
+  let tgt = null, scr = null, peek = null
+  const H = () => innerHeight || 800, W = () => innerWidth || 800
+  const rubber = (d, lim) => (d * 0.9) / (1 + Math.abs(d) / (lim * 1.4)) // more resistance the further you pull
+  const clear = (els) => els.forEach((x) => { if (x) { x.style.transition = ''; x.style.transform = ''; x.style.opacity = '' } })
+  const spring = (els) => {
+    els.forEach((x) => { if (x) { x.style.transition = 'transform .38s cubic-bezier(.2,.9,.3,1.15),opacity .3s'; x.style.transform = ''; x.style.opacity = '' } })
+    setTimeout(() => els.forEach((x) => x && (x.style.transition = '')), 420)
+  }
+  const paint = () => {
+    raf = 0
+    if (axis === 'y' && tgt) {
+      const up = Math.min(0, dy), off = rubber(up, H())
+      tgt.style.transform = `translate3d(0,${off}px,0)`
+      setPull(-up / (H() * 0.25), -up > H() * 0.25)
+    } else if (axis === 'x' && scr) {
+      const l = Math.min(0, dx), off = rubber(l, W())
+      scr.style.transform = `translate3d(${off}px,0,0)`
+      if (peek) peek.style.transform = `translate3d(${Math.max(-peek.offsetWidth - 24, off * 0.7)}px,-50%,0)`
+    }
+  }
+  const begin = (t) => { x0 = lx = t.clientX; y0 = ly = t.clientY; t0 = lt = now(); vx = vy = 0; axis = null; active = true; dx = dy = 0 }
+  stageEl.addEventListener('touchstart', (e) => {
+    if (!arenaOn() || !screeningActive() || committing || moving || e.touches.length > 1) { active = false; return }
+    begin(e.touches[0])
+  }, { passive: true })
+  stageEl.addEventListener('touchmove', (e) => {
+    if (!active) return
+    const t = e.touches[0]; if (!t) return
+    const n = now(), dt = Math.max(1, n - lt)
+    vx = 0.7 * vx + 0.3 * ((t.clientX - lx) / dt); vy = 0.7 * vy + 0.3 * ((t.clientY - ly) / dt); lx = t.clientX; ly = t.clientY; lt = n
+    dx = t.clientX - x0; dy = t.clientY - y0
+    if (!axis) {
+      if (Math.hypot(dx, dy) < 10) return
+      if (dy < 0 && -dy > 1.2 * Math.abs(dx)) axis = 'y'
+      else if (dx < 0 && -dx > 1.2 * Math.abs(dy) && isClip()) axis = 'x'
+      else { axis = 'none'; return }
+      if (!reduced()) {
+        if (axis === 'y') { tgt = dragLayer(); if (tgt) tgt.style.transition = 'none' }
+        else { scr = cur?.el?.querySelector('.screen.big'); peek = cur?.el?.querySelector('.peek'); [scr, peek].forEach((x) => x && (x.style.transition = 'none')) }
+      }
+    }
+    if (axis === 'none') return
+    if (e.cancelable) e.preventDefault()
+    if (!reduced() && !raf) raf = requestAnimationFrame(paint)
+  }, { passive: false })
+  const end = () => {
+    if (!active) return
+    active = false
+    if (raf) { cancelAnimationFrame(raf); raf = 0 }
+    if (!axis || axis === 'none') return
+    dragEndAt = now(); tapRevealed = false
+    const fast = (v, d) => v < -0.55 && d < -40
+    if (axis === 'y') {
+      const go = -dy > H() * 0.25 || fast(vy, dy)
+      const el = tgt; tgt = null
+      if (go) {
+        setPull(null)
+        // the layer keeps its offset; the leaving slide (or theatre) carries on from there
+        skipClash()
+      } else { spring([el]); setPull(null) }
+    } else if (axis === 'x') {
+      const go = -dx > W() * 0.25 || fast(vx, dx)
+      const s1 = scr, pk = peek; scr = peek = null
+      if (!go) { spring([s1, pk]); return }
+      if (reduced() || !s1) { clear([s1, pk]); skipClip(); return }
+      committing = true
+      s1.style.transition = 'transform .28s cubic-bezier(.3,.7,.2,1)'; s1.style.transform = `translate3d(${-W()}px,0,0)`
+      if (pk) { pk.style.transition = 'transform .28s cubic-bezier(.3,.7,.2,1),opacity .28s'; pk.style.transform = `translate3d(${-(W() + pk.offsetWidth) / 2}px,-50%,0)` }
+      setTimeout(() => {
+        committing = false
+        skipClip()
+        if (pk) pk.style.opacity = '0'
+        requestAnimationFrame(() => { clear([s1]); setTimeout(() => clear([pk]), 320) })
+      }, 270)
+    }
+  }
+  stageEl.addEventListener('touchend', end, { passive: true })
+  stageEl.addEventListener('touchcancel', () => { if (!active) return; active = false; spring([tgt, scr, peek]); setPull(null); tgt = scr = peek = null }, { passive: true })
+  // wheel (mouse or trackpad, either direction, as before): one notch-burst = one skip
+  let acc = 0, accT = 0
+  stageEl.addEventListener('wheel', (e) => {
+    if (!arenaOn() || !screeningActive()) return
+    e.preventDefault()
+    if (now() - accT > 400) acc = 0
+    acc += Math.abs(e.deltaY); accT = now()
+    if (acc > 120) { acc = -1e9; skipClash(); setTimeout(() => (acc = 0), 900) }
+  }, { passive: false })
+  const gs = $('#gskip'); if (gs) gs.onclick = (e) => { e.stopPropagation(); skipClash() }
+  const go = $('#gopp'); if (go) go.onclick = (e) => { e.stopPropagation(); skipClip() }
+}
+// the right-edge rail: faint glyphs. One gentle pulse on the very first screening ever, then near-invisible unless the mouse moves.
+let railT = null
+function paintRail() {
+  const r = $('#gest'); if (!r) return
+  r.dataset.stage = stage
+  const o = $('#gopp')
+  if (o) {
+    o.hidden = !isClip()
+    o.setAttribute('aria-label', stage === 'right' ? 'Skip to the vote (swipe left, N)' : 'Watch the opponent (swipe left, N)')
+    o.title = stage === 'right' ? 'To the vote (swipe left)' : 'Opponent (swipe left)'
+  }
+  if (stage === 'left' && !LS.get('gestHinted', false)) {
+    LS.set('gestHinted', true)
+    if (!reduced()) { r.classList.add('pulse'); clearTimeout(railT); railT = setTimeout(() => r.classList.remove('pulse'), 3200) }
+  }
+}
+
+// ---------- fullscreen: the whole screening (intro, both clips, ballot) in the Fullscreen API; CSS pseudo-fullscreen on iPhone ----------
+let fsPseudo = false, escBusy = false
+const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement || null
+const fsNative = () => { const de = document.documentElement; return !!(document.fullscreenEnabled || document.webkitFullscreenEnabled) && !!(de.requestFullscreen || de.webkitRequestFullscreen) }
+const fsOn = () => !!fsEl() || fsPseudo
+const FS_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>'
+const FS_EXIT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>'
+function paintFs() {
+  const on = fsOn()
+  document.body.classList.toggle('fs', on); document.body.classList.toggle('fs-pseudo', fsPseudo && !fsEl())
+  const b = $('#fsbtn'); if (!b) return
+  b.innerHTML = on ? FS_EXIT : FS_ICON; b.setAttribute('aria-pressed', String(on))
+  b.setAttribute('aria-label', on ? 'Exit fullscreen (F)' : 'Fullscreen (F)'); b.title = on ? 'Exit fullscreen (F)' : 'Fullscreen (F)'
+}
+async function enterNative() {
+  const de = document.documentElement
+  try { await (de.requestFullscreen ? de.requestFullscreen({ navigationUI: 'hide' }) : de.webkitRequestFullscreen()); fsPseudo = false; return true } catch { return false }
+}
+function fsTip() {
+  if (LS.get('fsTip', false) || (typeof navigator !== 'undefined' && navigator.standalone)) return
+  LS.set('fsTip', true); toast('Tip: Share → Add to Home Screen gives Funnier the whole screen.')
+}
+async function setFullscreen(on) {
+  LS.set('fs', !!on)
+  if (on) {
+    if (fsNative()) { if (!fsEl() && !(await enterNative())) fsPseudo = true }
+    else { fsPseudo = true; fsTip() }
+  } else {
+    fsPseudo = false
+    if (fsEl()) { try { await (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen()) } catch {} }
+  }
+  paintFs(); showChrome()
+}
+function toggleFullscreen() { return setFullscreen(!fsOn()) }
+function bindFullscreen() {
+  const b = $('#fsbtn'); if (b) b.onclick = (e) => { e.stopPropagation(); toggleFullscreen() }
+  const onChange = () => { if (!fsEl() && !fsPseudo) LS.set('fs', false); paintFs() } // Esc out of real fullscreen = preference off
+  document.addEventListener('fullscreenchange', onChange); document.addEventListener('webkitfullscreenchange', onChange)
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') escBusy = menuOpen() || !($('#sheet')?.hidden ?? true) }, { capture: true })
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && fsPseudo && !fsEl() && !escBusy) setFullscreen(false) })
+  if (LS.get('fs', false)) { // remembered: lay out fullscreen now; real fullscreen needs a gesture, so take the first one
+    fsPseudo = true; paintFs()
+    if (fsNative()) {
+      const up = () => { removeEventListener('pointerdown', up, true); removeEventListener('keydown', up, true); if (LS.get('fs', false) && !fsEl()) enterNative().then(paintFs) }
+      addEventListener('pointerdown', up, true); addEventListener('keydown', up, true)
+    }
+  } else paintFs()
+}
+
+// ---------- charts ----------
+const thumb = (id) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
+function clipTile(c, i, extra) {
+  const k = BYID[c.id] || c
+  const img = k.media === 'youtube' ? `<img loading="lazy" src="${thumb(k.id)}" alt="">` : `<div class="comicposter" style="aspect-ratio:16/9"><b>${esc(k.comic)}</b></div>`
+  const href = k.media === 'youtube' ? `https://www.youtube.com/watch?v=${k.id}` : '#'
+  return `<a class="tile" href="${href}" target="_blank" rel="noopener">${i != null ? `<span class="num">${i + 1}</span>` : ''}
+    <div class="poster">${img}<div class="cap"><b>${esc(k.title)}</b><span>${esc(k.comic)}${extra ? ' · ' + extra : ''}</span></div></div></a>`
+}
+function comicTile(c, i, extra) {
+  const first = CLIPS.find((k) => k.comic === c.comic && k.media === 'youtube')
+  const bg = first ? `style="background-image:linear-gradient(180deg,rgba(7,7,10,.1),rgba(7,7,10,.95) 75%),url(${thumb(first.id)})"` : ''
+  return `<div class="tile"><span class="num">${i + 1}</span><div class="poster comicposter" ${bg}><b>${esc(c.comic)}</b><span class="rating">${extra}</span></div></div>`
+}
+function paintBoards() {
+  const metas = document.querySelectorAll('.boardmeta')
+  const sel = `<div class="lanes">${[['all', 'Everyone'], ['human', 'Humans'], ['agent', 'Agents']].map(([k, l]) => `<button data-board="${k}" class="${BOARDKIND === k ? 'on' : ''}">${l}</button>`).join('')}</div>`
+  document.querySelectorAll('.boardsel').forEach((x) => (x.innerHTML = sel))
+  document.querySelectorAll('[data-board]').forEach((x) => (x.onclick = () => { BOARDKIND = x.dataset.board; paintBoards() }))
+  const bd = BOARD?.boards?.[BOARDKIND]
+  if (!bd || !bd.votes) {
+    metas.forEach((m) => (m.textContent = BOARDKIND === 'agent' ? 'No agent picks yet. Agents vote through the AT Protocol API.' : 'The chart opens with the first published picks. Until then, here is everything in rotation.'))
+    const comics = [...new Set(CLIPS.map((c) => c.comic))]
+    $('#comics').innerHTML = comics.map((k, i) => comicTile({ comic: k }, i, CLIPS.filter((c) => c.comic === k).length + ' shorts')).join('')
+    $('#clips').innerHTML = CLIPS.map((c) => clipTile(c, null, c.channel)).join('')
+    return
+  }
+  const ago = Math.max(0, Math.round((Date.now() - Date.parse(BOARD.updated)) / 60000))
+  metas.forEach((m) => (m.textContent = `${bd.votes} picks from ${bd.voters} account${bd.voters === 1 ? '' : 's'} · Bradley-Terry ratings with 95% ranges · updated ${isNaN(ago) ? 'recently' : ago + ' min ago'}`))
+  const rng = (r) => (r.lo != null ? ` (${Math.round(r.lo)}–${Math.round(r.hi)})` : '')
+  $('#comics').innerHTML = bd.comics.filter((c) => c.bouts).map((c, i) => comicTile(c, i, Math.round(c.elo) + rng(c))).join('')
+  $('#clips').innerHTML = bd.clips.filter((c) => c.bouts && BYID[c.id]).slice(0, 10).map((c, i) => clipTile(c, i, Math.round(c.elo))).join('')
+}
+
+// ---------- comics ----------
+const slugOf = (name) => COMICS[name]?.slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+function comicStats(name) {
+  const bd = BOARD?.boards?.all, crowd = bd?.comics?.find((c) => c.comic === name && c.bouts)
+  const mine = MODEL ? Math.round(1500 + SCALE * (MODEL.r[name] || 0)) : null
+  const clips = CLIPS.filter((c) => c.comic === name)
+  const rated = clips.map((c) => ({ c, r: bd?.clips?.find((x) => x.id === c.id && x.bouts) })).sort((a, b) => (b.r?.elo || 0) - (a.r?.elo || 0))
+  const styles = {}; clips.forEach((c) => (c.style || []).forEach((t) => (styles[t] = (styles[t] || 0) + 1)))
+  // head-to-head from published + local picks
+  const h2h = {}
+  for (const v of [...PUBVOTES, ...LS.get('votes', [])]) {
+    const A = BYID[v.a]?.comic, B = BYID[v.b]?.comic; if (!A || !B || A === B || (A !== name && B !== name)) continue
+    const opp = A === name ? B : A, won = BYID[v.winner]?.comic === name
+    h2h[opp] = h2h[opp] || { w: 0, n: 0 }; h2h[opp].n++; if (won) h2h[opp].w++
+  }
+  return { crowd, mine, clips, rated, styles: Object.entries(styles).sort((a, b) => b[1] - a[1]).map((x) => x[0]), h2h }
+}
+function paintComics() {
+  const el = $('#comicsview'), route = location.hash.match(/^#comic\/(.+)$/)
+  const names = [...new Set(CLIPS.map((c) => c.comic))]
+  if (route) {
+    const name = names.find((n) => slugOf(n) === route[1])
+    if (name) return paintProfile(el, name)
+  }
+  el.innerHTML = `<div class="head"><h2>Comics</h2></div><p class="muted">Tap a comic for their profile, best-rated shorts and head-to-heads.</p>
+    <div class="grid">${names.map((n) => { const st = comicStats(n), first = st.clips.find((k) => k.media === 'youtube')
+      return `<a class="ccard" href="#comic/${slugOf(n)}"><div class="cimg" style="background-image:linear-gradient(180deg,rgba(7,7,10,0) 30%,rgba(7,7,10,.95)),url(${COMICS[n]?.photo || (first ? thumb(first.id) : '')})"></div>
+        <div class="ctext"><b>${esc(n)}</b><span>${esc(COMICS[n]?.tagline || '')}</span><em>${st.crowd ? Math.round(st.crowd.elo) + ' crowd rating' : st.clips.length + ' shorts'}</em></div></a>` }).join('')}
+      <div class="ccard soon"><div class="cimg ai"></div><div class="ctext"><b>AI comedians</b><span>In rehearsal. Soon you'll train your own and premiere them here.</span><em>Coming soon</em></div></div>
+    </div>`
+}
+function paintProfile(el, name) {
+  const P = COMICS[name] || {}, st = comicStats(name), first = st.clips.find((k) => k.media === 'youtube')
+  const rng = st.crowd?.lo != null ? ` <small>${Math.round(st.crowd.lo)}–${Math.round(st.crowd.hi)}</small>` : ''
+  el.innerHTML = `<a class="back" href="#comics">← All comics</a>
+    <section class="hero" style="background-image:linear-gradient(90deg,rgba(7,7,10,.98) 25%,rgba(7,7,10,.55) 60%,rgba(7,7,10,.2)),url(${P.photo || (first ? thumb(first.id).replace('hqdefault', 'maxresdefault') : '')})">
+      <div class="hinner"><span class="eyebrow">Comedian</span><h1>${esc(name)}</h1><p class="tag">${esc(P.tagline || '')}</p>
+      <div class="facts">${(P.facts || []).map((f) => `<span>${esc(f)}</span>`).join('')}</div>
+      <div class="stats"><div><b>${st.crowd ? Math.round(st.crowd.elo) + rng : '—'}</b><span>Crowd rating</span></div><div><b>${st.mine ?? '—'}</b><span>Your model</span></div><div><b>${st.clips.length}</b><span>Shorts</span></div></div>
+      <div class="styles">${st.styles.map((t) => `<span class="chip">${t}</span>`).join('')}</div></div></section>
+    <div class="cols"><div><h3>About</h3><p class="${P.bio ? '' : 'muted'}">${P.bio ? esc(P.bio) : 'Profile coming soon. Bio, influences and specials will live here.'}</p>
+      ${Object.entries(P.links || {}).map(([k, u]) => `<a class="btn ghost" href="${esc(u)}" target="_blank" rel="noopener">${esc(k)}</a>`).join(' ')}</div>
+      <div><h3>Head-to-head</h3>${Object.keys(st.h2h).length ? `<div class="bars">${Object.entries(st.h2h).map(([o, r]) => `<div class="barrow"><span>vs ${esc(o)}</span><div class="track"><i style="left:0;width:${(100 * r.w) / r.n}%"></i></div><span class="v">${Math.round((100 * r.w) / r.n)}% · ${r.n}</span></div>`).join('')}</div>` : '<p class="muted">No matchups yet. Every pick involving this comic shows up here.</p>'}</div></div>
+    ${specialsHTML(P.specials)}
+    <h3 class="shelf">Best-rated shorts</h3><div class="rail">${st.rated.map(({ c, r }, i) => clipTile(c, r ? i : null, r ? Math.round(r.elo) : c.channel)).join('')}</div>`
+  bindSpecials(el)
+  scrollTo({ top: 0 })
+}
+
+// ---------- specials: Letterboxd-style log, kept on this device ----------
+const SPK = 'specials'
+const spGet = () => { const x = LS.get(SPK, {}); return x && typeof x === 'object' ? x : {} }
+const spMine = (id) => spGet()[id] || {}
+function spSet(id, patch) {
+  const all = spGet(), cur = { ...(all[id] || {}), ...patch, at: new Date().toISOString() }
+  if (!cur.seen && !cur.stars && !cur.note) delete all[id]; else all[id] = cur
+  LS.set(SPK, all)
+}
+function allSpecials() { return Object.entries(COMICS).flatMap(([comic, p]) => (Array.isArray(p?.specials) ? p.specials : []).map((s) => ({ ...s, comic }))) }
+function specialsSeen() { const ids = new Set(allSpecials().map((s) => s.id)), m = spGet(); return Object.keys(m).filter((id) => ids.has(id) && m[id].seen).length }
+const hue = (s) => [...String(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)
+function starsHTML(n) {
+  return `<div class="stars" role="radiogroup" aria-label="Your rating">${[1, 2, 3, 4, 5].map((i) => {
+    const f = n >= i ? 'full' : n >= i - 0.5 ? 'half' : ''
+    return `<button class="st ${f}" data-star="${i}" aria-label="${i} star${i > 1 ? 's' : ''}">★</button>` }).join('')}</div>`
+}
+function specialCard(s) {
+  const m = spMine(s.id), h = hue(s.id)
+  return `<article class="sp${m.seen ? ' seen' : ''}" data-sp="${esc(s.id)}">
+    <div class="spart" style="background:linear-gradient(160deg,hsl(${h} 70% 22%) 0%,#0b0b0e 75%)">
+      <span class="spyear">${esc(s.year)}</span>
+      <b>${esc(s.title)}</b>
+      <span class="spdist">${esc(s.distributor || '')}${s.runtimeMin ? ' · ' + s.runtimeMin + ' min' : ''}</span>
+      ${m.stars ? `<span class="spmine">★ ${m.stars}</span>` : ''}
+    </div>
+    <div class="spact">
+      <button class="seenbtn${m.seen ? ' on' : ''}" data-act="seen" aria-pressed="${!!m.seen}">${m.seen ? '✓ Seen' : '+ Seen'}</button>
+      ${starsHTML(m.stars || 0)}
+      <button class="notebtn${m.note ? ' on' : ''}" data-act="note" aria-label="Note">✎</button>
+    </div>
+    <div class="spnote" ${m.note ? '' : 'hidden'}><textarea maxlength="280" rows="2" placeholder="A line for future you…">${esc(m.note || '')}</textarea></div>
+    <div class="splinks">${(s.where || []).map((w) => `<a href="${esc(w.url)}" target="_blank" rel="noopener">${esc(w.name)}</a>`).join('')}</div>
+  </article>`
+}
+function specialsHTML(list) {
+  if (!Array.isArray(list) || !list.length) return ''
+  const sorted = [...list].sort((a, b) => (a.year || 0) - (b.year || 0))
+  return `<div class="sphead"><h3 class="shelf">Specials</h3><span class="muted" id="spsum">${spSummary(list)}</span></div>
+    <div class="spgrid">${sorted.map(specialCard).join('')}</div>
+    <p class="muted small">Your log stays on this device. Availability varies by country, so "Where to watch" opens a search.</p>`
+}
+function spSummary(list) {
+  const m = spGet(), seen = list.filter((s) => m[s.id]?.seen).length, rated = list.map((s) => m[s.id]?.stars).filter((x) => x > 0)
+  const avg = rated.length ? (rated.reduce((a, b) => a + b, 0) / rated.length).toFixed(1) : null
+  return `${seen}/${list.length} seen${avg ? ` · your avg ★ ${avg}` : ''}`
+}
+function bindSpecials(root) {
+  const grid = root.querySelector('.spgrid'); if (!grid) return
+  const list = () => [...grid.querySelectorAll('.sp')].map((x) => allSpecials().find((s) => s.id === x.dataset.sp)).filter(Boolean)
+  const repaint = (id, focusNote) => {
+    const s = allSpecials().find((x) => x.id === id), old = grid.querySelector(`.sp[data-sp="${CSS.escape(id)}"]`)
+    if (!s || !old) return
+    old.outerHTML = specialCard(s)
+    const sum = root.querySelector('#spsum'); if (sum) sum.textContent = spSummary(list())
+    if (focusNote) grid.querySelector(`.sp[data-sp="${CSS.escape(id)}"] textarea`)?.focus()
+    paintYou()
+  }
+  grid.onclick = (e) => {
+    const card = e.target.closest('.sp'); if (!card) return
+    const id = card.dataset.sp, m = spMine(id), star = e.target.closest('[data-star]'), act = e.target.closest('[data-act]')?.dataset.act
+    if (star) {
+      const i = +star.dataset.star, r = star.getBoundingClientRect()
+      let n = e.clientX && e.clientX < r.left + r.width / 2 ? i - 0.5 : i // tap the left half for a half star
+      if (n === m.stars) n = 0 // tap your rating again to clear it
+      spSet(id, { stars: n, seen: n > 0 ? true : m.seen }); return repaint(id)
+    }
+    if (act === 'seen') { spSet(id, { seen: !m.seen, ...(m.seen ? { stars: 0 } : {}) }); return repaint(id) }
+    if (act === 'note') { const box = card.querySelector('.spnote'); box.hidden = !box.hidden; if (!box.hidden) box.querySelector('textarea').focus() }
+  }
+  let nt
+  grid.oninput = (e) => {
+    if (e.target.tagName !== 'TEXTAREA') return
+    const id = e.target.closest('.sp').dataset.sp, val = e.target.value.slice(0, 280)
+    clearTimeout(nt); nt = setTimeout(() => { spSet(id, { note: val }); e.target.closest('.sp').querySelector('.notebtn')?.classList.toggle('on', !!val) }, 300)
+  }
+}
+
+// ---------- your model ----------
+function paintYou() {
+  const el = $('#you'), votes = LS.get('votes', [])
+  if (!votes.length) {
+    const ns = specialsSeen()
+    el.innerHTML = `<h2>Your model</h2><p class="empty">Every pick trains a small model of your sense of humour, right here on your device.<br>Watch a double feature to start it.</p>${ns ? `<p class="sure">${ns} special${ns === 1 ? '' : 's'} seen · <a href="#comics">log more in Comics</a></p>` : ''}`
+    return
+  }
+  MODEL = MODEL || fitLocal()
+  const preds = LS.get('preds', []).slice(3), last = preds.slice(-30)
+  const acc = last.length ? Math.round((100 * last.filter((p) => p.hit).length) / last.length) : null
+  const comics = Object.entries(MODEL.r).map(([k, x]) => ({ k, elo: Math.round(1500 + SCALE * x) })).sort((a, b) => b.elo - a.elo)
+  const lo = Math.min(...comics.map((c) => c.elo)) - 40, hi = Math.max(...comics.map((c) => c.elo)) + 40
+  const bars = comics.map((c) => `<div class="barrow"><span>${esc(c.k)}</span><div class="track"><i style="left:0;width:${(100 * (c.elo - lo)) / (hi - lo)}%"></i></div><span class="v">${c.elo}</span></div>`).join('')
+  // learned traits
+  const dur = LS.get('dur', {})
+  let longW = 0, longN = 0, lnW = 0, lnN = 0
+  for (const v of votes) {
+    const A = BYID[v.a], B = BYID[v.b]; if (!A || !B) continue
+    const da = dur[v.a], db = dur[v.b]
+    if (da && db && Math.abs(da - db) > 20) { longN++; if ((da > db ? v.a : v.b) === v.winner) longW++ }
+    const la = LATE_NIGHT.test(A.channel || ''), lb = LATE_NIGHT.test(B.channel || '')
+    if (la !== lb) { lnN++; if ((la ? v.a : v.b) === v.winner) lnW++ }
+  }
+  const trait = (label, w, n, a, b) => {
+    if (n < 2) return `<div class="barrow"><span>${label}</span><div class="track center"></div><span class="v">learning</span></div>`
+    const p = w / n, left = Math.min(50, 100 * p), width = Math.abs(100 * p - 50)
+    return `<div class="barrow"><span>${label}</span><div class="track center"><i style="left:${p >= 0.5 ? 50 : left}%;width:${width}%"></i></div><span class="v">${Math.round(100 * p)}% ${p >= 0.5 ? a : b}</span></div>`
+  }
+  const best = Object.keys(MODEL.o).filter((id) => MODEL.bouts[id]).sort((x, y) => MODEL.score(y) - MODEL.score(x)).slice(0, 5)
+  el.innerHTML = `<h2>Your model</h2>
+    <div class="kpis">
+      <div class="kpi"><b>${votes.length}</b><span>picks trained on</span></div>
+      <div class="kpi"><b>${acc == null ? '—' : acc + '%'}</b><span>how often it predicts you${last.length ? ` (last ${last.length})` : ''}</span></div>
+      <div class="kpi"><b>${esc(comics[0].k.split(' ').slice(-1)[0])}</b><span>your top comic so far</span></div>
+      <div class="kpi"><b>${new Set(votes.flatMap((v) => [v.a, v.b])).size}</b><span>shorts seen</span></div>
+    </div>
+    ${sureLine(votes)}
+    ${(() => { const h = humourType(); return h ? `<div class="type"><span class="eyebrow">Your humour type</span><b>${h.name}</b><p>${h.line}${h.also ? ` With a streak of <i>${h.also}</i>.` : ''}</p></div>` : `<div class="type"><span class="eyebrow">Your humour type</span><b>Still reading you…</b><p>A few more picks across different styles and it will name your type.</p></div>` })()}
+    <h3>Styles you laugh at</h3><div class="bars">${STYLES.map((t) => { const x = TRAITS.w[t] || 0, wd = Math.min(50, Math.abs(x) * 40); return `<div class="barrow"><span>${t}</span><div class="track center"><i style="left:${x >= 0 ? 50 : 50 - wd}%;width:${wd}%"></i></div><span class="v">${(TRAITS.n[t] || 0) < 2 ? 'learning' : (x > 0 ? '+' : '') + x.toFixed(2)}</span></div>` }).join('')}</div>
+    ${skipLists()}
+    <h3>Comics, as your model sees them</h3><p class="muted">It starts from the crowd chart and moves toward your picks.</p><div class="bars">${bars}</div>
+    <h3>What it's learning about you</h3><div class="bars">
+      ${trait('Longer bits', longW, longN, 'longer', 'shorter')}
+      ${trait('Late-night TV', lnW, lnN, 'late-night', 'specials')}
+    </div>
+    ${best.length ? `<h3>Your funniest so far</h3><div class="rail">${best.map((id, i) => clipTile({ id }, i)).join('')}</div>` : ''}
+    <div id="youglobal"></div>
+    <h3>Why this matters</h3>
+    <p class="note">Your model is a portable critic. When we build the AI comedians, it can <b>judge their drafts for you</b>, tune a comic to <b>your</b> sense of humour, or sit on a panel next to other people's models. <button class="btn" id="export" style="margin-left:6px">Download my model</button></p>`
+  $('#export').onclick = () => {
+    const blob = new Blob([JSON.stringify({ kind: 'funnier.taste-model', version: 1, created: new Date().toISOString(), picks: votes.length, accuracy: acc, comics, clips: Object.fromEntries(Object.entries(MODEL.o).filter(([id]) => MODEL.bouts[id]).map(([id, x]) => [id, Math.round(SCALE * (MODEL.r[BYID[id].comic] + x))])) }, null, 2)], { type: 'application/json' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'funnier-taste-model.json'; a.click()
+  }
+  if (me) fetch('data/taste/' + me.did.replace(/[^a-z0-9]/gi, '_') + '.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).then((t) => {
+    if (!t) return
+    $('#youglobal').innerHTML = `<h3>You vs the crowd</h3><p class="muted">From your ${t.votes} published picks.</p><div class="bars">${t.comics.map((c) => `<div class="barrow"><span>${esc(c.comic)}</span><div class="track center"><i style="left:${c.vsCrowd >= 0 ? 50 : 50 + Math.max(-50, c.vsCrowd / 4)}%;width:${Math.min(50, Math.abs(c.vsCrowd) / 4)}%"></i></div><span class="v">${c.vsCrowd > 0 ? '+' : ''}${c.vsCrowd}</span></div>`).join('')}</div>`
+  }).catch(() => {})
+}
+
+function skipLists() {
+  const shown = LS.get('shown', {}) || {}, sk = {}
+  for (const k of clipSkips()) { const c = BYID[k.clip].comic; sk[c] = (sk[c] || 0) + 1 }
+  const comics = Object.keys(shown).filter((c) => shown[c] > 0)
+  if (!comics.length) return ''
+  const most = comics.filter((c) => sk[c]).map((c) => ({ c, r: Math.min(1, sk[c] / shown[c]), n: sk[c] })).sort((a, b) => b.r - a.r || b.n - a.n).slice(0, 3)
+  const never = comics.filter((c) => !sk[c] && shown[c] >= 2).sort((a, b) => shown[b] - shown[a]).slice(0, 3)
+  if (!most.length && !never.length) return ''
+  const li = (arr) => arr.length ? arr.join('') : '<li class="muted">Nobody yet</li>'
+  return `<div class="skipcols"><div><h3>Most skipped</h3><ul>${li(most.map((m) => `<li><b>${esc(m.c)}</b><span>${m.n} skip${m.n === 1 ? '' : 's'} · ${Math.round(100 * m.r)}% of their clips</span></li>`))}</ul></div>
+    <div><h3>Never skip</h3><ul>${li(never.map((c) => `<li><b>${esc(c)}</b><span>watched ${shown[c]} times, never skipped</span></li>`))}</ul></div></div>`
+}
+function sureLine(votes) {
+  const ms = votes.map((v) => v.decisionMs).filter((x) => Number.isFinite(x) && x >= 0).sort((a, b) => a - b)
+  const ns = specialsSeen()
+  const sp = `<span>${ns} special${ns === 1 ? '' : 's'} seen</span>`
+  if (!ms.length) return `<p class="sure"><b>How sure you were</b><span>timing starts with your next pick</span>${sp}</p>`
+  const med = ms.length % 2 ? ms[(ms.length - 1) / 2] : (ms[ms.length / 2 - 1] + ms[ms.length / 2]) / 2
+  const snap = Math.round((100 * ms.filter((x) => x < SNAP_MS).length) / ms.length)
+  return `<p class="sure"><b>How sure you were</b><span>median ${(med / 1000).toFixed(1)}s to decide</span><span>${snap}% snap picks (under ${SNAP_MS / 1000}s)</span>${sp}</p>`
+}
+
+// ---------- chrome: the menu fades away during a screening, the logo never does ----------
+let showTab = () => {}, chromeT = null, chromeHidden = false, nearTop = false, tapRevealed = false
+const HIDE_FIRST_MS = 1500, HIDE_AFTER_MS = 2500, TOP_ZONE = 80
+function screeningActive() { return !!current && arenaOn() && ['intro', 'left', 'right', 'vote', 'done'].includes(stage) }
+function setChromeHidden(h) { chromeHidden = h; document.body.classList.toggle('chrome-hidden', h) }
+function scheduleHide(ms) {
+  clearTimeout(chromeT)
+  chromeT = setTimeout(function hide() {
+    if (!screeningActive()) return setChromeHidden(false)
+    const hdr = $('#chrome'), focused = hdr && hdr.querySelector(':focus-visible')
+    if (nearTop || focused || menuOpen()) { chromeT = setTimeout(hide, 600); return }
+    setChromeHidden(true)
+  }, ms)
+}
+function showChrome(ms = HIDE_AFTER_MS) {
+  if (chromeHidden) setChromeHidden(false)
+  if (screeningActive()) scheduleHide(ms); else clearTimeout(chromeT)
+}
+let wasActive = false, railWakeT = null
+function wakeRail() { document.body.classList.add('rail-on'); clearTimeout(railWakeT); railWakeT = setTimeout(() => document.body.classList.remove('rail-on'), HIDE_AFTER_MS) }
+function updateChrome() {
+  const sb = $('#sharebtn'); if (sb) sb.hidden = !current || !arenaOn()
+  const act = screeningActive()
+  if (act && !wasActive) scheduleHide(HIDE_FIRST_MS)
+  if (!act) { clearTimeout(chromeT); setChromeHidden(false) }
+  document.body.classList.toggle('screening', act)
+  wasActive = act
+}
+function bindChrome() {
+  addEventListener('pointermove', (e) => {
+    if (e.pointerType && e.pointerType !== 'mouse') return
+    nearTop = e.clientY <= TOP_ZONE
+    if (screeningActive()) { showChrome(); wakeRail() }
+  }, { passive: true })
+  document.addEventListener('mouseleave', () => (nearTop = false))
+  // touch/pen: the first tap while the menu is hidden only reveals it (the shield then skips play/pause)
+  document.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') { tapRevealed = false; return }
+    tapRevealed = chromeHidden && !!e.target.closest?.('.shield')
+    if (screeningActive()) showChrome()
+  }, { capture: true, passive: true })
+  document.addEventListener('focusin', (e) => { if (e.target.closest?.('#chrome, #brand')) showChrome() })
+  document.addEventListener('keydown', (e) => { if (e.key === 'Tab') showChrome() })
+  const sb = $('#sharebtn'); if (sb) sb.onclick = (e) => { e.stopPropagation(); shareCurrent() }
+  document.addEventListener('pointerdown', () => { soundOK = true }, { capture: true, passive: true })
+  document.addEventListener('keydown', () => { soundOK = true }, { capture: true })
+  const sp = $('#soundbtn'); if (sp) sp.onclick = (e) => { e.stopPropagation(); soundOn() }
+  bindUser()
+}
+
+// ---------- share a clash: #clash/<clipA>/<clipB>&pick=a|b, no backend ----------
+const SHARE_BASE = 'https://prx0r.github.io/characters/'
+let pendingClash = null, sharedRound = null, sharedDuringBallot = false
+function parseClash(h) {
+  const m = String(h || '').match(/^#clash\/([^/&?]+)\/([^/&?]+)(?:[&?]pick=([ab]))?/)
+  if (!m) return null
+  const d = (x) => { try { return decodeURIComponent(x) } catch { return x } }
+  const rewatch = /[&?]from=history\b/.test(String(h))
+  return { a: d(m[1]), b: d(m[2]), pick: rewatch ? null : m[3] || null, rewatch }
+}
+function takeClash() {
+  const sh = pendingClash; pendingClash = null
+  if (!sh) return null
+  const A = BYID[sh.a], B = BYID[sh.b]
+  if (!A || !B || sh.a === sh.b) { setTimeout(() => toast('That clash is no longer on the bill, so here is tonight\u2019s instead.'), 400); return null }
+  const pair = [A, B]
+  if (sh.daily) { pair.mode = 'daily'; pair.daily = sh.daily; sharedRound = null; return pair }
+  if (sh.rewatch) { pair.mode = 'rewatch'; sharedRound = null; return pair }
+  pair.mode = 'shared'
+  sharedRound = { ...sh, key: pairKey(sh.a, sh.b) }
+  if (sh.invite) sharedRound.invite = sh.invite
+  return pair
+}
+function friendLine(a, b, winner) {
+  if (!sharedRound?.pick || sharedRound.key !== pairKey(a.id, b.id)) return null
+  const fw = BYID[sharedRound.pick === 'a' ? sharedRound.a : sharedRound.b]
+  if (!fw) return null
+  const agree = fw.id === winner, who = sharedRound.invite?.inviter?.username
+  if (who) return { agree, text: agree ? `You agree with ${who}: ${fw.comic}.` : `${who} picked ${fw.comic}.` }
+  return { agree, text: agree ? `You agreed with your friend: ${fw.comic}.` : `You disagreed. Your friend picked ${fw.comic}.` }
+}
+function clashURL(a, b, pick) {
+  const base = IS_LOCAL ? BASE : SHARE_BASE
+  return `${base}#clash/${encodeURIComponent(a.id)}/${encodeURIComponent(b.id)}${pick === 'a' || pick === 'b' ? '&pick=' + pick : ''}`
+}
+function myPick(a, b) {
+  const v = [...LS.get('votes', []), ...LS.get('partials', [])].filter((x) => x && pairKey(x.a, x.b) === pairKey(a.id, b.id)).pop()
+  return v ? (v.winner === a.id ? 'a' : v.winner === b.id ? 'b' : null) : null
+}
+function shareCurrent() {
+  if (!current || !current[0] || !current[1]) return toast('Nothing on screen to share yet.')
+  pauseBallot('Countdown paused. Pick when you\u2019re ready.') // sharing mid-ballot pauses the 3s countdown
+  const [a, b] = current
+  shareClash(a, b, myPick(a, b))
+}
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true } catch {}
+  try {
+    const ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;opacity:0;top:0'
+    document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok
+  } catch { return false }
+}
+const inviteCache = {}
+async function shareLink(a, b, pick) {
+  const k = [a.id, b.id, pick || ''].join('|')
+  if (signedIn()) {
+    if (!inviteCache[k]) inviteCache[k] = api('/invites', { method: 'POST', body: { a: a.id, b: b.id, pick: pick || null } })
+      .then((r) => (r.ok && r.j?.code ? (CFG.shareBase || SHARE_BASE) + '#i/' + r.j.code : null)).catch(() => null)
+    const u = await inviteCache[k]; if (u) return u
+    delete inviteCache[k]
+  }
+  return clashURL(a, b, pick)
+}
+const shareText = (a, b, pick) => (pick ? `I picked my winner. ${a.comic} vs ${b.comic}: which is funnier?` : `${a.comic} vs ${b.comic}: which is funnier?`)
+const waURL = (text, url) => 'https://wa.me/?text=' + encodeURIComponent(text + ' ' + url)
+async function shareClash(a, b, pick) {
+  if (!a || !b) return
+  const url = await shareLink(a, b, pick), text = shareText(a, b, pick)
+  if (navigator.share) {
+    try { await navigator.share({ title: 'Funnier: settle this clash', text, url }); return }
+    catch (e) { if (e && e.name === 'AbortError') return }
+  }
+  if (await copyText(url)) toast(pick ? 'Link copied. Your friend sees your pick only after they vote.' : 'Link copied. Send it to a friend.')
+  else toast('Copy this link: ' + url)
+}
+
+// ---------- daily clash: site/daily.json editorial schedule, deterministic topic-matched fallback ----------
+// The fallback MUST match tally/tally.mjs (same clip order, same hash) so results line up with what people saw.
+const pad2 = (n) => String(n).padStart(2, '0')
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+function dayStr(d = new Date()) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` }
+function hashStr(s) { let h = 2166136261; for (const ch of String(s)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0 } return h >>> 0 }
+function topicPairs() {
+  const cs = [...CLIPS].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)), out = []
+  for (let i = 0; i < cs.length; i++) for (let j = i + 1; j < cs.length; j++) {
+    const A = cs[i], B = cs[j]
+    if (A.kind !== B.kind) continue
+    const tb = Array.isArray(B.topics) ? B.topics : []
+    const shared = (Array.isArray(A.topics) ? A.topics : []).filter((t) => tb.includes(t)).sort()
+    if (shared.length) out.push({ a: A.id, b: B.id, topic: shared[0] })
+  }
+  return out
+}
+function dailyFor(date) {
+  if (!DAY_RE.test(String(date || ''))) return null
+  const e = DAILY.find((x) => x && x.date === date && BYID[x.a] && BYID[x.b] && x.a !== x.b)
+  if (e) return { date, title: e.title || '', blurb: e.blurb || '', a: e.a, b: e.b, topic: e.topic || '', editorial: true }
+  const P = topicPairs(); if (!P.length) return null
+  const p = P[hashStr(date) % P.length]
+  return { date, title: '', blurb: `Two takes on ${p.topic}. Which one lands?`, a: p.a, b: p.b, topic: p.topic, editorial: false }
+}
+function dailyFields(v) {
+  if (!v || !DAY_RE.test(String(v.daily || ''))) return {}
+  const cc = ccOn()
+  return { daily: v.daily, ...(cc ? { cc } : {}) } // country only with daily-clash picks, only when opted in (checked at publish time)
+}
+function dailyMine(date) { return [...LS.get('votes', []), ...LS.get('partials', [])].filter((v) => v && v.daily === date).sort((x, y) => Date.parse(x.createdAt) - Date.parse(y.createdAt)).pop() || null }
+function untilNext() {
+  const n = new Date(), next = new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1)
+  const m = Math.max(0, Math.round((next - n) / 60000)), h = Math.floor(m / 60)
+  return h ? `${h}h ${pad2(m % 60)}m` : `${m}m`
+}
+// "The world says X% / Y%" (+ your country's split when it has enough votes), from data/daily.json
+function worldLine(D) {
+  const day = DAILYRES?.days?.[D.date]
+  if (!day || !(day.total > 0)) return 'The world\u2019s split appears soon. Results update every 15 min.'
+  const flip = day.a !== D.a
+  const pa = flip ? day.pctB : day.pctA, pb = flip ? day.pctA : day.pctB
+  const A = BYID[D.a], B = BYID[D.b]
+  let s = `The world says ${esc(A?.comic || 'one')} ${pa}% / ${esc(B?.comic || 'two')} ${pb}% (${day.total} vote${day.total === 1 ? '' : 's'}).`
+  const cc = ccOn(), row = cc && Array.isArray(day.countries) ? day.countries.find((c) => c.cc === cc) : null
+  if (row) s += ` ${esc(ccName(cc))}: ${flip ? row.pctB : row.pctA}% / ${flip ? row.pctA : row.pctB}%.`
+  else if (cc) s += ` ${esc(ccName(cc))} shows once it has 5 votes.`
+  return s
+}
+function playDaily() {
+  const D = dailyFor(dayStr()); if (!D) return
+  pendingClash = { a: D.a, b: D.b, pick: null, daily: D.date }
+  userStarted = true
+  showTab('arena'); moving = false; goNext(null)
+}
+let dailyTimer = null, dailyDay = null
+function paintDaily() {
+  const el = $('#daily'); if (!el) return
+  const D = dailyFor(dayStr()); dailyDay = D?.date || dayStr()
+  if (!D) { el.hidden = true; el.innerHTML = ''; return }
+  const A = BYID[D.a], B = BYID[D.b], mine = dailyMine(D.date)
+  const playing = current?.mode === 'daily' && current.daily === D.date && ['intro', 'left', 'right', 'vote'].includes(stage)
+  el.hidden = false
+  el.classList.toggle('playing', playing)
+  el.innerHTML = `<div class="dhinner" title="${esc(A.comic)} vs ${esc(B.comic)}${D.blurb ? ' · ' + esc(D.blurb) : ''}">
+    <i class="dot" aria-hidden="true"></i><b class="dhtitle">Daily Clash${D.title ? `<span>: ${esc(D.title)}</span>` : ''}</b>
+    <span class="dhcount" aria-label="Next daily clash in">${untilNext()}</span>
+    ${playing ? '' : mine ? `<button type="button" class="dhghost" data-dh="share">Share ↗</button>` : `<button type="button" class="dhbtn" data-dh="play">Play</button>`}</div>`
+  el.querySelectorAll('[data-dh]').forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation()
+    if (b.dataset.dh === 'play') playDaily()
+    else holdWhile(() => shareClash(A, B, mine.winner === A.id ? 'a' : 'b'))
+  }))
+  if (!dailyTimer) dailyTimer = setInterval(() => {
+    if (dayStr() !== dailyDay) return paintDaily() // midnight: a new clash
+    const c = document.querySelector('#daily .dhcount'); if (c) c.textContent = untilNext()
+  }, 30000)
+}
+
+// ---------- country (opt-in only; preselected from navigator.language's region, never geo-IP) ----------
+const CC_LIST = 'AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW'.split(' ')
+let ccNames = null
+function ccName(c) {
+  try { ccNames = ccNames || new Intl.DisplayNames([navigator.language || 'en', 'en'], { type: 'region' }); return ccNames.of(c) || c } catch { return c }
+}
+function ccPref() { const x = LS.get('cc', null); return x && typeof x === 'object' && CC_LIST.includes(x.code) ? x : null }
+function ccOn() { const p = ccPref(); return p && p.on ? p.code : null }
+function ccGuess() { const m = String(navigator.language || '').match(/[-_]([A-Za-z]{2})(?:$|[-_])/); const c = m?.[1]?.toUpperCase(); return c && CC_LIST.includes(c) ? c : '' }
+function ccOptions(sel) {
+  return `<option value="">Choose a country</option>` + CC_LIST.map((c) => [c, ccName(c)]).sort((x, y) => x[1].localeCompare(y[1]))
+    .map(([c, n]) => `<option value="${c}" ${c === sel ? 'selected' : ''}>${esc(n)}</option>`).join('')
+}
+function ccAskHTML() {
+  return `<div class="ccask" role="group" aria-label="Daily clash map"><span>Add your country to the daily clash map?</span>
+    <select class="ccsel" aria-label="Your country">${ccOptions(ccGuess())}</select>
+    <button type="button" class="dhbtn small" data-cc="yes">Add</button><button type="button" class="dhghost small" data-cc="no">No thanks</button>
+    <small>Sent only with your daily-clash picks. Remove it any time in Your model → History.</small></div>`
+}
+function bindCcAsk(root) {
+  root.querySelectorAll('[data-cc]').forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation()
+    LS.set('ccAsked', true)
+    if (b.dataset.cc === 'yes') {
+      const code = root.querySelector('.ccsel')?.value
+      if (!code) { LS.set('ccAsked', false); return toast('Pick a country first, or tap No thanks.') }
+      LS.set('cc', { code, on: true, at: new Date().toISOString() }); toast(`Added ${ccName(code)}. Your daily picks now count on the map.`)
+    } else toast('No problem. Your country stays off.')
+    paintDaily(); paintHistory()
+  }))
+}
+
+// ---------- share without losing your place: auto-advance / intro / playback wait while the share sheet is open ----------
+let advT = null
+function scheduleAdvance(ms) { clearTimeout(advT); advT = setTimeout(() => { advT = null; goNext(null) }, ms) }
+async function holdWhile(fn) {
+  const h = { adv: false, intro: false, play: null, el: cur?.el }
+  if (advT) { clearTimeout(advT); advT = null; h.adv = true }
+  else if (stage === 'intro') { clearTimers(); h.intro = true }
+  else if (stage === 'left' || stage === 'right') { const s = screens[stage === 'left' ? 'L' : 'R']; if (s?.playing?.()) { s.pause(); h.play = s } }
+  else if (stage === 'vote' && armed) pauseBallot('Countdown paused. Pick when you\u2019re ready.')
+  try { await fn() } catch {} finally {
+    if (h.adv && cur?.el === h.el) scheduleAdvance(500)
+    else if (h.intro && stage === 'intro' && cur?.el === h.el) later(() => stage === 'intro' && cur?.el === h.el && startClip('L'), 900)
+    else if (h.play && !h.play.dead) h.play.play()
+  }
+}
+
+// ---------- after-vote result card: result, world split (daily), "Send to a friend", why-chips ----------
+const WHY = ['Smarter', 'Weirder', 'Darker', 'Better delivery', 'More relatable', 'Better payoff']
+let whyT
+function askWhy(v, shareOnly, fl, guess) {
+  const box = $('#why'); if (!box) return
+  const A = BYID[v.a], B = BYID[v.b], W = BYID[v.winner]
+  const D = v.daily ? dailyFor(v.daily) : null
+  const pick = v.winner === v.a ? 'a' : 'b', inv = sharedRound?.invite && sharedRound.key === pairKey(v.a, v.b) ? sharedRound.invite : null
+  const text = shareText(A, B, pick)
+  box.innerHTML = `<p class="rchead"><b>${shareOnly ? 'Noted, but it didn\u2019t count' : esc(W?.comic || '') + ' takes it.'}</b>${!shareOnly && guess ? `<span class="muted">${esc(guess)}</span>` : ''}${fl ? `<span class="${fl.agree ? 'agree' : 'disagree'}">${esc(fl.text)}</span>` : ''}</p>
+    <div class="rcsplit" aria-live="polite">${D ? `<p class="rcworld">${worldLine(D)}</p>` : ''}</div>
+    <div class="rcfriends" hidden></div>
+    <div class="rcshare"><button type="button" class="rcsend" data-sh="native">Share ↗</button><a class="rcalt" data-sh="wa" href="${esc(waURL(text, clashURL(A, B, pick)))}" target="_blank" rel="noopener">WhatsApp</a><button type="button" class="rcalt" data-sh="copy">Copy link</button></div>
+    ${inv && !inv.self && !inv.friends && inv.inviter?.username ? `<button type="button" class="rcadd" data-sh="add">${avatarHTML(inv.inviter)}Add ${esc(inv.inviter.username)} as a friend</button>` : ''}
+    ${shareOnly ? '' : `<div class="rcwhy"><span>Why was it funnier?</span>${WHY.map((w) => `<button type="button" data-why>${w}</button>`).join('')}</div>`}`
+  let sharing = false
+  const hideIn = (ms) => { clearTimeout(whyT); whyT = setTimeout(() => { if (!sharing) box.classList.remove('on') }, ms) }
+  box.classList.add('on'); hideIn(signedIn() ? 7000 : 5000)
+  box.onpointerenter = () => clearTimeout(whyT); box.onpointerleave = () => hideIn(2500)
+  box.onfocusin = () => clearTimeout(whyT)
+  const linkP = shareLink(A, B, pick)
+  const wa = box.querySelector('[data-sh="wa"]')
+  linkP.then((u) => { if (wa) wa.href = waURL(text, u) })
+  const hold = async (fn) => { sharing = true; clearTimeout(whyT); await holdWhile(fn); sharing = false; hideIn(1500) }
+  box.querySelector('[data-sh="native"]').onclick = (e) => { e.stopPropagation(); hold(() => shareClash(A, B, pick)) }
+  box.querySelector('[data-sh="copy"]').onclick = async (e) => { e.stopPropagation(); const u = await linkP; toast((await copyText(u)) ? 'Link copied. Your friend sees your pick only after they vote.' : 'Copy this link: ' + u) }
+  if (wa) wa.onclick = (e) => { e.stopPropagation(); clearTimeout(advT); advT = null }
+  const add = box.querySelector('[data-sh="add"]')
+  if (add) add.onclick = (e) => { e.stopPropagation(); clearTimeout(advT); advT = null; addFriend(inv, add) }
+  box.querySelectorAll('button[data-why]').forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation()
+    const votes = LS.get('votes', []); const last = votes.find((x) => x.createdAt === v.createdAt)
+    if (last) { last.why = b.textContent; LS.set('votes', votes); if (signedIn()) api('/votes', { method: 'POST', body: { votes: [apiVote(last)] } }).catch(() => {}) }
+    const q2 = LS.get('queue', []); const lq = q2.find((x) => x.createdAt === v.createdAt); if (lq) { lq.why = b.textContent; LS.set('queue', q2) }
+    box.classList.remove('on'); toast('Noted. Your model will use that.'); paintHistory()
+  }))
+  // invite bookkeeping: this open voted; signed-out friends get added when they sign in
+  if (inv && !inv.self) {
+    if (inv.open_id != null) api(`/invites/${encodeURIComponent(inv.code)}/voted`, { method: 'POST', body: { open_id: inv.open_id } }).catch(() => {})
+    if (!signedIn() && !inv.friends) LS.set('pendingAccept', { code: inv.code, open_id: inv.open_id, username: inv.inviter?.username || '' })
+  }
+  paintResult(box, v, D, shareOnly)
+}
+// global split flashes in, then friends' faces on the side they picked
+async function paintResult(box, v, D, shareOnly) {
+  const A = BYID[v.a], B = BYID[v.b], el = box.querySelector('.rcsplit'), fr = box.querySelector('.rcfriends')
+  let pa = null, n = 0
+  if (CFG.apiBase) {
+    try { if (signedIn() && !shareOnly) await syncVotes() } catch {}
+    try { const r = await api(`/stats/clash/${encodeURIComponent(v.a)}/${encodeURIComponent(v.b)}`); if (r.ok && r.j?.total > 0) { pa = r.j.pctA; n = r.j.total } } catch {}
+  }
+  if (pa == null) { // fall back to the published (Bluesky) tally
+    const vs = PUBVOTES.filter((x) => x && pairKey(x.a, x.b) === pairKey(v.a, v.b))
+    if (vs.length) { n = vs.length; pa = Math.round((100 * vs.filter((x) => x.winner === v.a).length) / n) }
+  }
+  if (!box.contains(el)) return
+  if (pa != null) el.innerHTML = `<div class="split${v.winner === v.a ? ' l' : ' r'}"><span>${esc(A.comic)} <b>${pa}%</b></span><i style="--p:${pa}%"></i><span><b>${100 - pa}%</b> ${esc(B.comic)}</span></div><small class="muted">${n} pick${n === 1 ? '' : 's'} so far</small>`
+  else if (!D) el.innerHTML = `<p class="rcworld">You\u2019re the first to call this one.</p>`
+  requestAnimationFrame?.(() => el.querySelector('.split')?.classList.add('on'))
+  if (!signedIn() || !fr) return
+  try {
+    const r = await api(`/clash/${encodeURIComponent(v.a)}/${encodeURIComponent(v.b)}/friends`)
+    const fs = r.ok ? r.j?.friends || [] : []
+    if (!fs.length || !box.contains(fr)) return
+    const side = (id) => fs.filter((f) => f.winner === id).map((f) => `<span class="fa" title="${esc(f.username || '')}">${avatarHTML(f)}</span>`).join('')
+    fr.innerHTML = `<p>See what your friends think</p><div class="fsides"><div>${side(v.a) || '<span class="muted small">nobody</span>'}<small>${esc(A.comic)}</small></div><div>${side(v.b) || '<span class="muted small">nobody</span>'}<small>${esc(B.comic)}</small></div></div>`
+    fr.hidden = false
+  } catch {}
+}
+
+// ---------- history: everything you did, from this device's own logs ----------
+let HFILTER = 'all', YOUSUB = 'model'
+const arr = (x) => (Array.isArray(x) ? x : [])
+function historyEntries() {
+  const E = [], ok = (v) => v && typeof v.a === 'string' && typeof v.b === 'string'
+  for (const v of arr(LS.get('votes', []))) if (ok(v)) E.push({ kind: 'pick', t: v.createdAt, v, counted: true })
+  for (const v of arr(LS.get('partials', []))) if (ok(v)) E.push({ kind: 'pick', t: v.createdAt, v, counted: false })
+  for (const p of arr(LS.get('passes', []))) if (ok(p)) E.push({ kind: 'skip', sub: 'pass', t: p.at, v: p })
+  const nf = []
+  for (const s of arr(LS.get('skips', []))) { if (!ok(s)) continue; if (s.stage === 'left-skip' || s.stage === 'right-skip') nf.push(s); else E.push({ kind: 'skip', sub: 'clash', t: s.at, v: s }) }
+  for (const s of nf) { // a "Not funny" skip belongs to the clash it happened in (the pick, pass or skip that followed)
+    const k = pairKey(s.a, s.b), ts = Date.parse(s.at)
+    const host = E.filter((e) => e.v && pairKey(e.v.a, e.v.b) === k && Date.parse(e.t) >= ts && Date.parse(e.t) - ts < 20 * 60e3).sort((x, y) => Date.parse(x.t) - Date.parse(y.t))[0]
+    if (host) (host.nf = host.nf || []).push(s); else E.push({ kind: 'skip', sub: 'notfunny', t: s.at, v: s, nf: [s] })
+  }
+  const specs = allSpecials()
+  for (const [id, m] of Object.entries(spGet())) { const s = specs.find((x) => x.id === id); if (s && m && (m.seen || m.stars || m.note)) E.push({ kind: 'special', t: m.at, s, m }) }
+  return E.filter((e) => e.t && !isNaN(Date.parse(e.t))).sort((x, y) => Date.parse(y.t) - Date.parse(x.t))
+}
+function dayLabel(t) {
+  const d = new Date(t), k = dayStr(d), today = dayStr(), y = new Date(); y.setDate(y.getDate() - 1)
+  if (k === today) return 'Today'
+  if (k === dayStr(y)) return 'Yesterday'
+  try { return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }) } catch { return k }
+}
+const secs = (x) => (Number.isFinite(x) && x > 0 ? `${Math.round(x)}s` : '0s')
+const hhmm = (t) => { try { return new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) } catch { return '' } }
+function clashRow(e, i) {
+  const v = e.v, A = BYID[v.a], B = BYID[v.b], win = e.kind === 'pick' ? v.winner : null
+  const ws = { L: v.leftWatchedSec, R: v.rightWatchedSec }
+  if (e.sub === 'clash' || e.sub === 'notfunny') { if (v.clip === v.a && ws.L == null) ws.L = v.watchedSec; if (v.clip === v.b && ws.R == null) ws.R = v.watchedSec }
+  const th = (c, id, side) => `<span class="hth${win === id ? ' won' : ''}${win && win !== id ? ' lost' : ''}"><span class="hpic">${!c || c.media === 'youtube' ? `<img loading="lazy" decoding="async" src="${thumb(esc(id))}" alt="">` : ''}</span>
+    <b>${esc(c?.comic || 'Retired clip')}</b><small>${ws[side] != null ? 'watched ' + secs(ws[side]) : '&nbsp;'}</small></span>`
+  const stg = { intro: 'Skipped at the intro', left: 'Skipped during #1', right: 'Skipped during #2', vote: 'Skipped the ballot', done: 'Moved on' }
+  const W = BYID[win]
+  const what = e.kind === 'pick' ? `Picked <b>${esc(W?.comic || '?')}</b>${e.counted ? '' : ' <span class="hmuted">· didn\u2019t count (under 30s)</span>'}`
+    : e.sub === 'pass' ? 'Pass <span class="hmuted">· no pick in 3s</span>'
+      : e.sub === 'notfunny' ? '\u201cNot funny\u201d skip' : (stg[v.stage] || 'Skipped')
+  const chips = []
+  if (v.daily) chips.push(`<span class="hchip daily">Daily clash</span>`)
+  if (v.why) chips.push(`<span class="hchip">${esc(v.why)}</span>`)
+  if (Number.isFinite(v.decisionMs)) chips.push(`<span class="hchip">decided in ${(v.decisionMs / 1000).toFixed(1)}s</span>`)
+  if (v.friend) chips.push(`<span class="hchip ${v.friend === 'agree' ? 'agree' : 'disagree'}">${v.friend === 'agree' ? 'Agreed with your friend' : 'Disagreed with your friend'}</span>`)
+  for (const s of e.nf || []) chips.push(`<span class="hchip nf">\u201cNot funny\u201d on #${s.stage === 'left-skip' ? 1 : 2}${s.comic ? ' · ' + esc(s.comic) : ''}</span>`)
+  const live = A && B
+  return `<li class="hrow"><div class="hpair">${th(A, v.a, 'L')}<i>vs</i>${th(B, v.b, 'R')}</div>
+    <div class="hmeta"><p class="hwhat">${what}<span class="htime">${hhmm(e.t)}</span></p>${chips.length ? `<p class="hchips">${chips.join('')}</p>` : ''}
+    ${live ? `<p class="hacts"><a class="hbtn" href="#clash/${encodeURIComponent(v.a)}/${encodeURIComponent(v.b)}&from=history">Rewatch</a><button type="button" class="hbtn send" data-hshare="${i}" title="Send to a friend — see if they agree">Share ↗</button></p>` : ''}</div></li>`
+}
+function specialRow(e) {
+  const { s, m } = e
+  return `<li class="hrow sprow"><span class="hsp" style="background:linear-gradient(160deg,hsl(${hue(s.id)} 70% 22%) 0%,#0b0b0e 75%)">${esc(String(s.year || ''))}</span>
+    <div class="hmeta"><p class="hwhat"><a href="#comic/${esc(slugOf(e.s.comic))}"><b>${esc(s.title)}</b></a> <span class="hmuted">· ${esc(s.comic)}</span><span class="htime">${hhmm(e.t)}</span></p>
+    <p class="hchips">${m.seen ? '<span class="hchip">Seen</span>' : ''}${m.stars ? `<span class="hchip gold">★ ${m.stars}</span>` : ''}${m.note ? `<span class="hchip">“${esc(String(m.note).slice(0, 60))}”</span>` : ''}</p></div></li>`
+}
+function paintHistory() {
+  const el = $('#hist'); if (!el) return
+  const all = historyEntries()
+  const F = { all: () => true, picks: (e) => e.kind === 'pick', skips: (e) => e.kind === 'skip', specials: (e) => e.kind === 'special' }
+  const list = all.filter(F[HFILTER] || F.all)
+  const n = (k) => all.filter(F[k]).length
+  let html = `<div class="head"><h2>History</h2></div>
+    <div class="lanes hfilters" role="group" aria-label="Filter history">${[['all', 'All'], ['picks', 'Picks'], ['skips', 'Skips'], ['specials', 'Specials']].map(([k, l]) => `<button type="button" data-hf="${k}" class="${HFILTER === k ? 'on' : ''}" aria-pressed="${HFILTER === k}">${l} <small>${n(k)}</small></button>`).join('')}</div>`
+  if (!list.length) html += `<p class="empty">${all.length ? 'Nothing here under this filter yet.' : 'Your screenings, picks, skips and specials show up here, newest first. Everything stays on this device.'}</p>`
+  else {
+    let day = null
+    html += '<div class="hdays">'
+    list.forEach((e, i) => {
+      const d = dayLabel(e.t)
+      if (d !== day) { html += `${day ? '</ul>' : ''}<h3 class="hday">${esc(d)}</h3><ul class="hlist">`; day = d }
+      html += e.kind === 'special' ? specialRow(e) : clashRow(e, i)
+    })
+    html += '</ul></div>'
+  }
+  const p = ccPref()
+  html += `<div class="hsettings"><h3>Your data</h3>
+    <label class="cctoggle"><input type="checkbox" id="ccon" ${p?.on ? 'checked' : ''}> Add my country to daily clash picks</label>
+    <select id="ccpick" aria-label="Your country" ${p?.on ? '' : 'disabled'}>${ccOptions(p?.code || ccGuess())}</select>
+    <p class="muted small">Off unless you turn it on. When on, only your daily-clash picks carry a two-letter country code. Nothing is detected from your location.</p>
+    <p class="hdata"><button type="button" class="btn" id="hexport">Export my data</button><button type="button" class="btn danger" id="hclear">Clear history</button></p>
+    <p class="muted small">History lives only in this browser. Clearing it resets your taste model here; picks already published to Bluesky stay published.</p></div>`
+  el.innerHTML = html
+  el.querySelectorAll('[data-hf]').forEach((b) => (b.onclick = () => { HFILTER = b.dataset.hf; paintHistory() }))
+  el.querySelectorAll('[data-hshare]').forEach((b) => (b.onclick = () => {
+    const e = list[+b.dataset.hshare]; if (!e) return
+    const A = BYID[e.v.a], B = BYID[e.v.b], pick = e.kind === 'pick' ? (e.v.winner === e.v.a ? 'a' : e.v.winner === e.v.b ? 'b' : null) : null
+    shareClash(A, B, pick)
+  }))
+  const cb = el.querySelector('#ccon'), cs = el.querySelector('#ccpick')
+  if (cb) cb.onchange = () => {
+    LS.set('ccAsked', true)
+    if (cb.checked) { if (!cs.value) { cs.disabled = false; cb.checked = false; return toast('Choose your country, then tick the box.') } LS.set('cc', { code: cs.value, on: true, at: new Date().toISOString() }) }
+    else { try { localStorage.removeItem('funnier.cc') } catch {} toast('Country removed. Future picks won\u2019t include it.') }
+    paintHistory(); paintDaily()
+  }
+  if (cs) { cs.disabled = false; cs.onchange = () => { if (ccPref()?.on && cs.value) LS.set('cc', { code: cs.value, on: true, at: new Date().toISOString() }); else if (cs.value && !cb.checked) { cb.checked = true; cb.onchange() } } }
+  el.querySelector('#hexport').onclick = exportData
+  el.querySelector('#hclear').onclick = clearHistory
+}
+function exportData() {
+  const data = {}
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('funnier.')) { try { data[k.slice(8)] = JSON.parse(localStorage.getItem(k)) } catch { data[k.slice(8)] = localStorage.getItem(k) } } } } catch {}
+  const blob = new Blob([JSON.stringify({ kind: 'funnier.local-data', version: 1, exported: new Date().toISOString(), data }, null, 2)], { type: 'application/json' })
+  try { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `funnier-data-${dayStr()}.json`; document.body.appendChild(a); a.click(); a.remove() } catch { toast('Download blocked by the browser.') }
+}
+const HISTORY_KEYS = ['votes', 'partials', 'passes', 'skips', 'skipped', 'seen', 'shown', 'preds', 'dur', 'specials', 'dailyAuto']
+function clearHistory() {
+  let ok = false
+  try { ok = window.confirm('Clear your Funnier history on this device?\n\nThis removes your picks, passes, skips and specials log, and resets your taste model here. Picks already published to Bluesky stay published.') } catch { ok = false }
+  if (!ok) return
+  for (const k of HISTORY_KEYS) { try { localStorage.removeItem('funnier.' + k) } catch {} }
+  MODEL = fitLocal(); TRAITS = fitTraits()
+  paintHistory(); paintYou(); paintDaily(); toast('History cleared.')
+}
+function youSub(k) {
+  YOUSUB = k === 'history' ? 'history' : 'model'
+  document.querySelectorAll('[data-sub]').forEach((b) => { const on = b.dataset.sub === YOUSUB; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)) })
+  const y = $('#you'), h = $('#hist'); if (y) y.hidden = YOUSUB !== 'model'; if (h) h.hidden = YOUSUB !== 'history'
+  if (YOUSUB === 'history') paintHistory()
+}
+
+// ---------- accounts: Google sign-in via funnier-api (Cloudflare Worker + D1) ----------
+let CFG = { apiBase: '', googleClientId: '', shareBase: SHARE_BASE }, USER = null
+const signedIn = () => !!(USER && CFG.apiBase)
+async function loadConfig() {
+  try { const r = await fetch('config.json', { cache: 'no-cache' }); if (r.ok) CFG = { ...CFG, ...(await r.json()) } } catch {}
+  if (IS_LOCAL && !CFG.apiBase && CFG.localApi) CFG.apiBase = CFG.localApi
+}
+async function api(path, { method = 'GET', body } = {}) {
+  if (!CFG.apiBase) throw new Error('no api')
+  const t = LS.get('session', null)
+  const r = await fetch(CFG.apiBase + path, { method, credentials: 'include',
+    headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(t ? { authorization: 'Bearer ' + t } : {}) },
+    body: body ? JSON.stringify(body) : undefined })
+  let j = null; try { j = await r.json() } catch {}
+  if (r.status === 401 && t && !path.startsWith('/auth/')) { LS.set('session', null); USER = null; paintUser() }
+  return { ok: !!r.ok, status: r.status, j }
+}
+const apiVote = (v) => ({ a: v.a, b: v.b, winner: v.winner, ...(v.why ? { why: v.why } : {}), ...(Number.isInteger(v.decisionMs) ? { ms: v.decisionMs } : {}), ...(v.daily ? { daily: v.daily } : {}), createdAt: v.createdAt })
+let syncing = null
+function syncVotes() {
+  if (!signedIn()) return Promise.resolve()
+  if (syncing) return syncing
+  syncing = (async () => {
+    const since = LS.get('syncedAt', ''), key = 'u:' + USER.id
+    const all = LS.get('votes', []).filter((v) => v && v.a && v.b && v.winner && (LS.get('syncedUser', '') !== key || String(v.createdAt) > since))
+    for (let i = 0; i < all.length; i += 500) {
+      const chunk = all.slice(i, i + 500), r = await api('/votes', { method: 'POST', body: { votes: chunk.map(apiVote) } })
+      if (!r.ok) return
+      LS.set('syncedAt', chunk.map((v) => String(v.createdAt)).sort().pop()); LS.set('syncedUser', key)
+    }
+  })().finally(() => (syncing = null))
+  return syncing
+}
+async function initAccount() {
+  if (!CFG.apiBase || !LS.get('session', null)) { paintUser(); return }
+  try { const r = await api('/me'); if (r.ok) { USER = r.j.user; afterSignIn(r.j.needsProfile, false) } } catch {}
+  paintUser()
+}
+async function afterSignIn(needs, fresh) {
+  paintUser(); paintProfilePage()
+  syncVotes().catch(() => {})
+  const pa = LS.get('pendingAccept', null)
+  if (pa?.code) {
+    try { const r = await api(`/invites/${encodeURIComponent(pa.code)}/accept`, { method: 'POST', body: { open_id: pa.open_id } }); if (r.ok) toast(`You and ${r.j.friend?.username || pa.username} are now friends.`) } catch {}
+    LS.set('pendingAccept', null)
+  }
+  if (needs && (fresh || !LS.get('onboardSeen', false))) openOnboarding()
+  else if (fresh) toast(`Signed in as ${USER.username || USER.name || 'you'}.`)
+}
+async function onGoogleCredential(resp) {
+  try {
+    const r = await api('/auth/google', { method: 'POST', body: { credential: resp.credential } })
+    if (!r.ok || !r.j?.token) return toast(r.status === 503 ? 'Google sign-in is coming soon.' : 'Sign-in didn\u2019t work. Please try again.')
+    LS.set('session', r.j.token); USER = r.j.user; setMenu(false)
+    afterSignIn(r.j.needsProfile, true)
+  } catch { toast('Sign-in didn\u2019t work. Please try again.') }
+}
+let gisP = null
+function loadGIS() {
+  if (gisP) return gisP
+  gisP = new Promise((res, rej) => {
+    if (window.google?.accounts?.id) return res(window.google)
+    const t = document.createElement('script'); t.src = 'https://accounts.google.com/gsi/client'; t.async = true
+    t.onload = () => res(window.google); t.onerror = () => { gisP = null; rej(new Error('gis')) }
+    document.head.appendChild(t)
+  }).then((g) => { g.accounts.id.initialize({ client_id: CFG.googleClientId, callback: onGoogleCredential, auto_select: false, itp_support: true, use_fedcm_for_prompt: true }); return g })
+  return gisP
+}
+function renderGoogleButton(host) {
+  if (!host || !CFG.googleClientId || !CFG.apiBase) return
+  loadGIS().then((g) => { if (document.body.contains(host)) { host.innerHTML = ''; g.accounts.id.renderButton(host, { type: 'standard', theme: 'filled_black', size: 'large', shape: 'pill', text: 'signin_with', logo_alignment: 'left', width: 256 }) } })
+    .catch(() => { host.innerHTML = '<p class="um-note">Couldn\u2019t reach Google. Check your connection and try again.</p>' })
+}
+async function signOut() {
+  try { await api('/auth/logout', { method: 'POST' }) } catch {}
+  try { window.google?.accounts?.id?.disableAutoSelect() } catch {}
+  LS.set('session', null); USER = null; setMenu(false); paintUser(); toast('Signed out. Your picks stay on this device.')
+  if (!$('#v-profile')?.hidden) showTab('arena')
+}
+async function deleteAccount() {
+  let ok = false
+  try { ok = window.confirm('Delete your Funnier account?\n\nThis permanently removes your profile, synced picks, friends and invites from our servers. Your history on this device stays until you clear it.') } catch {}
+  if (!ok) return
+  const r = await api('/me', { method: 'DELETE' }).catch(() => null)
+  if (!r?.ok) return toast('Couldn\u2019t delete right now. Please try again.')
+  LS.set('session', null); LS.set('syncedAt', ''); USER = null; setMenu(false); paintUser(); showTab('arena'); toast('Your account and its data are deleted.')
+}
+async function addFriend(inv, btn) {
+  if (!inv?.code) return
+  if (!signedIn()) {
+    LS.set('pendingAccept', { code: inv.code, open_id: inv.open_id, username: inv.inviter?.username || '' })
+    toast(`Sign in and you and ${inv.inviter?.username || 'your friend'} become friends.`); setMenu(true); return
+  }
+  const r = await api(`/invites/${encodeURIComponent(inv.code)}/accept`, { method: 'POST', body: { open_id: inv.open_id } }).catch(() => null)
+  if (r?.ok) { inv.friends = true; if (btn) { btn.disabled = true; btn.innerHTML = `${avatarHTML(inv.inviter)}Friends with ${esc(inv.inviter.username)} ✓` } toast(`You and ${inv.inviter.username} are now friends.`) }
+  else toast('Couldn\u2019t add them right now.')
+}
+// opening https://…/#i/<code>: "<username> challenged you", their clash plays next
+const parseInvite = (h) => { const m = String(h || '').match(/^#i\/([A-Za-z0-9]{4,16})/); return m ? m[1] : null }
+async function openInvite(code) {
+  if (!CFG.apiBase) return false
+  try {
+    const r = await api('/invites/' + encodeURIComponent(code))
+    if (!r.ok || !r.j?.a) { toast('That invite has expired, so here is tonight\u2019s screening.'); return false }
+    pendingClash = { a: r.j.a, b: r.j.b, pick: r.j.pick || null, invite: { code, inviter: r.j.inviter, open_id: r.j.open_id, self: !!r.j.self, friends: !!r.j.friends } }
+    return true
+  } catch { return false }
+}
+
+// ---------- avatars: one seed -> one mascot (mascot-avatars, bundled, MIT) ----------
+// The seed is all we store (users.avatar_seed). Species + palette are derived from it here so the same
+// seed always draws the same animal; v1 preset ids map to the seed 'preset-<id>'.
+const AV_SPECIES = ['cat', 'bear', 'bunny', 'bird', 'dog', 'frog', 'penguin', 'mouse']
+const AV_NAMES = { cat: 'Cat', bear: 'Bear', bunny: 'Bunny', bird: 'Bird', dog: 'Dog', frog: 'Frog', penguin: 'Penguin', mouse: 'Mouse' }
+const AV_PALETTES = PALETTES.filter((p) => p.name !== 'Slate').map((p) => p.name) // no grey-on-grey: comedy wants colour
+const AV_LEGACY = ['grin', 'deadpan', 'wink', 'shock', 'smirk', 'cool', 'nerd', 'tash', 'sleepy', 'tongue', 'monocle', 'clown']
+const SEED_RE = /^[A-Za-z0-9_-]{1,40}$/
+function avHash(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) } h ^= h >>> 15; h = Math.imul(h, 2246822507); return (h ^ (h >>> 13)) >>> 0 }
+const avLook = (seed) => { const h = avHash(String(seed)); return { species: AV_SPECIES[h % AV_SPECIES.length], palette: AV_PALETTES[Math.floor(h / AV_SPECIES.length) % AV_PALETTES.length] } }
+const seedOf = (u) => (u?.avatar_seed && SEED_RE.test(u.avatar_seed) ? u.avatar_seed : u?.avatar_id && AV_LEGACY.includes(u.avatar_id) ? 'preset-' + u.avatar_id : null)
+const AV_CACHE = new Map()
+function seedSVG(seed) {
+  if (!seed || !SEED_RE.test(seed)) return SILHOUETTE
+  let svg = AV_CACHE.get(seed)
+  if (!svg) {
+    svg = renderAvatar({ seed, ...avLook(seed) }).replace(/<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"([^>]*?) width="\d+" height="\d+">/, '<svg xmlns="http://www.w3.org/2000/svg"$1 class="avsvg" aria-hidden="true" focusable="false">')
+    if (AV_CACHE.size > 300) AV_CACHE.clear()
+    AV_CACHE.set(seed, svg)
+  }
+  return svg
+}
+// a fresh seed whose look (species + palette) differs from the last few rolls, so every reroll visibly changes
+const AV_RECENT = []
+function newSeed() {
+  const abc = 'abcdefghijkmnopqrstuvwxyz23456789'
+  for (let tries = 0; ; tries++) {
+    const r = crypto.getRandomValues(new Uint8Array(10)), seed = [...r].map((x) => abc[x % abc.length]).join('')
+    const l = avLook(seed), key = l.species + '/' + l.palette, last = AV_RECENT[AV_RECENT.length - 1] || ''
+    if (tries < 40 && (AV_RECENT.includes(key) || last.split('/')[0] === l.species)) continue
+    AV_RECENT.push(key); if (AV_RECENT.length > 12) AV_RECENT.shift()
+    return seed
+  }
+}
+function avatarHTML(u) {
+  const seed = seedOf(u)
+  if (seed) return `<span class="av">${seedSVG(seed)}</span>`
+  if (u?.google_avatar && /^https:\/\//.test(u.google_avatar)) return `<span class="av"><img src="${esc(u.google_avatar)}" alt="" referrerpolicy="no-referrer" loading="lazy"></span>`
+  return `<span class="av sil">${SILHOUETTE}</span>`
+}
+const DICE = '<svg viewBox="0 0 24 24" aria-hidden="true" class="dicesvg"><rect x="3.5" y="3.5" width="17" height="17" rx="4.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8.5" cy="8.5" r="1.6" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="8.5" cy="15.5" r="1.6" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.6" fill="currentColor"/></svg>'
+// the reroller: one big avatar + a Reroll button; returns { get seed() } and wires itself into `root`
+function avatarRoller(root, start) {
+  let seed = start && SEED_RE.test(start) ? start : newSeed(), busy = 0
+  const big = root.querySelector('.avbig'), cap = root.querySelector('.avcap'), btn = root.querySelector('[data-av="reroll"]')
+  const paint = () => { big.innerHTML = seedSVG(seed); if (cap) cap.textContent = AV_NAMES[avLook(seed).species] || '' ; big.setAttribute('aria-label', `Your avatar: ${AV_NAMES[avLook(seed).species] || 'mascot'}`) }
+  paint()
+  btn.onclick = () => {
+    seed = newSeed()
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
+    clearTimeout(busy)
+    if (still) { paint(); return }
+    big.classList.remove('roll'); void big.offsetWidth; big.classList.add('roll')
+    btn.classList.remove('spin'); void btn.offsetWidth; btn.classList.add('spin')
+    busy = setTimeout(paint, 170) // swap at the squash, mid-spin
+  }
+  return { get seed() { return seed } }
+}
+const rollerHTML = (label = 'Reroll') => `<div class="avroll"><div class="avbig" role="img"></div><div class="avside"><span class="avcap"></span><button type="button" class="avbtn" data-av="reroll">${DICE}<span>${label}</span></button><small class="muted">Every roll is a new one-off.</small></div></div>`
+
+const ADJ = ['Deadpan', 'Punchy', 'Snarky', 'Giggly', 'Sly', 'Witty', 'Cheeky', 'Zany', 'Dry', 'Absurd', 'Silly', 'Smug', 'Wry', 'Goofy']
+const ANI = ['Duck', 'Panda', 'Otter', 'Llama', 'Badger', 'Moose', 'Gecko', 'Walrus', 'Ferret', 'Toucan', 'Yak', 'Heron', 'Lemur', 'Puffin']
+const pickR = (a) => a[Math.floor(Math.random() * a.length)]
+const funnyName = () => pickR(ADJ) + pickR(ANI) + (10 + Math.floor(Math.random() * 90))
+
+// ---------- onboarding / edit profile sheet ----------
+function openOnboarding() {
+  const sh = $('#sheet'); if (!sh || !USER) return
+  LS.set('onboardSeen', true)
+  const u = USER, maxY = new Date().getFullYear() - 13, first = !u.username
+  const sex = u.sex_at_birth || ''
+  sh.innerHTML = `<div class="sheetcard" role="dialog" aria-modal="true" aria-labelledby="obh">
+    <button type="button" class="sheetx" data-ob="close" aria-label="Close">×</button>
+    <h2 id="obh">${first ? 'Make it yours' : 'Your profile'}</h2>
+    <p class="muted">${first ? 'Pick a name and roll a mascot. That\u2019s what friends see.' : 'Your name and mascot are what friends see.'}</p>
+    <form id="obform" novalidate>
+      <label class="obl">Username<span class="obrow"><input id="obuser" maxlength="20" autocomplete="off" spellcheck="false" value="${esc(u.username || funnyName())}"><button type="button" class="obdice" data-ob="dice" aria-label="Reroll name" title="Reroll name">${DICE}</button></span><small class="oberr" data-err="username"></small></label>
+      <fieldset class="obl"><legend>Avatar</legend>${rollerHTML()}<small class="oberr" data-err="avatar_seed"></small></fieldset>
+      <div class="obstats"><p class="obwhy"><b>Unlock your stats.</b> These power country and age splits (“58% of 25–34s in the UK picked Seinfeld”). They are never shown on your profile or to anyone else.</p>
+        <label class="obl">Country<select id="obcc">${ccOptions(u.country || ccGuess())}</select><small class="oberr" data-err="country"></small></label>
+        <label class="obl">Year of birth<input id="obyear" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="e.g. 1994" value="${u.birth_year || ''}"><small class="oberr" data-err="birth_year"></small></label>
+        <fieldset class="obl"><legend>Sex at birth</legend><div class="obseg">${[['male', 'Male'], ['female', 'Female'], ['skip', 'Prefer not to say']].map(([k, l]) => `<label><input type="radio" name="obsex" value="${k}" ${sex === k ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div><small class="oberr" data-err="sex_at_birth"></small></fieldset></div>
+      <p class="oberr big" data-err="form"></p>
+      <div class="obact"><button type="submit" class="dhbtn">${first ? 'Save and start' : 'Save'}</button><button type="button" class="dhghost" data-ob="close">${first ? 'Later' : 'Cancel'}</button></div>
+      <p class="muted small">See our <a href="privacy.html" target="_blank" rel="noopener">privacy policy</a>. You can delete your account any time from the account menu.</p>
+    </form></div>`
+  sh.hidden = false
+  const close = () => { sh.hidden = true; sh.innerHTML = '' }
+  sh.onclick = (e) => { if (e.target === sh) close() }
+  sh.querySelectorAll('[data-ob="close"]').forEach((b) => (b.onclick = close))
+  sh.querySelector('[data-ob="dice"]').onclick = () => { sh.querySelector('#obuser').value = funnyName() }
+  const roller = avatarRoller(sh.querySelector('.avroll'), seedOf(u))
+  sh.querySelector('#obform').onsubmit = async (e) => {
+    e.preventDefault()
+    sh.querySelectorAll('.oberr').forEach((x) => (x.textContent = ''))
+    const val = (q) => sh.querySelector(q)?.value?.trim() || ''
+    const body = { username: val('#obuser'), avatar_seed: roller.seed }
+    const cc = val('#obcc'), yr = val('#obyear'), sx = sh.querySelector('input[name=obsex]:checked')?.value
+    if (cc) body.country = cc
+    if (yr) { const y = Number(yr); if (!Number.isInteger(y) || y < 1900 || y > new Date().getFullYear()) { sh.querySelector('[data-err=birth_year]').textContent = 'Enter a four-digit year.'; return } body.birth_year = y }
+    if (sx) body.sex_at_birth = sx
+    const btn = sh.querySelector('button[type=submit]'); btn.disabled = true
+    const r = await api('/me/profile', { method: 'PUT', body }).catch(() => null); btn.disabled = false
+    if (r?.j?.error === 'too_young') {
+      await api('/me', { method: 'DELETE' }).catch(() => {})
+      LS.set('session', null); USER = null; paintUser()
+      sh.querySelector('.sheetcard').innerHTML = `<h2>Sorry</h2><p>Funnier accounts are for people aged 13 and over, so we didn\u2019t keep this sign-in. You can keep watching and voting on this device without an account.</p><div class="obact"><button type="button" class="dhbtn" data-ob="close">OK</button></div>`
+      sh.querySelector('[data-ob="close"]').onclick = close
+      return
+    }
+    if (!r?.ok) {
+      const f = r?.j?.fields || {}
+      for (const [k, m] of Object.entries(f)) { const el = sh.querySelector(`[data-err="${k}"]`); if (el) el.textContent = k === 'username' && /taken/.test(m) ? 'That name\u2019s taken. Reroll or try another.' : m }
+      if (!Object.keys(f).length) sh.querySelector('[data-err=form]').textContent = 'Couldn\u2019t save right now. Please try again.'
+      return
+    }
+    USER = r.j.user; close(); paintUser(); paintProfilePage(); toast(first ? `Welcome, ${USER.username}.` : 'Profile saved.')
+  }
+}
+
+// ---------- change avatar: the same reroller on its own ----------
+function openAvatarSheet() {
+  const sh = $('#sheet'); if (!sh || !USER) return
+  sh.innerHTML = `<div class="sheetcard avsheet" role="dialog" aria-modal="true" aria-labelledby="avh">
+    <button type="button" class="sheetx" data-ob="close" aria-label="Close">×</button>
+    <h2 id="avh">Change avatar</h2><p class="muted">Roll until one feels like you.</p>
+    ${rollerHTML()}<p class="oberr big" data-err="form"></p>
+    <div class="obact"><button type="button" class="dhbtn" data-ob="save">Keep this one</button><button type="button" class="dhghost" data-ob="close">Cancel</button></div></div>`
+  sh.hidden = false
+  const close = () => { sh.hidden = true; sh.innerHTML = '' }
+  sh.onclick = (e) => { if (e.target === sh) close() }
+  sh.querySelectorAll('[data-ob="close"]').forEach((b) => (b.onclick = close))
+  const roller = avatarRoller(sh.querySelector('.avroll'), seedOf(USER))
+  sh.querySelector('[data-ob="save"]').onclick = async (e) => {
+    const btn = e.currentTarget; btn.disabled = true
+    const r = await api('/me/profile', { method: 'PUT', body: { avatar_seed: roller.seed } }).catch(() => null); btn.disabled = false
+    if (!r?.ok) { sh.querySelector('[data-err=form]').textContent = 'Couldn\u2019t save right now. Please try again.'; return }
+    USER = r.j.user; close(); paintUser(); paintProfilePage(); toast('New look saved.')
+  }
+}
+
+// ---------- your profile page: invites, taste match ----------
+async function paintProfilePage() {
+  const el = $('#profileview'); if (!el || $('#v-profile')?.hidden) return
+  if (!signedIn()) { el.innerHTML = `<div class="pf"><h2>Your profile</h2><p class="empty">Sign in with Google from the account menu to add friends and compare your taste.</p></div>`; return }
+  const u = USER
+  el.innerHTML = `<div class="pf"><div class="pfhead"><button type="button" class="pfav" id="pfav" aria-label="Change avatar" title="Change avatar">${avatarHTML(u)}<span class="pfavdice">${DICE}</span></button><div><h2>${esc(u.username || 'New comic fan')}</h2><p class="muted small">${esc(u.email || '')}</p></div><span class="pfbtns"><button type="button" class="dhghost" id="pfavbtn">Change avatar</button><button type="button" class="dhghost" id="pfedit">Edit profile</button></span></div>
+    <div class="kpis pfk"><div class="kpi"><b id="pk-sent">–</b><span>clashes shared</span></div><div class="kpi"><b id="pk-open">–</b><span>opened by friends</span></div><div class="kpi"><b id="pk-voted">–</b><span>friends voted</span></div><div class="kpi"><b id="pk-fr">–</b><span>friends</span></div></div>
+    <h3>Taste match</h3><div id="pftaste" class="pflist"><p class="muted">Loading…</p></div>
+    <h3>Invites you sent</h3><div id="pfinv" class="pflist"><p class="muted">Loading…</p></div>
+    <div class="pfpriv"><h3>Only you see this</h3><p class="muted small">${[u.birth_year ? 'Born ' + u.birth_year : null, u.country ? ccName(u.country) : null, { male: 'Male', female: 'Female', skip: 'Prefer not to say' }[u.sex_at_birth] || null].filter(Boolean).map(esc).join(' · ') || 'No stats details yet. Add them in Edit profile to unlock country and age splits.'}</p>
+      <p class="hdata"><a class="btn ghost" href="privacy.html" target="_blank" rel="noopener">Privacy</a><button type="button" class="btn danger" id="pfdel">Delete my account</button></p></div></div>`
+  el.querySelector('#pfedit').onclick = openOnboarding
+  el.querySelector('#pfav').onclick = el.querySelector('#pfavbtn').onclick = openAvatarSheet
+  el.querySelector('#pfdel').onclick = deleteAccount
+  const [inv, taste] = await Promise.all([api('/me/invites').catch(() => null), api('/me/taste').catch(() => null)])
+  if (!document.body.contains(el)) return
+  const t = inv?.j?.totals, fr = taste?.j?.friends || []
+  if (t) { $('#pk-sent').textContent = t.sent; $('#pk-open').textContent = t.opened; $('#pk-voted').textContent = t.voted }
+  $('#pk-fr').textContent = fr.length
+  $('#pftaste').innerHTML = fr.length ? fr.map((f) => `<div class="pfrow">${avatarHTML(f)}<b>${esc(f.username || 'Friend')}</b><span class="pfm">${f.match == null ? `<small class="muted">${f.shared}/3 shared picks</small>` : `<i style="--p:${f.match}%"></i>${f.match}% match`}</span></div>`).join('')
+    : '<p class="muted">No friends yet. Share a clash after you vote; when a friend opens it and taps “Add as a friend”, you\u2019ll see how often you agree.</p>'
+  const list = inv?.j?.invites || []
+  $('#pfinv').innerHTML = list.length ? list.slice(0, 20).map((x) => `<div class="pfrow"><span class="pfclash">${esc(BYID[x.a]?.comic || 'Retired clip')} <i>vs</i> ${esc(BYID[x.b]?.comic || 'Retired clip')}</span><span class="pfppl">${(x.people || []).slice(0, 6).map((p) => `<span class="fa" title="${esc(p.username || '')}${p.voted ? ' voted' : ' opened'}">${avatarHTML(p)}</span>`).join('')}</span><small class="muted">${x.opens} open${x.opens === 1 ? '' : 's'} · ${x.voted} voted</small></div>`).join('')
+    : '<p class="muted">Nothing shared yet.</p>'
+}
+
+// ---------- account menu: one round icon top-right ----------
+const SILHOUETTE = '<svg viewBox="0 0 24 24" aria-hidden="true" class="silsvg"><circle cx="12" cy="9" r="4.2" fill="currentColor"/><path d="M3.8 21c.9-4.4 4.2-6.6 8.2-6.6s7.3 2.2 8.2 6.6" fill="currentColor"/></svg>'
+const menuOpen = () => !!$('#usermenu') && !$('#usermenu').hidden
+function setMenu(open) {
+  const m = $('#usermenu'), b = $('#userbtn'); if (!m || !b) return
+  m.hidden = !open; b.setAttribute('aria-expanded', String(open))
+  if (open) { paintMenu(); showChrome() }
+}
+function paintUser() {
+  const b = $('#userbtn'); if (!b) return
+  b.innerHTML = signedIn() ? avatarHTML(USER) : SILHOUETTE
+  b.classList.toggle('in', signedIn())
+  b.setAttribute('aria-label', signedIn() ? `Account: ${USER.username || USER.name || 'you'}` : 'Sign in')
+  if (menuOpen()) paintMenu()
+}
+function paintMenu() {
+  const m = $('#usermenu'); if (!m) return
+  const lane = `<div class="um-sec um-row"><span>Lineup</span><span id="lanebox"></span></div>`
+  const adv = `<details class="um-adv"><summary>Advanced</summary><div class="um-sec">${bskyHTML()}</div></details>`
+  const legal = `<p class="um-legal"><a href="privacy.html" target="_blank" rel="noopener">Privacy</a> · <a href="terms.html" target="_blank" rel="noopener">Terms</a> · <a href="credits.html" target="_blank" rel="noopener">Credits</a></p>`
+  if (signedIn()) {
+    m.innerHTML = `<div class="um-sec um-me">${avatarHTML(USER)}<div><b>${esc(USER.username || USER.name || 'You')}</b><small>${esc(USER.email || '')}</small></div></div>
+      <div class="um-sec"><button type="button" class="um-item" data-um="profile">Your profile</button><button type="button" class="um-item" data-um="history">History</button><button type="button" class="um-item" data-um="avatar">Change avatar</button>${USER.username ? '' : '<button type="button" class="um-item gold" data-um="edit">Finish your profile</button>'}</div>
+      ${lane}<div class="um-sec"><button type="button" class="um-item" data-um="signout">Sign out</button></div>${adv}
+      <div class="um-sec"><button type="button" class="um-del" data-um="delete">Delete my account</button>${legal}</div>`
+  } else {
+    const can = CFG.googleClientId && CFG.apiBase
+    m.innerHTML = `<div class="um-sec">${can ? '<div id="gsibtn" class="gsibtn"><button type="button" class="um-google" disabled>Sign in with Google</button></div>' : '<button type="button" class="um-google" disabled>Sign in with Google <small>coming soon</small></button>'}
+      <p class="um-note">Sync your picks, add friends and see how your taste matches theirs.</p></div>
+      ${lane}<div class="um-sec"><button type="button" class="um-item" data-um="history">History</button></div>${adv}<div class="um-sec">${legal}</div>`
+    if (can) renderGoogleButton(m.querySelector('#gsibtn'))
+  }
+  laneSelect(); bindBsky(m)
+  m.querySelectorAll('[data-um]').forEach((x) => (x.onclick = () => {
+    const k = x.dataset.um; setMenu(false)
+    if (k === 'history') { showTab('you'); youSub('history') }
+    else if (k === 'profile') { showTab('profile'); paintProfilePage() }
+    else if (k === 'edit') openOnboarding()
+    else if (k === 'avatar') openAvatarSheet()
+    else if (k === 'signout') signOut()
+    else if (k === 'delete') deleteAccount()
+  }))
+}
+function bindUser() {
+  const b = $('#userbtn'); if (!b) return
+  b.onclick = (e) => { e.stopPropagation(); setMenu(!menuOpen()) }
+  document.addEventListener('click', (e) => { if (menuOpen() && !e.target.closest?.('.usr')) setMenu(false) })
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (menuOpen()) { setMenu(false); b.focus() } const sh = $('#sheet'); if (sh && !sh.hidden) { sh.hidden = true; sh.innerHTML = '' } } })
+  paintUser()
+}
+
+// ---------- utils ----------
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) }
+let tt
+function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('on'), 3200) }
+function tabs() {
+  const show = (id) => {
+    document.querySelectorAll('nav [data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === id))
+    document.querySelectorAll('section.view').forEach((s) => (s.hidden = s.id !== 'v-' + id))
+    if (id !== 'arena') Object.values(screens).forEach((s) => s.pause())
+    document.body.classList.toggle('in-theatre', id === 'arena' && (stage === 'left' || stage === 'right'))
+    scrollTo({ top: 0 })
+    updateChrome()
+  }
+  showTab = show
+  const brand = $('#brand')
+  if (brand) brand.onclick = (e) => { // the logo always brings you back to the screening
+    e.preventDefault()
+    const wasAway = !arenaOn()
+    if (location.hash) history.replaceState(null, '', location.pathname + location.search)
+    show('arena'); showChrome(2500)
+    if (wasAway && (stage === 'left' || stage === 'right')) screens[stage === 'left' ? 'L' : 'R']?.play()
+  }
+  document.querySelectorAll('[data-sub]').forEach((b) => (b.onclick = () => youSub(b.dataset.sub)))
+  document.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = (e) => { e.preventDefault(); if (b.dataset.tab === 'comics') location.hash = 'comics'; show(b.dataset.tab) }))
+  const route = () => {
+    const ic = parseInvite(location.hash)
+    if (ic) { history.replaceState(null, '', location.pathname + location.search); show('arena'); openInvite(ic).then((ok) => { if (ok && CLIPS.length) { moving = false; goNext(null) } }); return }
+    if (/^#profile/.test(location.hash)) { show('profile'); paintProfilePage(); return }
+    const sh = parseClash(location.hash)
+    if (sh) { pendingClash = sh; if (sh.rewatch) userStarted = true; history.replaceState(null, '', location.pathname + location.search); show('arena'); if (CLIPS.length) { moving = false; goNext(null) } return }
+    if (/^#comic/.test(location.hash)) { show('comics'); paintComics() }
+    if (/^#history/.test(location.hash)) { show('you'); youSub('history') }
+  }
+  addEventListener('hashchange', route)
+  show('arena'); window._route = route
+}
+
+;(async () => {
+  tabs()
+  await Promise.all([loadData(), loadConfig()])
+  MODEL = fitLocal(); TRAITS = fitTraits()
+  const sh = parseClash(location.hash), ic = parseInvite(location.hash)
+  if (ic) { history.replaceState(null, '', location.pathname + location.search); await Promise.race([openInvite(ic), new Promise((r) => setTimeout(r, 4000))]) }
+  else if (sh) { pendingClash = sh; history.replaceState(null, '', location.pathname + location.search) }
+  else { // the day's first visit opens on the daily clash (once a day, and not if you've already voted on it)
+    const D = dailyFor(dayStr())
+    if (D && !dailyMine(D.date) && LS.get('dailyAuto', '') !== D.date && !/^#(comic|history)/.test(location.hash)) { LS.set('dailyAuto', D.date); pendingClash = { a: D.a, b: D.b, pick: null, daily: D.date } }
+  }
+  bindGestures(); bindChrome(); bindFullscreen(); newRound(true); paintBoards(); paintYou(); paintComics(); paintBanner(); paintDaily(); window._route()
+  initAuth(); initAccount()
+})()

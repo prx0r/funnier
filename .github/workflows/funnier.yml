@@ -1,0 +1,38 @@
+name: funnier
+on:
+  push:
+    branches: [master]
+    paths: ['funnier/**', '.github/workflows/funnier.yml']
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: funnier
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: pub
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build site and recount votes
+        run: |
+          cp -r funnier/site/. pub/
+          cp funnier/clips.json pub/clips.json
+          sed -i "s/app.js\"/app.js?v=${GITHUB_SHA::7}\"/; s/style.css\"/style.css?v=${GITHUB_SHA::7}\"/" pub/index.html
+          node funnier/tally/tally.mjs funnier/clips.json pub
+      - name: Publish
+        run: |
+          cd pub
+          git config user.name "funnier-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || (git commit -q -m "funnier: recount $(date -u +%FT%TZ)" && git push -q origin gh-pages)

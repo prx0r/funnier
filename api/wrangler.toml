@@ -1,0 +1,16 @@
+name = "funnier-api"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+# api.funnier.si is attached as a Worker custom domain (zone funnier.si); see README "Accounts API".
+
+[vars]
+# Public OAuth client id (Google Identity Services). Empty = /auth/google answers 503 "sign-in not configured".
+GOOGLE_CLIENT_ID = "50738620553-fq7mdin3e3baiu3v3uoup40jlvajtqb0.apps.googleusercontent.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "funnier"
+database_id = "c61d5ece-e4d4-4825-bbc5-633b66fe7a86"
+
+# Secrets (never in this file): SESSION_SECRET  ->  wrangler secret put SESSION_SECRET

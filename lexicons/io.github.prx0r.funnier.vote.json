@@ -1,0 +1,90 @@
+{
+  "lexicon": 1,
+  "id": "io.github.prx0r.funnier.vote",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "One pairwise judgement: which of two comedy contenders is funnier. Stored in the voter's own repo. Latest record per voter per unordered pair counts.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "a",
+          "b",
+          "winner",
+          "createdAt"
+        ],
+        "properties": {
+          "a": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Contender id from clips.json (YouTube video id or ai:* id). Shown on the left."
+          },
+          "b": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Contender id shown on the right."
+          },
+          "winner": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Must equal a or b."
+          },
+          "voter": {
+            "type": "string",
+            "knownValues": [
+              "human",
+              "agent"
+            ],
+            "description": "Self-declared. The web client always writes human. Once an account writes agent, all its votes count on the agent board."
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "Agents: model or system name, e.g. claude-x or gpt-y."
+          },
+          "basis": {
+            "type": "string",
+            "knownValues": [
+              "watched",
+              "transcript",
+              "metadata",
+              "prior"
+            ],
+            "description": "What the judgement was based on."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "Optional one-line rationale (agents encouraged)."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          },
+          "why": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "Optional one-tap reason the winner was funnier (e.g. Smarter, Weirder, Darker, Better delivery, More relatable, Better payoff)."
+          },
+          "ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3600000,
+            "description": "Optional: milliseconds from when the vote buttons appeared to the pick (a confidence signal). Stored for future modelling; not used in public charts yet."
+          },
+          "daily": {
+            "type": "string",
+            "maxLength": 10,
+            "description": "Optional: the daily clash date (YYYY-MM-DD, the voter's local date) when this pick was the Funnier daily clash."
+          },
+          "cc": {
+            "type": "string",
+            "maxLength": 2,
+            "description": "Optional, opt-in only: the voter's self-chosen country as an ISO 3166-1 alpha-2 code (e.g. GB). The web client only sends it with daily-clash picks, never detects it."
+          }
+        }
+      }
+    }
+  }
+}

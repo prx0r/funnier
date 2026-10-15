@@ -1,0 +1,15 @@
+{
+  "name": "funnier",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/app.js --bundle --format=esm --minify --target=es2022 --outfile=site/app.js \"--banner:js=/*! Funnier. Bundles mascot-avatars 0.2.0 (https://github.com/otatechie/mascot-avatars), MIT License, Copyright (c) 2026 s1dashu; package by Ato Augustine. Full notice: credits.html */\" && cp clips.json site/clips.json"
+  },
+  "devDependencies": {
+    "@atproto/oauth-client-browser": "^0.5.9",
+    "esbuild": "^0.28.2"
+  },
+  "dependencies": {
+    "mascot-avatars": "0.2.0"
+  }
+}
