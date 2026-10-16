@@ -5,7 +5,7 @@
    "slug": "norm-macdonald",
    "tagline": "The long way round to the punchline.",
    "facts": [
-    "1959–2021",
+    "1959\u20132021",
     "Canada",
     "Weekend Update anchor on SNL"
    ],
@@ -484,6 +484,98 @@
    "photoLicenseUrl": "https://creativecommons.org/licenses/by/2.0/",
    "photoSource": "https://commons.wikimedia.org/wiki/File:Chris_Rock_-_Orpheum_Theatre_Minneapolis_3_17_(33376790795).jpg",
    "photoNote": "cropped and resized"
+  },
+  "Mark Normand": {
+   "slug": "mark-normand",
+   "tagline": "Rapid-fire one-liners, no topic spared.",
+   "facts": [
+    "Born 1983",
+    "New Orleans, raised; New York comic",
+    "Co-hosts Tuesdays with Stories and We Might Be Drunk"
+   ],
+   "bio": "A New York club comic known for dense, joke-a-sentence writing on drinking, dating, identity and whatever else he's not supposed to touch.",
+   "photo": "img/mark-normand.jpg",
+   "links": {
+    "YouTube": "https://www.youtube.com/@marknormand",
+    "Website": "https://marknormandcomedy.com/"
+   },
+   "specials": [
+    {
+     "id": "mn-still-got-it",
+     "title": "Still Got It",
+     "year": 2014,
+     "where": [
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Mark%20Normand%20Still%20Got%20It"
+      }
+     ]
+    },
+    {
+     "id": "mn-dont-be-yourself",
+     "title": "Don't Be Yourself",
+     "year": 2017,
+     "distributor": "Comedy Central",
+     "runtimeMin": 42,
+     "where": [
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Mark%20Normand%20Don%27t%20Be%20Yourself"
+      }
+     ]
+    },
+    {
+     "id": "mn-out-to-lunch",
+     "title": "Out To Lunch",
+     "year": 2020,
+     "distributor": "YouTube",
+     "runtimeMin": 54,
+     "where": [
+      {
+       "name": "YouTube (full special)",
+       "url": "https://www.youtube.com/watch?v=tDolNU89SXI"
+      }
+     ]
+    },
+    {
+     "id": "mn-soup-to-nuts",
+     "title": "Soup to Nuts",
+     "year": 2023,
+     "distributor": "Netflix",
+     "runtimeMin": 53,
+     "where": [
+      {
+       "name": "Netflix",
+       "url": "https://www.netflix.com/title/81616392"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Mark%20Normand%20Soup%20to%20Nuts"
+      }
+     ]
+    },
+    {
+     "id": "mn-none-too-pleased",
+     "title": "None Too Pleased",
+     "year": 2026,
+     "distributor": "Netflix",
+     "where": [
+      {
+       "name": "Netflix",
+       "url": "https://www.netflix.com/title/82155387"
+      },
+      {
+       "name": "Where to watch",
+       "url": "https://www.justwatch.com/us/search?q=Mark%20Normand%20None%20Too%20Pleased"
+      }
+     ]
+    }
+   ],
+   "photoCredit": "Greg2600",
+   "photoLicense": "CC BY-SA 2.0",
+   "photoLicenseUrl": "https://creativecommons.org/licenses/by-sa/2.0/",
+   "photoSource": "https://commons.wikimedia.org/wiki/File:Mark_Normand,_March_2018.jpg",
+   "photoNote": "resized"
   }
  },
  "ai": [

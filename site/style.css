@@ -335,8 +335,14 @@ body.in-theatre.chrome-hidden .brand{opacity:0;pointer-events:none}
 .pick:hover .logo{box-shadow:0 12px 60px -6px var(--red2)}
 .pick.won .logo{background:var(--gold);color:#0b0b0e;box-shadow:0 0 60px -6px var(--gold)}
 .slide[data-stage="done"] .pick:not(.won){opacity:.35}
-.count{width:min(900px,100%);height:5px;background:var(--line);border-radius:5px;overflow:hidden}
-.count i{display:block;height:100%;background:linear-gradient(90deg,var(--red),var(--gold));transform-origin:left;transform:scaleX(1)}
+.vcount{display:flex;align-items:center;justify-content:center;gap:10px}
+.vcount .hint{margin:0}
+.ring{width:20px;height:20px;flex:none;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:2.4}
+.ring .rbg{stroke:rgba(255,255,255,.1)}
+.ring .rfg{stroke:rgba(243,241,236,.62);stroke-dasharray:100;stroke-dashoffset:0;stroke-linecap:round}
+.ballot.held .ring .rfg{stroke:rgba(243,241,236,.9)}
+.pick{touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
 .ballot .hint{margin:0}
 #arena .why{position:fixed;left:50%;bottom:calc(70px + env(safe-area-inset-bottom));transform:translate(-50%,8px);z-index:31;width:max-content;max-width:94vw;background:rgba(7,7,10,.9);padding:10px 12px;border-radius:16px;border:1px solid var(--line)}
 #arena .why.on{transform:translate(-50%,0)}
@@ -512,10 +518,6 @@ body.screening .top{background:linear-gradient(rgba(7,7,10,.92) 30%,rgba(7,7,10,
 .challenge .av{width:26px;height:26px;border-radius:50%}
 .introfoot{min-height:0}
 /* sound: one centred pill, never a required tap */
-.soundpill{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;pointer-events:none}
-.soundpill[hidden]{display:none}
-.soundpill button{pointer-events:auto;font-weight:700;font-size:15px;letter-spacing:.01em;color:#0b0b0e;background:rgba(243,241,236,.94);padding:12px 22px;border-radius:999px;box-shadow:0 18px 60px -12px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.4);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);animation:pillin .5s cubic-bezier(.2,.9,.2,1.2)}
-.soundpill button:hover{background:#fff}
 @keyframes pillin{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
 /* next clash: present, quiet */
 @media (max-width:820px){ .userbtn{width:32px;height:32px} .top nav button{padding:8px 8px} }
@@ -528,7 +530,7 @@ body.screening .top{background:linear-gradient(rgba(7,7,10,.92) 30%,rgba(7,7,10,
   .top nav button{flex:none;white-space:nowrap}
 }
 @media (max-width:560px){ .dailyhero{order:1;margin-left:auto} .top{flex-wrap:wrap;row-gap:2px;padding-left:clamp(10px,3vw,40px);padding-top:10px;padding-bottom:6px} .usr{order:1;min-height:36px} .top nav{order:2;flex:1 1 100%;gap:0;justify-content:space-between} .top nav button{padding:8px 6px;font-size:14px} }
-@media (prefers-reduced-motion:reduce){ .soundpill button{animation:none} }
+
 
 /* ===== accounts: avatars, menu, onboarding sheet, profile ===== */
 .av{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;overflow:hidden;flex:none;background:#23232d;color:#8d8b93;vertical-align:middle}
@@ -723,9 +725,18 @@ body:not(.screening) .crowdbtn{display:none}
 .theatre .vfs svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 1px 3px rgba(0,0,0,.8))}
 .theatre .vfs:hover,.theatre .vfs:focus-visible{background:rgba(255,255,255,.14);outline:none}
 .theatre .vfs:focus-visible{box-shadow:0 0 0 2px rgba(255,255,255,.6)}
-body.chrome-hidden .theatre .vfs{opacity:0;pointer-events:none}
+body.chrome-hidden .theatre .vfs,body.chrome-hidden .theatre .vsnd{opacity:0;pointer-events:none}
 .theatre .screen.small .vfs,.theatre .screen.small .prog,.theatre .screen.small .label{display:none}
 /* default mascot in the account button: round, fills the 36px circle */
 .userbtn{position:relative}
 .userbtn > .av{position:absolute;inset:0;width:100%;height:100%;border-radius:50%}
 .userbtn .av svg{width:100%;height:100%;margin:0;display:block}
+/* vertical (Shorts) clips: a 9:16 player at full height */
+.theatre .screen.vert{width:min(100vw,calc(100vh * 9 / 16))}
+@supports (height:100dvh){.theatre .screen.vert{width:min(100vw,calc(100dvh * 9 / 16))}}
+.screen.vert .frame{aspect-ratio:9/16}
+/* the only sound control: a small speaker beside the fullscreen toggle, fading with the chrome */
+.vsnd{display:none}
+.theatre .vsnd{display:grid;place-items:center;position:absolute;right:calc(clamp(6px,1.4vw,16px) + 44px);bottom:10px;z-index:6;width:40px;height:40px;border-radius:50%;color:#fff;background:transparent;transition:opacity .35s ease,background .2s;-webkit-tap-highlight-color:transparent}
+.theatre .vsnd svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 1px 3px rgba(0,0,0,.8))}
+.theatre .vsnd:hover,.theatre .vsnd:focus-visible{background:rgba(255,255,255,.14);outline:none}

@@ -1,17 +1,64 @@
 {
  "_note": "Allowlist of official / rights-holder channels. Only these are ingested. Feeds give the latest 15 uploads; older classics are added by hand to clips.json after checking with oEmbed.",
  "comics": {
-  "Norm Macdonald": ["norm macdonald", "norm mac"],
-  "Louis C.K.": ["louis c.k", "louis ck", "louis c. k"],
-  "Jerry Seinfeld": ["seinfeld"],
-  "Chris Rock": ["chris rock"]
+  "Norm Macdonald": [
+   "norm macdonald",
+   "norm mac"
+  ],
+  "Louis C.K.": [
+   "louis c.k",
+   "louis ck",
+   "louis c. k"
+  ],
+  "Jerry Seinfeld": [
+   "seinfeld"
+  ],
+  "Chris Rock": [
+   "chris rock"
+  ],
+  "Mark Normand": [
+   "mark normand",
+   "normand"
+  ]
  },
  "channels": [
-  {"name": "Louis C.K.", "id": "UCf7G_gKaSEn_8xMr-ldZvHA", "owner": "Louis C.K.", "assume": "Louis C.K."},
-  {"name": "Norm Macdonald", "id": "UCWiHJYoHWyO56dlo_vjTleA", "owner": "Norm Macdonald", "assume": "Norm Macdonald"},
-  {"name": "Netflix Is A Joke", "id": "UCObk_g1hQBy0RKKriVX_zOQ", "owner": "Netflix"},
-  {"name": "Team Coco", "id": "UCi7GJNg51C3jgmYTUwqoUXA", "owner": "Team Coco"},
-  {"name": "The Tonight Show", "id": "UC8-Th83bH_thdKZDJCrn88g", "owner": "NBC"},
-  {"name": "Comedy Central", "id": "UCUsN5ZwHx2kILm84-jPDeXw", "owner": "Paramount"}
+  {
+   "name": "Louis C.K.",
+   "id": "UCf7G_gKaSEn_8xMr-ldZvHA",
+   "owner": "Louis C.K.",
+   "assume": "Louis C.K."
+  },
+  {
+   "name": "Norm Macdonald",
+   "id": "UCWiHJYoHWyO56dlo_vjTleA",
+   "owner": "Norm Macdonald",
+   "assume": "Norm Macdonald"
+  },
+  {
+   "name": "Netflix Is A Joke",
+   "id": "UCObk_g1hQBy0RKKriVX_zOQ",
+   "owner": "Netflix"
+  },
+  {
+   "name": "Team Coco",
+   "id": "UCi7GJNg51C3jgmYTUwqoUXA",
+   "owner": "Team Coco"
+  },
+  {
+   "name": "The Tonight Show",
+   "id": "UC8-Th83bH_thdKZDJCrn88g",
+   "owner": "NBC"
+  },
+  {
+   "name": "Comedy Central",
+   "id": "UCUsN5ZwHx2kILm84-jPDeXw",
+   "owner": "Paramount"
+  },
+  {
+   "name": "mark normand",
+   "id": "UCGmMFJB36GBXTgaLtfGd6Jg",
+   "owner": "Mark Normand",
+   "assume": "Mark Normand"
+  }
  ]
 }

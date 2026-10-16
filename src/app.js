@@ -1,5 +1,6 @@
 import { BrowserOAuthClient } from '@atproto/oauth-client-browser'
 import { renderAvatar, PALETTES } from 'mascot-avatars' // MIT, (c) 2026 s1dashu / Ato Augustine — see site/credits.html
+import { structSim } from './structsim.js' // shared with tally/tally.mjs (characters2 §4a)
 
 // Laugh button, crowd-laugh particles and the "Crowd laughs" toggle are switched OFF for now. The code (and the
 // /laughs API + the laugh terms in the taste model) stays in place; nothing laugh-related renders or calls the API
@@ -14,9 +15,22 @@ const LS = {
   set: (k, v) => localStorage.setItem('funnier.' + k, JSON.stringify(v)),
 }
 
-let CLIPS = [], BYID = {}, BOARD = null, PAIRS = [], COMICS = {}, PUBVOTES = [], DAILY = [], DAILYRES = null
+let CLIPS = [], BYID = {}, BOARD = null, PAIRS = [], COMICS = {}, PUBVOTES = [], DAILY = [], DAILYRES = null, THEORY = {}
 let LANE = LS.get('lane', 'human'), BOARDKIND = 'all'
-const SHORT_MAX = 75 // seconds of each clip we screen when the clip is longer
+// ---------- device-aware clips (tunable) ----------
+// mobile = coarse pointer in portrait, or a narrow viewport. Each device prefers one clip format (clips.json `format`:
+// vertical = YouTube Shorts, horizontal = everything else; tools/detect-format.mjs sets it) for `share` of its rounds,
+// as long as at least `minPool` clips of that format exist in the lane; otherwise it uses everything. `maxSec` caps how
+// much of a long clip we screen (the duration-fairness rule below still applies on top).
+const FORMAT_PREFS = {
+  mobile: { prefer: 'vertical', share: 0.8, minPool: 6, maxSec: 75 },
+  desktop: { prefer: 'horizontal', share: 0.9, minPool: 6, maxSec: 150 },
+}
+const mm = (q) => typeof matchMedia === 'function' && matchMedia(q).matches
+const isMobile = () => (mm('(pointer: coarse)') && mm('(orientation: portrait)')) || (typeof innerWidth === 'number' && innerWidth > 0 && innerWidth < 700)
+const devPrefs = () => FORMAT_PREFS[isMobile() ? 'mobile' : 'desktop']
+const fmtOf = (c) => (c?.format === 'vertical' ? 'vertical' : 'horizontal')
+let SHORT_MAX = 75 // seconds of each clip we screen when the clip is longer (set from FORMAT_PREFS at start)
 // ---------- clip length fairness ----------
 // Each clip is screened for a window = editorial start..end, else min(duration, SHORT_MAX) from `start` (default 0).
 // Two clips only meet when their windows are within FAIR_RATIO of each other, and both then play the SAME length:
@@ -55,6 +69,7 @@ async function loadData() {
   try { COMICS = (await (await fetch('comics.json', { cache: 'no-cache' })).json()).comics || {} } catch { COMICS = {} }
   try { PUBVOTES = (await (await fetch('data/votes.json', { cache: 'no-cache' })).json()).votes || [] } catch { PUBVOTES = [] }
   try { PAIRS = (await (await fetch('data/pairs.json', { cache: 'no-cache' })).json()).pairs || [] } catch { PAIRS = [] }
+  try { THEORY = (await (await fetch('theory.json', { cache: 'no-cache' })).json()) || {} } catch { THEORY = {} }
   try { const d = await (await fetch('daily.json', { cache: 'no-cache' })).json(); DAILY = Array.isArray(d) ? d : [] } catch { DAILY = [] }
   await loadDailyResults()
 }
@@ -248,21 +263,33 @@ function openPair(a, b) {
   const skipped = new Set(LS.get('skipped', []))
   const A = BYID[a], B = BYID[b]
   if (!A || !B || a === b || done.has(pairKey(a, b)) || skipped.has(pairKey(a, b))) return false
+  if (A.comic === B.comic) return false // hard rule at every level: a clash is always two different comics
   if (PAIR_LEVEL < 2 && !fairPair(A, B)) return false
   if (PAIR_LEVEL < 1 && (A.needsCut || B.needsCut)) return false
   if (LANE === 'mixed') return A.kind !== B.kind || Math.random() < 0.25
   return A.kind === LANE && B.kind === LANE
 }
-function pool() { return CLIPS.filter((c) => LANE === 'mixed' || c.kind === LANE) }
+let ROUND_FMT = null // the format this round is drawn from (null = any)
+function pool() { const P = CLIPS.filter((c) => LANE === 'mixed' || c.kind === LANE); return ROUND_FMT ? P.filter((c) => fmtOf(c) === ROUND_FMT) : P }
+function roundFormat() { // the device's preferred format for this round, when the lane has enough of it
+  const pr = devPrefs(); ROUND_FMT = null
+  const P = CLIPS.filter((c) => (LANE === 'mixed' || c.kind === LANE) && fmtOf(c) === pr.prefer)
+  // enough of that format, from at least two comics (a clash is always two different comics)
+  if (P.length >= pr.minPool && new Set(P.map((c) => c.comic)).size >= 2 && Math.random() < pr.share) ROUND_FMT = pr.prefer
+}
 const shuffle = (a) => a.map((x) => [Math.random(), x]).sort((p, q) => p[0] - q[0]).map((p) => p[1])
 
+const pairSim = (a, b) => structSim(a, b, THEORY, { pairing: true })
+if (typeof window !== 'undefined') window.__funnierTest = { pickPair: () => pickPair(), openPair: (a, b) => openPair(a, b) } // smoke tests sample rounds
 function pickForYou() {
   // your model's favourite unseen matchup: its top clip vs the clip it knows least about
   const P = pool(); if (P.length < 2) return null
   const fy = (c) => MODEL.score(c.id) + traitScore(c) + 0.3 * Math.random()
   const top = [...P].sort((x, y) => fy(y) - fy(x))
   for (const a of top.slice(0, 6)) {
-    const opp = P.filter((b) => b.comic !== a.comic && openPair(a.id, b.id)).sort((x, y) => (MODEL.bouts[x.id] || 0) - (MODEL.bouts[y.id] || 0) || Math.random() - 0.5)
+    // its opponent: structurally kindred (same kind of funny) and still little-known to your model
+    const os = (b) => pairSim(a, b) - 0.08 * (MODEL.bouts[b.id] || 0) + 0.2 * Math.random()
+    const opp = P.filter((b) => b.comic !== a.comic && openPair(a.id, b.id)).map((b) => [os(b), b]).sort((x, y) => y[0] - x[0]).map((x) => x[1])
     if (opp.length) return [a, opp[0]]
   }
   return null
@@ -280,8 +307,8 @@ function pickExplore() {
   for (const a of P) {
     const opts = P.filter((b) => openPair(a.id, b.id))
     if (!opts.length) continue
-    const cross = opts.filter((b) => b.comic !== a.comic)
-    return [a, (cross.length ? cross : opts)[0]]
+    // least-seen clip vs a kindred opponent from another comic (openPair already rules out the same comic)
+    return [a, opts.map((b) => [pairSim(a, b) + 0.35 * Math.random(), b]).sort((x, y) => y[0] - x[0])[0][1]]
   }
   return null
 }
@@ -299,12 +326,16 @@ function pickPair() {
   let x = Math.random(), mode = 'explore'
   for (const k of Object.keys(w)) { x -= w[k]; if (x <= 0) { mode = k; break } }
   const order = [mode, ...Object.keys(MODES).filter((k) => k !== mode)]
+  roundFormat()
   try {
-    for (PAIR_LEVEL = 0; PAIR_LEVEL < 3; PAIR_LEVEL++) for (const m of order) {
-      const p = MODES[m][1]()
-      if (p) { const pair = Math.random() < 0.5 ? p : [p[1], p[0]]; pair.mode = m; return pair }
+    for (const fmt of ROUND_FMT ? [ROUND_FMT, null] : [null]) { // the preferred format first, then any (too few left)
+      ROUND_FMT = fmt
+      for (PAIR_LEVEL = 0; PAIR_LEVEL < 3; PAIR_LEVEL++) for (const m of order) {
+        const p = MODES[m][1]()
+        if (p) { const pair = Math.random() < 0.5 ? p : [p[1], p[0]]; pair.mode = m; return pair }
+      }
     }
-  } finally { PAIR_LEVEL = 0 }
+  } finally { PAIR_LEVEL = 0; ROUND_FMT = null }
   return null
 }
 
@@ -341,14 +372,41 @@ function audioFeedback(clip, kind) {
   if (CFG.apiBase) api('/clips/audio', { method: 'POST', body: { clip: clip.id, dir: kind, device: deviceId() } }).catch(() => {}) // crowd loudness
   toast(kind === 'loud' ? `Noted. ${clip.comic} plays ${AUD_STEP}% quieter next time.` : `Noted. ${clip.comic} plays a little louder next time (up to full volume).`)
 }
-// ---------- sound: never wait for a tap. Start muted when the browser refuses sound, one pill to unmute ----------
-let soundOK = false // set by any tap/keypress this visit: later clips play with sound
-const soundAllowed = () => soundOK || !!(typeof navigator !== 'undefined' && navigator.userActivation?.hasBeenActive)
-function soundPill(on) { const p = $('#soundpill'); if (p) p.hidden = !on }
-function soundOn() {
-  soundOK = true; LS.set('interacted', true); soundPill(false)
-  const s = stage === 'left' ? screens.L : stage === 'right' ? screens.R : null
-  s?.unmute()
+// ---------- sound: autoplay WITH sound, never a prompt ----------
+// Every clip tries to play unmuted first (Chrome allows it for returning visitors / installed apps, and after any
+// interaction). If the browser refuses (the player isn't playing ~500ms later), it plays muted instead, silently.
+// The first interaction anywhere (pointer, touch, key, wheel, scroll, a vote, a swipe) then unmutes the playing clip
+// with the usual fade, primes the clip waiting next (a silent play + pause, so iOS lets it start with sound later) and
+// stores funnier.sound = 'on'; every later clip starts unmuted. The small speaker in the theatre chrome (or M) is the
+// only control: muting there stores funnier.sound = 'off', which is respected until the viewer unmutes again.
+let soundOK = false, justUnmuted = 0
+const soundPref = () => { const v = LS.get('sound', null); return v === 'on' || v === 'off' ? v : null }
+const liveScreen = () => (stage === 'left' ? screens.L : stage === 'right' ? screens.R : null)
+const isMutedNow = (s) => { try { return s ? (s.a ? s.a.muted : !!s.p?.isMuted?.()) : false } catch { return false } }
+function soundOn() { // explicit unmute (speaker icon, M, or a tap on a muted clip)
+  soundOK = true; LS.set('interacted', true); LS.set('sound', 'on')
+  liveScreen()?.unmute(); paintSnd()
+}
+function soundOff() { // explicit mute: respected on every later clip and visit
+  LS.set('sound', 'off')
+  const s = liveScreen(); try { if (s?.a) s.a.muted = true; else s?.p?.mute?.() } catch {}
+  paintSnd()
+}
+function toggleSound() { if (now() - justUnmuted < 500) return; const s = liveScreen(); if (soundPref() === 'off' || isMutedNow(s)) soundOn(); else soundOff() }
+function firstGesture() { // capture phase, before any other handler sees the interaction
+  if (soundPref() === 'off') return
+  soundOK = true
+  if (soundPref() !== 'on') LS.set('sound', 'on')
+  const s = liveScreen()
+  if (s && s.started && (isMutedNow(s) || (s.wantPlay && !s.playing()))) { justUnmuted = now(); s.unmute(); paintSnd() }
+  for (const sc of [screens.L, screens.R]) if (sc && sc !== s && !sc.started) sc.prime()
+}
+const SND_ON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>'
+const SND_OFF = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9.5l5 5M22 9.5l-5 5"/></svg>'
+function sndBtnHTML() { return '<button type="button" class="vsnd" aria-label="Mute (M)" title="Mute (M)" aria-pressed="false">' + SND_ON + '</button>' }
+function paintSnd() {
+  const off = soundPref() === 'off' || isMutedNow(liveScreen())
+  document.querySelectorAll('.vsnd').forEach((b) => { b.innerHTML = off ? SND_OFF : SND_ON; b.setAttribute('aria-pressed', String(off)); const l = off ? 'Unmute (M)' : 'Mute (M)'; b.setAttribute('aria-label', l); b.title = l })
 }
 class Screen {
   constructor(side, clip, hostId) { this.side = side; this.clip = clip; this.hostId = hostId; this.started = false; this.view = Date.now().toString(36) + side + Math.random().toString(36).slice(2, 6); this.ready = new Promise((res) => (this._ready = res)) }
@@ -433,24 +491,41 @@ class Screen {
     await this.ready; if (this.dead) return
     if (!this.started) { this.shown = this.start; this.rawV = null; this.hold = null }
     this.started = true; this.wantPlay = true; this.setVol(0)
-    const muted = !soundAllowed()
+    const muted = soundPref() === 'off' // otherwise always try with sound first
     if (this.a) {
       this.a.muted = muted
       try { await this.a.play() } catch { this.a.muted = true; try { await this.a.play() } catch {} }
-      if (this.a.muted) soundPill(true)
-      this.armFade()
+      this.armFade(); paintSnd()
       return
     }
     try { muted ? this.p.mute() : this.p.unMute() } catch {}
-    if (muted) soundPill(true)
     this.p.playVideo()
     this.armFade()
-    setTimeout(() => { // autoplay with sound refused: play muted, one "Tap for sound" pill
+    paintSnd()
+    if (muted) return
+    // sound refused -> play muted, silently (the next interaction unmutes). Checked ~500ms in; a player still loading
+    // (unstarted/cued/buffering) gets a few more looks before we decide.
+    const check = (k) => {
       if (this.dead || !this.wantPlay) return // paused or skipped since: don't restart it behind the next clip
-      const st = this.p?.getPlayerState?.()
-      if (st !== 1 && st !== 3) { try { this.p.mute(); this.p.playVideo() } catch {} soundPill(true) }
-      else if (this.p?.isMuted?.()) soundPill(true)
-    }, 1500)
+      let st = -1; try { st = this.p?.getPlayerState?.() } catch {}
+      if (st === 1) { paintSnd(); return }
+      if ((st === -1 || st === 5 || st === 3) && k < 8) { setTimeout(() => check(k + 1), 500); return }
+      try { this.p.mute(); this.p.playVideo() } catch {}
+      paintSnd()
+    }
+    setTimeout(() => check(0), 500)
+  }
+  // inside a user gesture: play this not-yet-started clip silently for a moment and pause it again, so the browser
+  // lets it start with sound later without another tap (iOS treats each player separately)
+  prime() {
+    if (this.primed || this.started || this.dead) return
+    this.primed = true
+    try {
+      if (this.a) { const v = this.a.volume; this.a.volume = 0; this.a.muted = false; this.a.play().then(() => { if (!this.started) { this.a.pause(); this.a.currentTime = this.start } this.a.volume = v }).catch(() => {}); return }
+      if (!this.p?.playVideo) { this.primed = false; return }
+      this.p.setVolume?.(0); this.p.unMute?.(); this.p.playVideo()
+      setTimeout(() => { if (this.started || this.dead) return; try { this.p.pauseVideo(); this.p.seekTo?.(this.start, true) } catch {} }, 450)
+    } catch {}
   }
   unmute() {
     try {
@@ -460,13 +535,15 @@ class Screen {
     } catch {}
   }
   toggle() { // tap on the gesture layer: unmute, play/pause
-    if (this.a) { if (this.a.muted) { soundOn(); return } if (this.a.paused) { this.wantPlay = true; this.a.play().catch(() => {}) } else this.pause(); return }
+    if (this.a) { if (now() - justUnmuted < 500) return; if (this.a.muted) { soundOn(); return } if (this.a.paused) { this.wantPlay = true; this.a.play().catch(() => {}) } else this.pause(); return }
+    if (now() - justUnmuted < 500) return // this tap just turned the sound on; it is not a pause
     try { if (this.p?.isMuted?.()) { soundOn(); return } } catch {}
     if (this.playing()) this.pause(); else { this.wantPlay = true; this.p?.playVideo?.() }
   }
   // called every tick: accumulates real seconds watched, notices seeks back (replay) and jumps ahead (skip)
   track() {
     this.watched = this.watched || 0; this.replays = this.replays || 0
+    if (!this.started) return // a primed (silently pre-started) clip isn't being watched yet
     let t = 0, on = false
     try { t = this.t(); on = this.playing() } catch { return }
     if (!Number.isFinite(t)) return
@@ -597,7 +674,7 @@ function toggleCrowd() {
 
 // ---------- the screening: intro face-off -> clip ONE full screen -> clip TWO -> 3s ballot ----------
 // stages: intro | left | right | vote | done
-const VOTE_MS = 3000, INTRO_MS = 2500
+const VOTE_MS = 7000, INTRO_MS = 2500, VOTE_RESUME_MIN = 2500
 let screens = {}, stage = 'idle', tick = null, armed = false, armedAt = 0, prediction = null
 let cur = null, nScreen = 0, timers = [], userStarted = false, moving = false
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
@@ -664,10 +741,10 @@ function slideHTML(a, b, n, first) {
       <span class="pname">${esc(c.comic)}</span><span class="logo">FUNNIER</span></button>`
   // the clip fills the screen (16:9, letterboxed only where the aspect needs it). Name/title overlay the bottom-left in a
   // gradient that fades with the chrome; the progress bar is a thin line on the video's bottom edge (24px hit area).
-  const scr = (c, side) => `<div class="screen ${side} small" data-side="${side}">
+  const scr = (c, side) => `<div class="screen ${side} small${fmtOf(c) === 'vertical' ? ' vert' : ''}" data-side="${side}">
       <div class="frame"><div class="yt" id="p${side}${n}"></div><div class="shield" aria-hidden="true"></div>
       <div class="label"><span class="side">${side === 'L' ? '1' : '2'}</span><div class="meta"><h3>${esc(c.comic)}${chip(c)}</h3><p>${esc(c.title)}${c.channel ? ' · ' + esc(c.channel) : ''}</p></div></div>
-      <div class="prog" role="slider" tabindex="0" data-side="${side}" aria-label="Seek clip ${side === 'L' ? '1' : '2'}" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00"><span class="ptrack"><i></i></span><b class="pknob"></b></div>${fsBtnHTML()}</div></div>`
+      <div class="prog" role="slider" tabindex="0" data-side="${side}" aria-label="Seek clip ${side === 'L' ? '1' : '2'}" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00"><span class="ptrack"><i></i></span><b class="pknob"></b></div>${sndBtnHTML()}${fsBtnHTML()}</div></div>`
   return `<div class="slide" data-n="${n}">
     <div class="intro">
       <div class="introbar">${introLine()}</div>
@@ -677,7 +754,7 @@ function slideHTML(a, b, n, first) {
     <div class="theatre">${scr(a, 'L')}${scr(b, 'R')}${LAUGHS_ENABLED ? `<div class="lfx" aria-hidden="true"></div><button type="button" class="laughbtn" aria-label="Laugh (tap whenever it's funny)" title="Laugh">${LAUGH_SVG}</button>` : '' /* laugh button + particles: off */}<div class="peek" aria-hidden="true"><span class="pkimg" ${b.media === 'youtube' ? `style="background-image:url(${thumb(b.id)})"` : ''}></span><span class="pkcap"><b>#2</b> ${esc(b.comic)}</span></div></div>
     <div class="ballot"><p class="bq">Which was funnier?</p><div class="picks">${shot(a, 'L')}${shot(b, 'R')}</div>
       <div class="audiofb" role="group" aria-label="Sound level feedback"><span>Sound off?</span>${[['L', '#1'], ['R', '#2']].map(([sd, n]) => `<button type="button" data-aud="${sd}" data-k="loud">${n} too loud</button><button type="button" data-aud="${sd}" data-k="quiet">${n} too quiet</button>`).join('')}</div>
-      <div class="count"><i></i></div><p class="hint">Tap one, or ← / →. No pick in 3s = pass.</p>
+      <div class="vcount"><svg class="ring" viewBox="0 0 36 36" aria-hidden="true"><circle class="rbg" cx="18" cy="18" r="15.5"/><circle class="rfg" cx="18" cy="18" r="15.5" pathLength="100"/></svg><p class="hint">Tap one, or ← / →. No pick = pass.</p></div>
       <p class="friendres" aria-live="polite"></p></div>
   </div>`
 }
@@ -692,7 +769,6 @@ function setStage(s) {
   stage = s
   if (cur?.el) cur.el.dataset.stage = s
   document.body.classList.toggle('in-theatre', s === 'left' || s === 'right')
-  if (s !== 'left' && s !== 'right') soundPill(false)
   if (s === 'right') { // the peek now previews the ballot, not clip two
     const pk = q('.peek'); if (pk) pk.innerHTML = '<span class="pkimg pkvote">Which was funnier?</span><span class="pkcap"><b>Vote</b></span>'
   }
@@ -756,13 +832,32 @@ function finishSlide(host, oldEl) {
 }
 function bindSlide(el) {
   el.querySelector('.intro').onclick = () => { if (stage === 'intro') { userStarted = true; startClip('L') } }
-  el.querySelectorAll('.pick').forEach((x) => (x.onclick = (e) => { e.stopPropagation(); vote(x.dataset.side) }))
+  el.querySelectorAll('.pick').forEach((x) => { // pointerup counts at once (touch, pen, mouse), click is the fallback (keyboard, a11y)
+    let downAt = 0
+    x.addEventListener('pointerdown', (e) => { downAt = now(); e.stopPropagation() })
+    x.addEventListener('pointerup', (e) => { if (!downAt || now() - downAt > 1500) return; downAt = 0; e.stopPropagation(); vote(x.dataset.side) })
+    x.addEventListener('pointercancel', () => (downAt = 0))
+    x.onclick = (e) => { e.stopPropagation(); vote(x.dataset.side) }
+  })
+  const bal = el.querySelector('.ballot')
+  if (bal) { // hover / touch on the ballot holds the countdown
+    bal.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') { voteHover = true; holdCountdown() } })
+    bal.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') { voteHover = false; resumeCountdown() } })
+    bal.addEventListener('touchstart', () => { voteHover = true; holdCountdown() }, { passive: true })
+    const lift = () => { voteHover = false; setTimeout(resumeCountdown, 600) }
+    bal.addEventListener('touchend', lift, { passive: true }); bal.addEventListener('touchcancel', lift, { passive: true })
+  }
   el.querySelectorAll('.shield').forEach((sh) => (sh.onclick = () => {
     if (now() - dragEndAt < 400) return // the tail of a swipe, not a tap
     if (tapRevealed) { tapRevealed = false; return } // chrome was hidden: this tap only brings it back
     screens[sh.closest('.screen').dataset.side]?.toggle()
   }))
   el.querySelectorAll('.prog').forEach(bindScrub)
+  el.querySelectorAll('.vsnd').forEach((b) => {
+    b.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true })
+    b.addEventListener('pointerdown', (e) => e.stopPropagation())
+    b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); toggleSound() }
+  })
   el.querySelectorAll('.vfs').forEach((b) => {
     b.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true }) // a tap on the toggle is never a swipe
     b.addEventListener('pointerdown', (e) => e.stopPropagation())
@@ -841,8 +936,7 @@ function bindScrub(pg) {
 // a tap on the ballot that isn't a pick (share, sound feedback) pauses the 3s countdown; that pick gets no timing signal
 function pauseBallot(msg) {
   if (!(stage === 'vote' && armed)) return
-  sharedDuringBallot = true; clearTimers()
-  const bar = q('.count i'); if (bar) { const t = getComputedStyle(bar).transform; bar.style.transition = 'none'; bar.style.transform = t }
+  sharedDuringBallot = true; clearTimers(); voteHeld = true; holdCountdown()
   const h = q('.ballot .hint'); if (h) h.textContent = msg
 }
 // "Not funny -> next": ends the clip on screen but stays in the clash. Clip ONE -> clip TWO; clip TWO -> the ballot.
@@ -897,9 +991,29 @@ function startVote() {
   setStage('vote')
   markDailyDone() // watched it through to the ballot
   armed = true; armedAt = now(); sharedDuringBallot = false // decision time runs from the moment the FUNNIER logos appear
-  const bar = q('.count i')
-  if (bar) { bar.style.transition = 'none'; bar.style.transform = 'scaleX(1)'; void bar.offsetWidth; bar.style.transition = `transform ${VOTE_MS}ms linear`; bar.style.transform = 'scaleX(0)' }
-  later(() => { if (stage === 'vote' && armed) pass() }, VOTE_MS + 60)
+  voteLeft = VOTE_MS; voteHeld = false; voteHover = false
+  runCountdown()
+}
+// the ballot countdown: a thin ring that drains over VOTE_MS. It holds while the pointer or a finger is on the ballot
+// (or after a sound-feedback tap) and resumes with at least VOTE_RESUME_MIN left. No pick when it empties = a pass.
+let voteLeft = 0, voteT0 = 0, voteT = null, voteHeld = false, voteHover = false
+function ringEl() { return q('.ballot .ring .rfg') }
+function runCountdown() {
+  clearTimeout(voteT); voteT0 = now()
+  const r = ringEl(), frac = voteLeft / VOTE_MS
+  if (r) { r.style.transition = 'none'; r.style.strokeDashoffset = String(100 * (1 - frac)); void r.getBoundingClientRect?.(); r.style.transition = `stroke-dashoffset ${voteLeft}ms linear`; r.style.strokeDashoffset = '100' }
+  voteT = setTimeout(() => { voteT = null; if (stage === 'vote' && armed) pass() }, voteLeft + 60)
+}
+function holdCountdown() {
+  if (!(stage === 'vote' && armed) || voteT == null) return
+  clearTimeout(voteT); voteT = null
+  voteLeft = Math.max(0, voteLeft - (now() - voteT0))
+  const r = ringEl(); if (r) { r.style.transition = 'none'; r.style.strokeDashoffset = String(100 * (1 - voteLeft / VOTE_MS)) }
+  q('.ballot')?.classList.add('held')
+}
+function resumeCountdown() {
+  if (!(stage === 'vote' && armed) || voteT != null || voteHeld || voteHover) return
+  voteLeft = Math.max(voteLeft, VOTE_RESUME_MIN); q('.ballot')?.classList.remove('held'); runCountdown()
 }
 function pass() {
   if (!current) return
@@ -987,6 +1101,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowRight') vote('R')
   else if (e.key === 'ArrowUp' || e.key === 'PageDown' || e.key === 's' || e.key === 'S') { e.preventDefault(); skipClash() }
   else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen() }
+  else if ((e.key === 'm' || e.key === 'M') && (stage === 'left' || stage === 'right')) { e.preventDefault(); toggleSound() }
   else if ((e.key === ' ' || e.key === 'Enter') && stage === 'intro' && e.target === document.body) { e.preventDefault(); userStarted = true; startClip('L') }
 })
 // ---------- gestures: drag up = next clash, drag left = the opponent. The stage follows the finger (transforms only). ----------
@@ -1033,7 +1148,7 @@ function bindGestures() {
   const begin = (t) => { x0 = lx = t.clientX; y0 = ly = t.clientY; t0 = lt = now(); vx = vy = 0; axis = null; active = true; dx = dy = 0 }
   stageEl.addEventListener('touchstart', (e) => {
     if (!arenaOn() || !screeningActive() || committing || moving || e.touches.length > 1) { active = false; return }
-    if (e.target?.closest?.('.prog, .laughbtn, .vfs')) { active = false; return } // scrub / laugh, not a swipe
+    if (e.target?.closest?.('.prog, .laughbtn, .vfs, .ballot button, .pick, .why')) { active = false; return } // scrub / laugh / a button, not a swipe
     begin(e.touches[0])
   }, { passive: true })
   stageEl.addEventListener('touchmove', (e) => {
@@ -1470,9 +1585,7 @@ function bindChrome() {
   document.addEventListener('focusin', (e) => { if (e.target.closest?.('#chrome, #brand')) showChrome() })
   document.addEventListener('keydown', (e) => { if (e.key === 'Tab') showChrome() })
   const sb = $('#sharebtn'); if (sb) sb.onclick = (e) => { e.stopPropagation(); shareCurrent() }
-  document.addEventListener('pointerdown', () => { soundOK = true }, { capture: true, passive: true })
-  document.addEventListener('keydown', () => { soundOK = true }, { capture: true })
-  const sp = $('#soundbtn'); if (sp) sp.onclick = (e) => { e.stopPropagation(); soundOn() }
+  for (const ev of ['pointerdown', 'touchstart', 'keydown', 'wheel', 'scroll']) document.addEventListener(ev, firstGesture, { capture: true, passive: true })
   if (LAUGHS_ENABLED) { const cb = $('#crowdbtn'); if (cb) cb.onclick = (e) => { e.stopPropagation(); toggleCrowd() }; paintCrowdBtn() }
   bindUser()
 }
@@ -1563,7 +1676,7 @@ function topicPairs() {
   const cs = [...CLIPS].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)), out = []
   for (let i = 0; i < cs.length; i++) for (let j = i + 1; j < cs.length; j++) {
     const A = cs[i], B = cs[j]
-    if (A.kind !== B.kind) continue
+    if (A.kind !== B.kind || A.comic === B.comic) continue // daily fallback: two different comics
     const tb = Array.isArray(B.topics) ? B.topics : []
     const shared = (Array.isArray(A.topics) ? A.topics : []).filter((t) => tb.includes(t)).sort()
     if (shared.length) out.push({ a: A.id, b: B.id, topic: shared[0] })
@@ -2305,6 +2418,7 @@ function tabs() {
 
 ;(async () => {
   tabs()
+  SHORT_MAX = devPrefs().maxSec
   await Promise.all([loadData(), loadConfig()])
   await Promise.race([loadClipMeta(), new Promise((r) => setTimeout(r, 1500))]) // durations + crowd loudness; never block the show for long
   MODEL = fitLocal(); TRAITS = fitTraits()

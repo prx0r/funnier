@@ -1,9 +1,58 @@
 [
-  {"date":"2026-10-16","title":"Holy Roasts","blurb":"Louis C.K. and the fig tree vs Chris Rock on God's mistakes.","a":"nyuQjNCpqEI","b":"5bbKnj1-mR0","topic":"religion"},
-  {"date":"2026-10-17","title":"Lockdown Lunacy","blurb":"Norm Macdonald on coronavirus, part one vs part two. Which half holds up?","a":"-skA4GhVX7k","b":"hoYUX3gqZs4","topic":"pandemic"},
-  {"date":"2026-10-18","title":"Family Matters","blurb":"Seinfeld's parents see his act vs Chris Rock's guide to winning fatherhood.","a":"ckkXo5J6fWo","b":"xnUWpegM9oY","topic":"family"},
-  {"date":"2026-10-19","title":"Love Hurts","blurb":"Chris Rock vs Chris Rock: housewives and husbands, or two rules for a relationship?","a":"dUzaSm0aAKw","b":"KkXpKF4b5yA","topic":"relationships"},
-  {"date":"2026-10-20","title":"Animal Instincts","blurb":"Norm's most convoluted joke ever vs Louis C.K. at the zoo.","a":"n3LMSflEN54","b":"UdCpgrF6Txw","topic":"animals"},
-  {"date":"2026-10-21","title":"Everything Sucks","blurb":"Seinfeld vs Seinfeld: everything's great and also sucks, or his Tonight Show set?","a":"s4Df4L6lAgs","b":"HfYzlSNHapA","topic":"everyday"},
-  {"date":"2026-10-22","title":"Hot Takes","blurb":"Louis C.K. on abortion vs Louis C.K. on homelessness. The hard-topics edition.","a":"5XchZEx2SP0","b":"vd8DfFp5ono","topic":"politics"}
+ {
+  "date": "2026-10-16",
+  "title": "Holy Roasts",
+  "blurb": "Louis C.K. and the fig tree vs Chris Rock on God's mistakes.",
+  "a": "nyuQjNCpqEI",
+  "b": "5bbKnj1-mR0",
+  "topic": "religion"
+ },
+ {
+  "date": "2026-10-17",
+  "title": "Hot Takes",
+  "blurb": "Norm Macdonald on coronavirus, part one vs part two. Which half holds up?",
+  "a": "gN02rRbOlUE",
+  "b": "5XchZEx2SP0",
+  "topic": "opinions"
+ },
+ {
+  "date": "2026-10-18",
+  "title": "Family Matters",
+  "blurb": "Seinfeld's parents see his act vs Chris Rock's guide to winning fatherhood.",
+  "a": "ckkXo5J6fWo",
+  "b": "xnUWpegM9oY",
+  "topic": "family"
+ },
+ {
+  "date": "2026-10-19",
+  "title": "Home Truths",
+  "blurb": "Chris Rock vs Chris Rock: housewives and husbands, or two rules for a relationship?",
+  "a": "dUzaSm0aAKw",
+  "b": "ckkXo5J6fWo",
+  "topic": "family"
+ },
+ {
+  "date": "2026-10-20",
+  "title": "Animal Instincts",
+  "blurb": "Norm's most convoluted joke ever vs Louis C.K. at the zoo.",
+  "a": "n3LMSflEN54",
+  "b": "UdCpgrF6Txw",
+  "topic": "animals"
+ },
+ {
+  "date": "2026-10-21",
+  "title": "Modern Life",
+  "blurb": "Seinfeld vs Seinfeld: everything's great and also sucks, or his Tonight Show set?",
+  "a": "HfYzlSNHapA",
+  "b": "vd8DfFp5ono",
+  "topic": "everyday"
+ },
+ {
+  "date": "2026-10-22",
+  "title": "Survival Guide",
+  "blurb": "Louis C.K. on abortion vs Louis C.K. on homelessness. The hard-topics edition.",
+  "a": "-skA4GhVX7k",
+  "b": "KkXpKF4b5yA",
+  "topic": "advice"
+ }
 ]

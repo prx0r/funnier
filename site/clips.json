@@ -7,7 +7,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "talk-show",
   "venue": "late-night",
   "style": [
    "storytelling",
@@ -17,7 +16,11 @@
   "topics": [
    "animals"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": null,
+  "special_id": null,
+  "setting": "talk-show",
+  "format": "horizontal"
  },
  {
   "id": "gN02rRbOlUE",
@@ -28,7 +31,6 @@
   "media": "youtube",
   "sec": 63,
   "checked": "2026-10-15",
-  "format": "chat",
   "venue": "special",
   "style": [
    "deadpan",
@@ -38,7 +40,13 @@
    "opinions"
   ],
   "tagsSource": "draft",
-  "dur": 63
+  "dur": 63,
+  "special_ref": "norm-nothing-special",
+  "special_id": "norm-macdonald-nothing-special-transcript",
+  "setting": "chat",
+  "format": "horizontal",
+  "t_start": 1169,
+  "t_source": "title-anchor"
  },
  {
   "id": "OwlxYYtqHfc",
@@ -48,7 +56,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "late-night",
   "style": [
    "one-liners",
@@ -58,7 +65,11 @@
   "topics": [
    "death"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": null,
+  "special_id": null,
+  "setting": "stand-up",
+  "format": "horizontal"
  },
  {
   "id": "EF-cw9bsLKs",
@@ -68,7 +79,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "talk-show",
   "venue": "late-night",
   "style": [
    "absurd",
@@ -76,7 +86,11 @@
    "one-liners"
   ],
   "topics": [],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": null,
+  "special_id": null,
+  "setting": "talk-show",
+  "format": "horizontal"
  },
  {
   "id": "-skA4GhVX7k",
@@ -86,7 +100,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "home",
   "style": [
    "deadpan",
@@ -95,7 +108,11 @@
   "topics": [
    "pandemic"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": null,
+  "special_id": null,
+  "setting": "stand-up",
+  "format": "horizontal"
  },
  {
   "id": "hoYUX3gqZs4",
@@ -105,7 +122,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "home",
   "style": [
    "deadpan",
@@ -114,7 +130,11 @@
   "topics": [
    "pandemic"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": null,
+  "special_id": null,
+  "setting": "stand-up",
+  "format": "horizontal"
  },
  {
   "id": "IbEMYaXVEjw",
@@ -125,7 +145,6 @@
   "media": "youtube",
   "sec": 404,
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "special",
   "style": [
    "dark",
@@ -135,7 +154,11 @@
   "topics": [],
   "tagsSource": "draft",
   "dur": 404,
-  "needsCut": true
+  "needsCut": true,
+  "special_ref": "louis-sorry",
+  "special_id": "louis-c-k-sorry-transcript",
+  "setting": "stand-up",
+  "format": "horizontal"
  },
  {
   "id": "vd8DfFp5ono",
@@ -145,7 +168,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "special",
   "style": [
    "dark",
@@ -154,7 +176,11 @@
   "topics": [
    "society"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": "louis-back-to-the-garden",
+  "special_id": null,
+  "setting": "stand-up",
+  "format": "horizontal"
  },
  {
   "id": "nyuQjNCpqEI",
@@ -164,7 +190,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "special",
   "style": [
    "absurd",
@@ -173,7 +198,11 @@
   "topics": [
    "religion"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": "louis-back-to-the-garden",
+  "special_id": null,
+  "setting": "stand-up",
+  "format": "horizontal"
  },
  {
   "id": "UdCpgrF6Txw",
@@ -183,7 +212,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "special",
   "style": [
    "observational",
@@ -193,7 +221,11 @@
    "travel",
    "animals"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": null,
+  "special_id": null,
+  "setting": "stand-up",
+  "format": "horizontal"
  },
  {
   "id": "GQ1vEb8d0UE",
@@ -203,14 +235,17 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "special",
   "style": [
    "dark",
    "observational"
   ],
   "topics": [],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": null,
+  "special_id": null,
+  "setting": "stand-up",
+  "format": "horizontal"
  },
  {
   "id": "5XchZEx2SP0",
@@ -220,7 +255,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "special",
   "style": [
    "dark",
@@ -229,7 +263,11 @@
   "topics": [
    "politics"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": null,
+  "special_id": null,
+  "setting": "stand-up",
+  "format": "horizontal"
  },
  {
   "id": "IwuarzMMHAg",
@@ -239,7 +277,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "special",
   "style": [
    "observational",
@@ -248,7 +285,11 @@
   "topics": [
    "everyday"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": null,
+  "special_id": null,
+  "setting": "stand-up",
+  "format": "horizontal"
  },
  {
   "id": "ckkXo5J6fWo",
@@ -258,7 +299,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "story",
   "venue": "special",
   "style": [
    "storytelling",
@@ -268,7 +308,11 @@
   "topics": [
    "family"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": null,
+  "special_id": null,
+  "setting": "story",
+  "format": "horizontal"
  },
  {
   "id": "s4Df4L6lAgs",
@@ -279,7 +323,6 @@
   "media": "youtube",
   "sec": 218,
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "special",
   "style": [
    "observational",
@@ -291,7 +334,11 @@
   ],
   "tagsSource": "draft",
   "dur": 218,
-  "needsCut": true
+  "needsCut": true,
+  "special_ref": null,
+  "special_id": null,
+  "setting": "stand-up",
+  "format": "horizontal"
  },
  {
   "id": "HfYzlSNHapA",
@@ -301,7 +348,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "late-night",
   "style": [
    "observational",
@@ -310,7 +356,11 @@
   "topics": [
    "everyday"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": null,
+  "special_id": null,
+  "setting": "stand-up",
+  "format": "horizontal"
  },
  {
   "id": "m2k7YKvmqQg",
@@ -321,7 +371,6 @@
   "media": "youtube",
   "sec": 46,
   "checked": "2026-10-15",
-  "format": "story",
   "venue": "special",
   "style": [
    "storytelling",
@@ -331,7 +380,11 @@
    "career"
   ],
   "tagsSource": "draft",
-  "dur": 46
+  "dur": 46,
+  "special_ref": null,
+  "special_id": null,
+  "setting": "story",
+  "format": "vertical"
  },
  {
   "id": "xnUWpegM9oY",
@@ -341,7 +394,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "special",
   "style": [
    "rant",
@@ -350,7 +402,11 @@
   "topics": [
    "family"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": "rock-tamborine",
+  "special_id": "chris-rock-tamborine-transcript",
+  "setting": "stand-up",
+  "format": "horizontal"
  },
  {
   "id": "5bbKnj1-mR0",
@@ -360,7 +416,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "special",
   "style": [
    "rant",
@@ -369,7 +424,13 @@
   "topics": [
    "religion"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": "rock-tamborine",
+  "special_id": "chris-rock-tamborine-transcript",
+  "setting": "stand-up",
+  "format": "horizontal",
+  "t_start": 1588,
+  "t_source": "title-anchor"
  },
  {
   "id": "dUzaSm0aAKw",
@@ -379,7 +440,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "late-night",
   "style": [
    "observational",
@@ -388,7 +448,11 @@
   "topics": [
    "relationships"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": null,
+  "special_id": null,
+  "setting": "stand-up",
+  "format": "horizontal"
  },
  {
   "id": "KkXpKF4b5yA",
@@ -398,7 +462,6 @@
   "kind": "human",
   "media": "youtube",
   "checked": "2026-10-15",
-  "format": "stand-up",
   "venue": "special",
   "style": [
    "rant",
@@ -407,6 +470,446 @@
   "topics": [
    "relationships"
   ],
-  "tagsSource": "draft"
+  "tagsSource": "draft",
+  "special_ref": "rock-tamborine",
+  "special_id": "chris-rock-tamborine-transcript",
+  "setting": "stand-up",
+  "format": "horizontal",
+  "t_start": 1998,
+  "t_source": "title-anchor"
+ },
+ {
+  "id": "tDolNU89SXI",
+  "comic": "Mark Normand",
+  "title": "Out To Lunch (Full Special)",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 3239,
+  "dur": 3239,
+  "checked": "2026-10-16",
+  "setting": "special",
+  "style": [
+   "one-liners",
+   "dark"
+  ],
+  "topics": [
+   "identity",
+   "drinking"
+  ],
+  "tagsSource": "draft",
+  "format": "horizontal",
+  "special_ref": "mn-out-to-lunch",
+  "special_id": null
+ },
+ {
+  "id": "ypfsxnFOfj0",
+  "comic": "Mark Normand",
+  "title": "Abortion Jokes (Out To Lunch)",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 60,
+  "dur": 60,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners",
+   "dark"
+  ],
+  "topics": [
+   "politics"
+  ],
+  "tagsSource": "draft",
+  "format": "horizontal",
+  "special_ref": "mn-out-to-lunch",
+  "special_id": null
+ },
+ {
+  "id": "prE48-cwRwo",
+  "comic": "Mark Normand",
+  "title": "Good Gaydar (Out To Lunch)",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 42,
+  "dur": 42,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners"
+  ],
+  "topics": [
+   "identity"
+  ],
+  "tagsSource": "draft",
+  "format": "vertical",
+  "special_ref": "mn-out-to-lunch",
+  "special_id": null
+ },
+ {
+  "id": "3cTetNq0w2g",
+  "comic": "Mark Normand",
+  "title": "Amazon Alexa (Out To Lunch)",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 39,
+  "dur": 39,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners",
+   "observational"
+  ],
+  "topics": [
+   "technology"
+  ],
+  "tagsSource": "draft",
+  "format": "vertical",
+  "special_ref": "mn-out-to-lunch",
+  "special_id": null
+ },
+ {
+  "id": "3o-sDcvYQmE",
+  "comic": "Mark Normand",
+  "title": "Political Weather (Soup to Nuts)",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 88,
+  "dur": 88,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners",
+   "observational"
+  ],
+  "topics": [
+   "politics"
+  ],
+  "tagsSource": "draft",
+  "format": "horizontal",
+  "special_ref": "mn-soup-to-nuts",
+  "special_id": null
+ },
+ {
+  "id": "WDDzutbkG3I",
+  "comic": "Mark Normand",
+  "title": "Female School Shooter (Soup to Nuts)",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 55,
+  "dur": 55,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners",
+   "dark"
+  ],
+  "topics": [
+   "society"
+  ],
+  "tagsSource": "draft",
+  "format": "vertical",
+  "special_ref": "mn-soup-to-nuts",
+  "special_id": null
+ },
+ {
+  "id": "9tzB8xKcSNc",
+  "comic": "Mark Normand",
+  "title": "You Can't Make Those Jokes Anymore (Soup to Nuts)",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 58,
+  "dur": 58,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners",
+   "dark"
+  ],
+  "topics": [
+   "society"
+  ],
+  "tagsSource": "draft",
+  "format": "vertical",
+  "special_ref": "mn-soup-to-nuts",
+  "special_id": null
+ },
+ {
+  "id": "BZZI233ptDQ",
+  "comic": "Mark Normand",
+  "title": "Not Gay (Soup to Nuts)",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 59,
+  "dur": 59,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners",
+   "self-deprecating"
+  ],
+  "topics": [
+   "identity"
+  ],
+  "tagsSource": "draft",
+  "format": "vertical",
+  "special_ref": "mn-soup-to-nuts",
+  "special_id": null
+ },
+ {
+  "id": "pBzNeaOTed0",
+  "comic": "Mark Normand",
+  "title": "Wants to Look Tough (Soup to Nuts)",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 60,
+  "dur": 60,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners",
+   "self-deprecating"
+  ],
+  "topics": [
+   "everyday"
+  ],
+  "tagsSource": "draft",
+  "format": "vertical",
+  "special_ref": "mn-soup-to-nuts",
+  "special_id": null
+ },
+ {
+  "id": "NTwzrjRZFxY",
+  "comic": "Mark Normand",
+  "title": "On Jews (Soup to Nuts)",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 58,
+  "dur": 58,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners",
+   "dark"
+  ],
+  "topics": [
+   "religion"
+  ],
+  "tagsSource": "draft",
+  "format": "vertical",
+  "special_ref": "mn-soup-to-nuts",
+  "special_id": null
+ },
+ {
+  "id": "oMNoEdQHdXg",
+  "comic": "Mark Normand",
+  "title": "Mental Disorders (None Too Pleased)",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 43,
+  "dur": 43,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners",
+   "dark"
+  ],
+  "topics": [
+   "health"
+  ],
+  "tagsSource": "draft",
+  "format": "vertical",
+  "special_ref": "mn-none-too-pleased",
+  "special_id": null
+ },
+ {
+  "id": "45AIWTWkM7A",
+  "comic": "Mark Normand",
+  "title": "Cat Guy (None Too Pleased)",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 66,
+  "dur": 66,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners",
+   "observational"
+  ],
+  "topics": [
+   "animals"
+  ],
+  "tagsSource": "draft",
+  "format": "vertical",
+  "special_ref": "mn-none-too-pleased",
+  "special_id": null
+ },
+ {
+  "id": "TnCRitTRjck",
+  "comic": "Mark Normand",
+  "title": "Trans vs. Midget",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 153,
+  "dur": 153,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners",
+   "dark"
+  ],
+  "topics": [
+   "identity"
+  ],
+  "tagsSource": "draft",
+  "format": "horizontal",
+  "special_ref": null,
+  "special_id": null
+ },
+ {
+  "id": "Og9LzOARLjI",
+  "comic": "Mark Normand",
+  "title": "Fatties",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 129,
+  "dur": 129,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners",
+   "dark"
+  ],
+  "topics": [
+   "body"
+  ],
+  "tagsSource": "draft",
+  "format": "horizontal",
+  "special_ref": null,
+  "special_id": null
+ },
+ {
+  "id": "svwzD0JT9eM",
+  "comic": "Mark Normand",
+  "title": "Thirsty Asians",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 92,
+  "dur": 92,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners"
+  ],
+  "topics": [
+   "race"
+  ],
+  "tagsSource": "draft",
+  "format": "horizontal",
+  "special_ref": null,
+  "special_id": null
+ },
+ {
+  "id": "XpVJ9vK2ZII",
+  "comic": "Mark Normand",
+  "title": "Religion vs Magic",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 44,
+  "dur": 44,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners"
+  ],
+  "topics": [
+   "religion"
+  ],
+  "tagsSource": "draft",
+  "format": "vertical",
+  "special_ref": null,
+  "special_id": null
+ },
+ {
+  "id": "oDr3Y2JIh6k",
+  "comic": "Mark Normand",
+  "title": "Immigration!!",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 77,
+  "dur": 77,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners",
+   "dark"
+  ],
+  "topics": [
+   "politics"
+  ],
+  "tagsSource": "draft",
+  "format": "vertical",
+  "special_ref": null,
+  "special_id": null
+ },
+ {
+  "id": "aA6Ia43MW_w",
+  "comic": "Mark Normand",
+  "title": "Gay Heckle",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 111,
+  "dur": 111,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners"
+  ],
+  "topics": [
+   "identity"
+  ],
+  "tagsSource": "draft",
+  "format": "vertical",
+  "special_ref": null,
+  "special_id": null
+ },
+ {
+  "id": "NhnS0dUacJs",
+  "comic": "Mark Normand",
+  "title": "Live at Comix",
+  "channel": "mark normand",
+  "kind": "human",
+  "media": "youtube",
+  "sec": 358,
+  "dur": 358,
+  "checked": "2026-10-16",
+  "setting": "stand-up",
+  "style": [
+   "one-liners",
+   "observational"
+  ],
+  "topics": [
+   "everyday"
+  ],
+  "tagsSource": "draft",
+  "format": "horizontal",
+  "special_ref": null,
+  "special_id": null
  }
 ]
