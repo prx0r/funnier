@@ -1,0 +1,26 @@
+// node tools/test-seen.mjs : seen tracking thresholds + merge semantics (src/seen.js)
+import { tierOf, eligible, freshness, authorMult, recordWatch, mergeEntry, mergeLogs, migrateLegacy, FINISH_FRAC, GLANCE_FRAC, GLANCE_SEC, AUTHOR_FLOOR } from '../src/seen.js'
+const fails = [], ok = (c, m) => { if (!c) fails.push(m); console.log((c ? 'PASS ' : 'FAIL ') + m) }
+const t = '2026-10-10T10:00:00.000Z'
+ok(FINISH_FRAC === 0.9 && GLANCE_FRAC === 0.25 && GLANCE_SEC === 10, 'thresholds: finished >= 90%, glance < 25% or < 10 s')
+ok(tierOf({ finished: true, frac: 0.2, secs: 5 }) === 'finished', 'ENDED / editorial end = finished whatever the fraction')
+ok(tierOf({ frac: 0.9, secs: 40 }) === 'finished' && tierOf({ frac: 0.89, secs: 40 }) === 'partial', '>= 90% of the screened window = finished; 89% = partial')
+ok(tierOf({ frac: 0.5, secs: 9 }) === 'glance' && tierOf({ frac: 0.24, secs: 40 }) === 'glance' && tierOf({ frac: 0.25, secs: 10 }) === 'partial', 'glance = under 10 s or under 25%')
+ok(tierOf(null) === null && eligible(null) && eligible({ frac: 0.1, secs: 3 }), 'unseen and glance clips are eligible at level 0')
+ok(!eligible({ frac: 0.5, secs: 30 }, 0) && eligible({ frac: 0.5, secs: 30 }, 1), 'partial only at level 1 (unseen pool dry)')
+ok(!eligible({ finished: true }, 0) && !eligible({ finished: true }, 1) && !eligible({ frac: 0.95 }, 5), 'finished never eligible at any level')
+const now = Date.parse(t)
+ok(freshness(null, now) === 1 && Math.abs(freshness({ frac: 0.1, secs: 3, last: t }, now) - 0.1) < 1e-9 && freshness({ frac: 0.1, secs: 3, last: '2026-09-01T00:00:00.000Z' }, now) > 0.55, 'glance: recency penalty 0.1 just after, ~0.6 weeks later')
+ok(authorMult(0) === 1 && Math.abs(authorMult(1) - 0.6) < 1e-9 && authorMult(10) === AUTHOR_FLOOR, 'author diversity: x0.6 per extra appearance, floor 0.2')
+const L = {}
+recordWatch(L, 'x', { at: t, secs: 30, pos: 30, frac: 0.5, shown: true })
+recordWatch(L, 'x', { at: '2026-10-11T10:00:00.000Z', secs: 10, pos: 10, frac: 0.2, shown: true })
+ok(L.x.first === t && L.x.last === '2026-10-11T10:00:00.000Z' && L.x.secs === 30 && L.x.frac === 0.5 && L.x.shows === 2, 'recordWatch: first stays, last moves, max measures, shows counted')
+recordWatch(L, 'x', { at: t, secs: 60, pos: 60, frac: 1, finished: true }); recordWatch(L, 'x', { at: t, shown: true, explicit: true })
+ok(L.x.finished && L.x.rewatches === 1, 'finished is sticky; an explicit replay of a finished clip = rewatch')
+const m = mergeEntry({ first: '2026-10-05T00:00:00.000Z', last: '2026-10-05T00:00:00.000Z', secs: 50, frac: 0.6, shows: 3 }, { first: '2026-10-01T00:00:00.000Z', last: '2026-10-09T00:00:00.000Z', secs: 20, frac: 0.3, finished: true, shows: 1 })
+ok(m.first === '2026-10-01T00:00:00.000Z' && m.last === '2026-10-09T00:00:00.000Z' && m.secs === 50 && m.frac === 0.6 && m.finished && m.shows === 3, 'merge: min first, max last, max measures, finished = or')
+ok(Object.keys(mergeLogs({ a: { first: t } }, { b: { first: t } })).join() === 'a,b', 'mergeLogs unions clips')
+const mg = migrateLegacy({ seen: { a: 2, z: 1 }, votes: [{ a: 'a', b: 'b', winner: 'a', createdAt: t, leftWatchedSec: 57, rightWatchedSec: 20 }], dur: { a: 60, b: 60 } })
+ok(tierOf(mg.a) === 'finished' && tierOf(mg.b) === 'partial' && mg.a.shows === 2 && tierOf(mg.z) === 'glance', 'legacy migration: votes give watched fractions; bare counters become glances')
+console.log(fails.length ? `${fails.length} FAILED` : 'ALL PASS'); process.exit(fails.length ? 1 : 0)

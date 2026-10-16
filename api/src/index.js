@@ -157,6 +157,7 @@ app.delete('/me', auth, async (c) => {
   await DB.batch([
     DB.prepare('DELETE FROM votes WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM watch_events WHERE user_id = ?').bind(id),
+    DB.prepare('DELETE FROM watches WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM humour_profiles WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM specials_log WHERE user_id = ?').bind(id),
@@ -224,6 +225,75 @@ app.post('/events', auth, async (c) => {
   if (stmts.length) await DB.batch(stmts)
   return c.json({ ok: true, saved: list.length - skipped, skipped })
 })
+
+// ---------- seen tracking: the per-clip watch log (src/seen.js), merged with max / or semantics ----------
+app.get('/me/watches', auth, async (c) => {
+  const r = await c.env.DB.prepare('SELECT clip_id, first_seen, last_seen, secs, max_pos, frac, finished, shows, passed, rewatches FROM watches WHERE user_id = ? ORDER BY last_seen DESC LIMIT 20000').bind(c.get('user').id).all()
+  return c.json({ watches: (r.results || []).map((x) => ({ clip: x.clip_id, first: x.first_seen, last: x.last_seen, secs: x.secs, pos: x.max_pos, frac: x.frac, finished: !!x.finished, shows: x.shows, passed: x.passed, rewatches: x.rewatches })) })
+})
+app.post('/me/watches', auth, async (c) => {
+  const u = c.get('user'), b = await body(c), list = Array.isArray(b?.watches) ? b.watches : []
+  if (!list.length) return c.json({ error: 'no_watches' }, 400)
+  if (list.length > 500) return c.json({ error: 'too_many', max: 500 }, 400)
+  const DB = c.env.DB, stmts = [], lim = Date.now() + 5 * 60e3
+  let skipped = 0
+  const T = (x) => (typeof x === 'string' && !isNaN(Date.parse(x)) ? new Date(Math.min(Date.parse(x), lim)).toISOString() : null)
+  const N = (x, mx) => { const n = Number(x); return Number.isFinite(n) && n >= 0 ? Math.min(mx, n) : 0 }
+  for (const w of list) {
+    const first = T(w?.first) || T(w?.last), last = T(w?.last) || first
+    if (!w || !CLIP.test(w.clip || '') || !first) { skipped++; continue }
+    const frac = Math.round(1000 * N(w.frac, 1)) / 1000, fin = w.finished === true || frac >= 0.9 ? 1 : 0
+    stmts.push(DB.prepare(`INSERT INTO watches (user_id, clip_id, first_seen, last_seen, secs, max_pos, frac, finished, shows, passed, rewatches) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (user_id, clip_id) DO UPDATE SET first_seen = MIN(watches.first_seen, excluded.first_seen), last_seen = MAX(watches.last_seen, excluded.last_seen),
+        secs = MAX(watches.secs, excluded.secs), max_pos = MAX(watches.max_pos, excluded.max_pos), frac = MAX(watches.frac, excluded.frac),
+        finished = MAX(watches.finished, excluded.finished), shows = MAX(watches.shows, excluded.shows), passed = MAX(watches.passed, excluded.passed),
+        rewatches = MAX(watches.rewatches, excluded.rewatches)`)
+      .bind(u.id, w.clip, first, last < first ? first : last, Math.round(10 * N(w.secs, 36000)) / 10, Math.round(10 * N(w.pos, 36000)) / 10, frac, fin,
+        Math.round(N(w.shows, 1e5)), Math.round(N(w.passed, 1e5)), Math.round(N(w.rewatches, 1e5))))
+  }
+  if (stmts.length) await DB.batch(stmts)
+  return c.json({ ok: true, saved: stmts.length, skipped })
+})
+
+// ---------- public, read-only, anonymised export for the tally (D1 votes + passes/skips reach the leaderboard) ----------
+// voter = 'd1:' + first 16 hex of HMAC-SHA256(EXPORT_SALT, user_id). No email, name, username, country or user id.
+// Paginated by (created_at, rowid): ?since=<ISO> (inclusive lower bound) &cursor=<next from the last page> &limit=1..1000.
+let saltKey = null, saltFor = null
+async function voterHash(env, uid) {
+  if (!saltKey || saltFor !== env.EXPORT_SALT) { saltKey = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.EXPORT_SALT), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']); saltFor = env.EXPORT_SALT }
+  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', saltKey, new TextEncoder().encode('funnier-voter:' + uid)))
+  return 'd1:' + [...sig.slice(0, 8)].map((x) => x.toString(16).padStart(2, '0')).join('')
+}
+const EXPORT_MAX_AGE = 300
+async function exportPage(c, kind) {
+  c.header('access-control-allow-origin', '*'); c.header('vary', 'origin')
+  if (!c.env.EXPORT_SALT) return c.json({ error: 'export_not_configured' }, 503)
+  const cache = typeof caches !== 'undefined' ? caches.default : null, key = new Request(new URL(c.req.url).toString(), { method: 'GET' })
+  if (cache) { const hit = await cache.match(key); if (hit) return hit }
+  const since = c.req.query('since'), cur = c.req.query('cursor') || '', limit = Math.max(1, Math.min(1000, parseInt(c.req.query('limit') || '500', 10) || 500))
+  const s0 = since && !isNaN(Date.parse(since)) ? new Date(Date.parse(since)).toISOString() : '1970-01-01T00:00:00.000Z'
+  const m = cur.match(/^(\d{4}-\d\d-\d\dT[\d:.]+Z)~(\d{1,15})$/)
+  const [ct, cr] = m ? [m[1], Number(m[2])] : [s0, -1]
+  const table = kind === 'votes' ? 'votes' : 'watch_events'
+  const cols = kind === 'votes' ? 'rowid AS rid, user_id, a, b, winner, ms, daily, signals, created_at' : 'rowid AS rid, user_id, kind, a, b, stage, clip, watched_sec, ms, daily, signals, created_at'
+  const r = await c.env.DB.prepare(`SELECT ${cols} FROM ${table} WHERE created_at >= ? AND (created_at > ? OR (created_at = ? AND rowid > ?)) ORDER BY created_at, rowid LIMIT ?`).bind(s0, ct, ct, cr, limit + 1).all()
+  const rows = r.results || [], more = rows.length > limit, page = rows.slice(0, limit)
+  const out = []
+  for (const x of page) {
+    const sg = jparse(x.signals, null), signals = sg && typeof sg === 'object' ? sg : undefined
+    const base = { a: x.a, b: x.b, createdAt: x.created_at, voter: await voterHash(c.env, x.user_id), ...(Number.isInteger(x.ms) ? { ms: x.ms } : {}), ...(x.daily ? { daily: x.daily } : {}),
+      ...(signals ? { signals } : {}), ...(signals?.policy ? { policy: signals.policy } : {}) }
+    out.push(kind === 'votes' ? { ...base, winner: x.winner, basis: 'watched', source: 'd1' }
+      : { ...base, kind: x.kind, ...(x.stage ? { stage: x.stage } : {}), ...(x.clip ? { clip: x.clip } : {}), ...(Number.isInteger(x.watched_sec) ? { watchedSec: x.watched_sec } : {}), source: 'd1' })
+  }
+  const last = page[page.length - 1]
+  const res = c.json({ kind, since: s0, count: out.length, next: more && last ? `${last.created_at}~${last.rid}` : null, [kind]: out })
+  res.headers.set('cache-control', `public, max-age=${EXPORT_MAX_AGE}`)
+  if (cache) { const p = cache.put(key, res.clone()).catch(() => {}); try { c.executionCtx.waitUntil(p) } catch {} }
+  return res
+}
+app.get('/export/votes', (c) => exportPage(c, 'votes'))
+app.get('/export/events', (c) => exportPage(c, 'events'))
 
 // the interpretable humour profile, fitted offline from bit theory features (tools/humour.mjs); null until there is enough data
 app.get('/me/humour', auth, async (c) => {

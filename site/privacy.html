@@ -16,6 +16,7 @@ li{margin:4px 0} code{font-family:ui-monospace,monospace;font-size:.92em;backgro
 <li><b>Your profile:</b> the username you choose and your avatar seed (a short random code that draws your cartoon mascot; nothing is uploaded).</li>
 <li><b>Optional stats details:</b> your year of birth, country and sex at birth ("prefer not to say" is always an option). These are used only to compute anonymous splits such as "58% of voters in the UK picked this clip". They are never shown on your profile, to your friends or to anyone else.</li>
 <li><b>Your votes:</b> for each clash, which clip you picked, when, optionally why ("Better delivery") and how long you took to decide.</li>
+<li><b>What you have watched:</b> for each clip, when you first and last saw it, how far you got and whether you finished it, so the screening never serves you a clip you already watched to the end.</li>
 <li><b>Friends and invites:</b> who you are friends with on Funnier, the clash links you share, and whether a link was opened and voted on.</li>
 </ul>
 <h2>What we don't do</h2>
@@ -23,6 +24,7 @@ li{margin:4px 0} code{font-family:ui-monospace,monospace;font-size:.92em;backgro
 <li>We never sell your data, and we don't use it for advertising.</li>
 <li>We don't show your email, birth year, country or sex at birth to other people. Friends see only your username, avatar, your picks on clashes they also played, and how often your taste matches.</li>
 <li>Public charts and splits only ever show totals; a country appears only once it has at least 5 votes.</li>
+<li>To compute those charts, our API publishes an anonymised list of picks and passes (the two clips, the pick, when, and how it was watched) under a random-looking code per account that cannot be turned back into your account. It never includes your name, email, username or country.</li>
 </ul>
 <h2>Where it lives</h2>
 <p>Account data is stored in a Cloudflare D1 database operated for Funnier. Sign-in keeps a session token in your browser (and a secure cookie). Videos play in YouTube's official player, which is covered by <a href="https://policies.google.com/privacy" rel="noopener">Google's privacy policy</a>. If you separately connect Bluesky in Advanced settings, your picks are also written as public records in your own Bluesky account.</p>

@@ -955,3 +955,19 @@ button.up-fav.empty:hover{border-color:var(--gold);color:var(--gold)}
 .tp-av{width:28px;height:28px;display:block}
 .tp-stop{padding:6px 10px!important;border-radius:999px!important;background:rgba(255,255,255,.07)!important}
 body.in-theatre.chrome-hidden #trainpill{opacity:.35}
+/* seen tracking: watched clips stay visible + playable, only dimmed (YouTube-style), with a thin gold bar for how far you got */
+.tile .poster,.hth .hpic{position:relative}
+.tile.watched .poster img,.hth.watched .hpic img{opacity:.55;filter:saturate(.45)}
+.tile.partwatched .poster img,.hth.partwatched .hpic img{opacity:.8;filter:saturate(.8)}
+.wbar{position:absolute;left:0;right:0;top:auto;height:3px;background:rgba(255,255,255,.14);pointer-events:none;z-index:2}
+.tile .wbar{top:calc(100% - 58px - 3px)}
+.hth .wbar{bottom:0}
+.wbar i{display:block;height:100%;background:var(--gold)}
+.wtag{position:absolute;top:8px;left:8px;z-index:2;font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--text);background:rgba(7,7,10,.72);border:1px solid rgba(245,199,107,.35);border-radius:999px;padding:1px 7px;pointer-events:none}
+.seennote{display:inline-block;margin-left:10px;font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.04em}
+.endcard{display:flex;align-items:center;justify-content:center}
+.endcard .ec{max-width:520px;margin:0 auto;padding:48px 24px;text-align:center}
+.endcard .ec-k{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--gold);margin:0 0 14px}
+.endcard .ec-h{font-family:var(--display);font-weight:400;font-size:clamp(30px,5vw,46px);line-height:1.05;margin:0 0 10px;color:var(--text)}
+.endcard .ec-s{color:var(--muted);margin:0 0 24px}
+.endcard .ec-a{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}

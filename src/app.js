@@ -8,6 +8,7 @@ import { glyphSVG, metaSVG, netSVG, typeName, lerpPassport, diffPassports } from
 import { humourPayload, shortPayload, chatgptURL } from './payload.js' // the LLM humour payload
 import { handoff } from './handoff.js' // characters2 handoff export
 import { resolveParams } from './screening.js'
+import { recordWatch, mergeLogs, migrateLegacy, tierOf, eligible, freshness, authorMult, seenDate, cleanEntry, FINISH_FRAC, GLANCE_FRAC, GLANCE_SEC } from './seen.js' // seen tracking + the rotation's never-again rule
 import { cleanPolicy } from './policy.js' // the screening's constants (learned values only when the gate passed)
 import { createEngine, basePrior, mergePrior, readout, deltas, deltaText, FEATURES, ENGINE_MODEL } from './engine.js' // humour engine v2 (handwired)
 
@@ -197,7 +198,74 @@ function pairKey(a, b) { return [a, b].sort().join('|') }
 const sig = (x) => 1 / (1 + Math.exp(-x))
 const SCALE = 400 / Math.LN10
 const LATE_NIGHT = /coco|letterman|tonight|late/i
-function bumpSeen(...ids) { const s = LS.get('seen', {}); ids.forEach((i) => (s[i] = (s[i] || 0) + 1)); LS.set('seen', s) }
+// ---------- seen tracking (src/seen.js): one watch-log entry per clip, synced to the account (/me/watches) ----------
+// finished (ENDED / editorial end without skipping ahead, or >= 90% of the screened window) = never again in the ROTATION;
+// glance (< 10 s or < 25%) may come back later with a recency penalty; partial = only when the unseen pool runs dry.
+// Explicit links (#clash, invites, history Rewatch, the daily banner) still play anything (a finished clip = a rewatch).
+// Profiles, rails and history never hide a clip: watched clips are only dimmed, with a progress bar.
+let W_MEM = null // the parsed log, kept in memory (the rotation reads it per candidate)
+function saveWatches(W) { W_MEM = W; LS.set('watches', W) }
+function watches() {
+  if (W_MEM) return W_MEM
+  let W = LS.get('watches', null)
+  if (!W || typeof W !== 'object') { // first run with seen tracking: migrate the legacy counters + vote/pass/skip records
+    W = migrateLegacy({ seen: LS.get('seen', {}), votes: LS.get('votes', []), partials: LS.get('partials', []), passes: LS.get('passes', []), skips: LS.get('skips', []), dur: LS.get('dur', {}), clipDur: (id) => clipWin(BYID[id] || {}) })
+  }
+  saveWatches(W)
+  return W
+}
+const watchOf = (id) => watches()[id] || null
+const SESSION_COMIC = {} // author diversity: how often each comic was on screen in THIS session (page load)
+let SEEN_LEVEL = 0 // 0: unseen + glance clips only; 1: partial clips too (the unseen pool ran dry). finished: never.
+const rotOK = (c) => !!c && eligible(watchOf(c.id), SEEN_LEVEL)
+const rotMult = (c, nowMs) => freshness(watchOf(c.id), nowMs) * authorMult(SESSION_COMIC[c.comic] || 0) // each candidate scored on its own
+const explicitMode = () => ['shared', 'daily', 'rewatch'].includes(current?.mode)
+// fold one screen's playback into the log (idempotent per mount: shows counts once)
+function logScreen(sc, extra = {}) {
+  if (!sc || !sc.clip || !sc.started) return
+  try { sc.track() } catch {}
+  const win = Math.max(1, sc.screened()), watched = sc.watched || 0, maxT = Math.max(sc.maxT || 0, sc.start)
+  const frac = Math.max(0, Math.min((maxT - sc.start) / win, watched / win, 1))
+  const finished = !sc.jumped && (sc.ended || !!sc.reachedEnd)
+  const W = watches()
+  recordWatch(W, sc.clip.id, { at: new Date().toISOString(), secs: Math.round(10 * watched) / 10, pos: Math.round(10 * maxT) / 10, frac, finished, shown: !sc.logShown, passed: !!extra.passed, explicit: explicitMode() })
+  sc.logShown = true
+  saveWatches(W); queueWatches()
+}
+function bumpSeen(extra) { logScreen(screens.L, extra); logScreen(screens.R, extra) }
+// signed in: GET /me/watches merged (earliest first, latest last, max of measures, finished = or), then the changes POSTed in batches
+let syncingW = null, wT = null
+function queueWatches() { if (!signedIn()) return; clearTimeout(wT); wT = setTimeout(() => syncWatches(false), 2000) }
+function syncWatches(pull = true) {
+  if (!signedIn()) return Promise.resolve()
+  if (syncingW) return syncingW
+  syncingW = (async () => {
+    const key = 'u:' + USER.id
+    if (pull) {
+      const r = await api('/me/watches'); if (!r.ok) return
+      const srv = {}; for (const w of Array.isArray(r.j?.watches) ? r.j.watches : []) if (w && typeof w.clip === 'string') srv[w.clip] = w
+      saveWatches(mergeLogs(watches(), srv))
+    }
+    const since = LS.get('wSyncedUser', '') === key ? LS.get('wSyncedAt', '') : ''
+    const all = Object.entries(watches()).filter(([, w]) => w && (w.last || '') > since).map(([clip, w]) => ({ clip, ...w })).sort((x, y) => (x.last < y.last ? -1 : 1))
+    for (let i = 0; i < all.length; i += 500) {
+      const chunk = all.slice(i, i + 500), r = await api('/me/watches', { method: 'POST', body: { watches: chunk } })
+      if (!r.ok) return
+      LS.set('wSyncedAt', chunk[chunk.length - 1].last); LS.set('wSyncedUser', key)
+    }
+    if (pull) { try { paintSeenMarks() } catch {} }
+  })().catch(() => {}).finally(() => (syncingW = null))
+  return syncingW
+}
+// the watched state on a thumbnail (YouTube-style): dimmed + a thin gold bar for how far you got, "Watched" when finished
+function watchMark(id) {
+  const w = watchOf(id), t = tierOf(w); if (!t || !(w.secs > 0 || w.frac > 0 || w.finished)) return { cls: '', html: '', title: '' }
+  const pct = t === 'finished' ? 100 : Math.max(4, Math.round(100 * w.frac))
+  const when = seenDate(w.last || w.first)
+  return { cls: t === 'finished' ? ' watched' : ' partwatched', title: `${t === 'finished' ? 'Watched' : 'Started'}${when ? ' ' + when : ''}`,
+    html: `<span class="wbar" aria-hidden="true"><i style="width:${pct}%"></i></span>${t === 'finished' ? `<span class="wtag">Watched${when ? ' ' + when : ''}</span>` : ''}` }
+}
+function paintSeenMarks() { if (!$('#v-comics')?.hidden) paintComics(); if (!$('#hist')?.hidden && !$('#v-you')?.hidden) paintHistory() } // only what is on screen
 
 // ---------- implicit signals -> confidence weight per pick ----------
 // decisionMs runs from the moment the Funnier buttons appear to the click (the ballot is a 10 s window, VOTE_MS).
@@ -415,13 +483,14 @@ function openPair(a, b) {
   if (!A || !B || a === b || done.has(pairKey(a, b)) || skipped.has(pairKey(a, b))) return false
   if (A.comic === B.comic) return false // hard rule at every level: a clash is always two different comics
   if (!servable(A) || !servable(B)) return false // hard rule: no vertical clips on desktop
+  if (!rotOK(A) || !rotOK(B)) return false // hard rule (filter before scoring): a finished clip never comes back in rotation
   if (PAIR_LEVEL < 2 && !fairPair(A, B)) return false
   if (PAIR_LEVEL < 1 && (A.needsCut || B.needsCut)) return false
   if (LANE === 'mixed') return A.kind !== B.kind || Math.random() < 0.25
   return A.kind === LANE && B.kind === LANE
 }
 let ROUND_FMT = null // the format this round is drawn from (null = any)
-function pool() { const P = CLIPS.filter((c) => (LANE === 'mixed' || c.kind === LANE) && servable(c)); return ROUND_FMT ? P.filter((c) => fmtOf(c) === ROUND_FMT) : P }
+function pool() { const P = CLIPS.filter((c) => (LANE === 'mixed' || c.kind === LANE) && servable(c) && rotOK(c)); return ROUND_FMT ? P.filter((c) => fmtOf(c) === ROUND_FMT) : P }
 function roundFormat() { // the device's preferred format for this round, when the lane has enough of it
   const pr = devPrefs(); ROUND_FMT = null
   const P = CLIPS.filter((c) => (LANE === 'mixed' || c.kind === LANE) && fmtOf(c) === pr.prefer && servable(c))
@@ -444,16 +513,17 @@ function contentSim(c, liked) {
   for (const { c: x, k } of liked) if (x.id !== c.id) { s += k * structSim(c, x, THEORY); n += k }
   return n ? s / n : 0
 }
-if (typeof window !== 'undefined') window.__funnierTest = { pickPair: () => pickPair(), openPair: (a, b) => openPair(a, b), contentSim: (id) => contentSim(BYID[id], likedClips()), pickForYou: () => pickForYou() } // smoke tests sample rounds
+if (typeof window !== 'undefined') window.__funnierTest = { pickPair: () => pickPair(), openPair: (a, b) => openPair(a, b), contentSim: (id) => contentSim(BYID[id], likedClips()), pickForYou: () => pickForYou(), pickTraining: () => pickTraining(), pickExplore: () => pickExplore(), watches: () => watches(), setWatches: (W) => saveWatches(W), pool: () => pool(), tierOf, rotOK: (id) => rotOK(BYID[id]), seenLevel: () => SEEN_LEVEL, sessionComic: SESSION_COMIC, skipClash: () => skipClash(), setPairs: (P) => { PAIRS = P }, mode: () => current?.mode || null } // smoke tests sample rounds
 function pickForYou() {
   // your model's favourite unseen matchup: its top clip vs the clip it knows least about
   const P = pool(); if (P.length < 2) return null
   const liked = likedClips()
-  const fy = (c) => MODEL.score(c.id) + traitScore(c) + contentSim(c, liked) + 0.3 * Math.random()
+  const t0 = Date.now(), lm = (c) => Math.log(Math.max(1e-3, rotMult(c, t0))) // seen recency + author diversity, per candidate
+  const fy = (c) => MODEL.score(c.id) + traitScore(c) + contentSim(c, liked) + lm(c) + 0.3 * Math.random()
   const top = [...P].sort((x, y) => fy(y) - fy(x))
   for (const a of top.slice(0, 6)) {
     // its opponent: structurally kindred (same kind of funny) and still little-known to your model
-    const os = (b) => pairSim(a, b) - 0.08 * (MODEL.bouts[b.id] || 0) + 0.2 * Math.random()
+    const os = (b) => pairSim(a, b) - 0.08 * (MODEL.bouts[b.id] || 0) + lm(b) + 0.2 * Math.random()
     const opp = P.filter((b) => b.comic !== a.comic && openPair(a.id, b.id)).map((b) => [os(b), b]).sort((x, y) => y[0] - x[0]).map((x) => x[1])
     if (opp.length) return [a, opp[0]]
   }
@@ -462,7 +532,9 @@ function pickForYou() {
 function pickTraining() {
   // the pairs the crowd chart is least sure about (computed by the tally), sampled by weight; logs P(pair) + features
   const wOf = (p) => (Array.isArray(p.f) ? SP.pairCloseUnc * p.f[0] + SP.pairFresh * p.f[1] + SP.pairStruct * p.f[2] : p.w)
-  const ranked = PAIRS.filter((p) => openPair(p.a, p.b)).slice(0, 40)
+  // seen recency + author diversity multiply each pair's features (so the logged f / z still reproduce P(pair))
+  const t0 = Date.now()
+  const ranked = PAIRS.filter((p) => openPair(p.a, p.b)).slice(0, 40).map((p) => { const m = rotMult(BYID[p.a], t0) * rotMult(BYID[p.b], t0); return m === 1 ? p : { ...p, w: p.w * m, f: Array.isArray(p.f) ? p.f.map((x) => x * m) : p.f } })
   if (!ranked.length) return null
   const ws = ranked.map(wOf), Z = ws.reduce((s, x) => s + x, 0)
   let x = Math.random() * Z, i = 0
@@ -474,7 +546,7 @@ function pickTraining() {
   return pair
 }
 function pickExplore() {
-  const seen = LS.get('seen', {}), P = shuffle(pool()).sort((x, y) => (seen[x.id] || 0) - (seen[y.id] || 0))
+  const t0 = Date.now(), sc = new Map(pool().map((c) => [c, Math.log(Math.max(1e-3, rotMult(c, t0))) + 0.35 * Math.random()])), P = [...sc.keys()].sort((x, y) => sc.get(y) - sc.get(x)) // unseen first, then the longest-ago glances
   for (const a of P) {
     const opts = P.filter((b) => openPair(a.id, b.id))
     if (!opts.length) continue
@@ -497,21 +569,21 @@ function pickPair() {
   let x = Math.random(), mode = 'explore'
   for (const k of Object.keys(w)) { x -= w[k]; if (x <= 0) { mode = k; break } }
   const order = [mode, ...Object.keys(MODES).filter((k) => k !== mode)]
-  roundFormat()
+  roundFormat(); const ROUND_FMT0 = ROUND_FMT
   try {
-    for (const fmt of ROUND_FMT ? [ROUND_FMT, null] : [null]) { // the preferred format first, then any (too few left)
+    for (SEEN_LEVEL = 0; SEEN_LEVEL < 2; SEEN_LEVEL++) for (const fmt of ROUND_FMT0 ? [ROUND_FMT0, null] : [null]) { // unseen first (partials only when it runs dry); the preferred format first, then any
       ROUND_FMT = fmt
       for (PAIR_LEVEL = 0; PAIR_LEVEL < 3; PAIR_LEVEL++) for (const m of order) {
         const p = MODES[m][1]()
         if (p) {
           const pair = Math.random() < 0.5 ? p : [p[1], p[0]]; pair.mode = m
           // the logged policy (src/policy.js): P(mode) only when the sampled mode delivered (a fallback has no clean propensity)
-          pair.policy = { m, ...(m === mode && fmt === ROUND_FMT && PAIR_LEVEL === 0 ? { pm: Math.round(1000 * (w[m] || 0)) } : {}), ...(m === 'training' && Number.isFinite(p.pp) ? { pp: Math.round(1e6 * p.pp), ...(p.f ? { f: p.f.map((v) => Math.round(1000 * v)), z: p.z.map((v) => Math.round(1000 * v)) } : {}) } : {}), v: SCREEN.version }
+          pair.policy = { m, ...(m === mode && fmt === ROUND_FMT0 && PAIR_LEVEL === 0 && SEEN_LEVEL === 0 ? { pm: Math.round(1000 * (w[m] || 0)) } : {}), ...(m === 'training' && Number.isFinite(p.pp) ? { pp: Math.round(1e6 * p.pp), ...(p.f ? { f: p.f.map((v) => Math.round(1000 * v)), z: p.z.map((v) => Math.round(1000 * v)) } : {}) } : {}), v: SCREEN.version }
           return pair
         }
       }
     }
-  } finally { PAIR_LEVEL = 0; ROUND_FMT = null }
+  } finally { PAIR_LEVEL = 0; ROUND_FMT = null; SEEN_LEVEL = 0 }
   return null
 }
 
@@ -744,7 +816,7 @@ class Screen {
     if (!Number.isFinite(t)) return
     if (this.lastT == null) { if (on) this.lastT = t; return } // start tracking at first real playback
     const d = t - this.lastT
-    if (on && d > 0 && d < 2) this.watched += d
+    if (on && d > 0 && d < 2) { this.watched += d; this.maxT = Math.max(this.maxT || 0, t) } // real playback only
     if (d < -2) { // a jump back = rewatching something: keep where they jumped to (and from), the laugh label (§3b)
       this.replays++
       if ((this.seekT = this.seekT || []).length < 20) { this.seekT.push(Math.round(t)); (this.seekF = this.seekF || []).push(Math.round(this.lastT)) }
@@ -926,11 +998,16 @@ function faceCard(c, side) {
     <div class="ftext"><b>${esc(c.comic)}${chip(c)}</b><span>${esc(P.tagline || c.title || '')}</span><em>${r ? r + ' crowd rating' : 'Unrated'}</em></div></div>`
 }
 // the only label above the cards: who challenged you (shared links). Everything else stays quiet.
+function seenNote() { // explicit links may replay a clip you've seen: say so, quietly
+  if (!explicitMode() || !current?.[0]) return ''
+  const n = [current[0], current[1]].map((c, i) => { const w = watchOf(c.id), t = tierOf(w); return t === 'finished' || t === 'partial' ? `#${i + 1} seen ${seenDate(w.last || w.first)}`.trim() : '' }).filter(Boolean)
+  return n.length ? `<span class="seennote">${esc(n.join(' · '))}</span>` : ''
+}
 function introLine() {
-  if (current?.mode !== 'shared') return ''
+  if (current?.mode !== 'shared') return seenNote()
   const inv = sharedRound?.invite
-  if (inv?.inviter?.username && !inv.self) return `<span class="challenge">${avatarHTML(inv.inviter)}<span><b>${esc(inv.inviter.username)}</b> challenged you</span></span>`
-  return `<span class="challenge">${sharedRound?.pick ? 'A friend challenged you. Do you agree?' : 'A friend sent you this clash'}</span>`
+  if (inv?.inviter?.username && !inv.self) return `<span class="challenge">${avatarHTML(inv.inviter)}<span><b>${esc(inv.inviter.username)}</b> challenged you</span></span>${seenNote()}`
+  return `<span class="challenge">${sharedRound?.pick ? 'A friend challenged you. Do you agree?' : 'A friend sent you this clash'}</span>${seenNote()}`
 }
 function slideHTML(a, b, n, first) {
   const shot = (c, side) => `<button class="pick ${side}" data-side="${side}" aria-label="${esc(c.comic)} was funnier">
@@ -976,7 +1053,7 @@ function setStage(s) {
 function stopScreening() {
   clearInterval(tick); tick = null; clearTimers(); clearTimeout(advT); advT = null
   cancelAnimationFrame?.(progRaf); progRaf = 0
-  Object.values(screens).forEach((s) => s.retire()); screens = {}; armed = false; armedAt = 0; stopCountdown()
+  Object.values(screens).forEach((s) => { try { logScreen(s) } catch {} s.retire() }); screens = {}; armed = false; armedAt = 0; stopCountdown()
   document.body.classList.remove('in-theatre')
 }
 
@@ -989,9 +1066,11 @@ function mountScreening(first, oldEl) {
   const host = $('#stage')
   if (!host) return
   if (!current) {
-    const msg = LANE === 'ai' ? 'The AI comics are still in rehearsal. Their first sets premiere here soon.' : LANE === 'mixed' ? 'Human vs AI opens when the first AI sets premiere.' : "You've seen every clash on the bill. New shorts arrive daily."
+    const msg = LANE === 'ai' ? 'The AI comics are still in rehearsal. Their first sets premiere here soon.' : LANE === 'mixed' ? 'Human vs AI opens when the first AI sets premiere.' : ''
     host.querySelectorAll('.slide').forEach((x) => x !== oldEl && x.remove())
-    host.insertAdjacentHTML('beforeend', `<div class="slide empty-slide"><p class="empty">${msg}</p></div>`)
+    // the rotation's end card: never a silent repeat. Everything stays playable from the comic pages, charts and history.
+    host.insertAdjacentHTML('beforeend', msg ? `<div class="slide empty-slide"><p class="empty">${msg}</p></div>`
+      : `<div class="slide empty-slide endcard" data-endcard="1"><div class="ec"><p class="ec-k">That’s the bill</p><h2 class="ec-h">You’ve seen every clip on the bill.</h2><p class="ec-s">New ones arrive daily.</p><p class="ec-a"><a class="hbtn" href="#comics">Browse the comics</a><a class="hbtn" href="#you">Your history</a></p></div></div>`)
     finishSlide(host, oldEl); cur = { el: host.lastElementChild, n: ++nScreen }; setStage('done'); updateChrome()
     return
   }
@@ -1139,7 +1218,7 @@ function pauseBallot() {
 function skipClip() {
   if (!current || !cur || moving || (stage !== 'left' && stage !== 'right')) return false
   const side = stage === 'left' ? 'L' : 'R', sc = screens[side]; if (!sc) return false
-  sc.track(); sc.skipped = true; try { sc.skippedAt = Math.round(sc.t()) } catch {} sc.fadePause()
+  sc.track(); sc.skipped = true; try { sc.skippedAt = Math.round(sc.t()) } catch {} sc.fadePause(); logScreen(sc)
   const c = sc.clip, [a, b] = current
   const rec = { a: a.id, b: b.id, stage: side === 'L' ? 'left-skip' : 'right-skip', comics: [c.comic], comic: c.comic, clip: c.id, ...(current.daily ? { daily: current.daily } : {}),
     style: Array.isArray(c.style) ? c.style : [], watchedSec: Math.round(10 * (sc.watched || 0)) / 10, ...signals(), at: new Date().toISOString() }
@@ -1157,7 +1236,7 @@ function startClip(side) {
   clearTimers()
   if (side === 'L') { const w = $('#why'); if (w?.classList.contains('on') && !w.matches?.(':hover') && !w.contains(document.activeElement)) w.classList.remove('on') } // the last vote's card never sits over the next clip
   setStage(side === 'L' ? 'left' : 'right')
-  bumpShown(screens[side].clip.comic)
+  bumpShown(screens[side].clip.comic); SESSION_COMIC[screens[side].clip.comic] = (SESSION_COMIC[screens[side].clip.comic] || 0) + 1
   for (const s of ['L', 'R']) {
     const sc = cur.el.querySelector(`.screen.${s}`)
     sc?.classList.toggle('big', s === side); sc?.classList.toggle('small', s !== side)
@@ -1181,8 +1260,8 @@ function runTick() {
     // keyboard focus gets swallowed by the YouTube iframe: take it back
     const ae = document.activeElement
     if (ae && ae.tagName === 'IFRAME') { try { ae.blur() } catch {} $('#stage')?.focus?.({ preventScroll: true }) }
-    if (stage === 'left' && L.done()) { L.fadePause(); startClip('R') }
-    else if (stage === 'right' && R.done()) { R.fadePause(); startVote() }
+    if (stage === 'left' && L.done()) { L.reachedEnd = true; logScreen(L); L.fadePause(); startClip('R') }
+    else if (stage === 'right' && R.done()) { R.reachedEnd = true; logScreen(R); R.fadePause(); startVote() }
   }, 250)
 }
 function startVote() {
@@ -1225,7 +1304,7 @@ function pass(timedOut) {
   armed = false
   const pms = armedAt && !sharedDuringBallot ? Math.max(0, Math.round(now() - armedAt)) : undefined
   LS.set('passes', [...LS.get('passes', []), { a: a.id, b: b.id, ...(Number.isFinite(pms) ? { decisionMs: pms } : {}), ...(timedOut === true ? { timedOut: true } : {}), ...signals(), ...(current.policy ? { policy: current.policy } : {}), ...(current.daily ? { daily: current.daily } : {}), at: new Date().toISOString() }].slice(-300)); queueEvents()
-  LS.set('skipped', [...LS.get('skipped', []), pairKey(a.id, b.id)].slice(-500)); bumpSeen(a.id, b.id)
+  LS.set('skipped', [...LS.get('skipped', []), pairKey(a.id, b.id)].slice(-500)); bumpSeen({ passed: true })
   toast(timedOut === true ? 'Time\u2019s up, so it\u2019s a pass. Neither comic loses anything.' : 'No pick, so it\u2019s a pass. Neither comic loses anything.')
   goNext(null); paintHistory()
 }
@@ -1244,7 +1323,7 @@ function skipClash() {
   const tc = TRAIN_AS && charGet(TRAIN_AS) ? TRAIN_AS : null
   if (tc) LS.set('cskips:' + tc, [...LS.get('cskips:' + tc, []), rec].slice(-500))
   else { LS.set('skips', [...LS.get('skips', []), rec].slice(-500)); queueEvents() }
-  LS.set('skipped', [...LS.get('skipped', []), pairKey(a.id, b.id)].slice(-500)); bumpSeen(a.id, b.id)
+  LS.set('skipped', [...LS.get('skipped', []), pairKey(a.id, b.id)].slice(-500)); bumpSeen()
   if (sc) { MODEL = fitLocal(); TRAITS = fitTraits(); paintYou(); if (skipW(rec) > 0) engineLearn({ kind: 'skip', s: tc, clip: sc.clip.id, a: a.id, b: b.id, at: sc.skippedAt }) }
   goNext(null); paintHistory()
 }
@@ -1268,7 +1347,7 @@ async function vote(side) {
   const dd = dailyOfCurrent(); if (dd) v.daily = dd
   v.weight = voteWeight(v)
   q(`.pick.${side}`)?.classList.add('won')
-  bumpSeen(a.id, b.id)
+  bumpSeen()
   const fl = friendLine(a, b, v.winner)
   if (fl) { v.friend = fl.agree ? 'agree' : 'disagree'; const fe = q('.friendres'); if (fe) { fe.textContent = fl.text; fe.classList.add('on', fl.agree ? 'agree' : 'disagree') } }
   if (v.daily) loadDailyResults().then(() => { paintDaily(); const w = $('#why .rcworld'); const D = dailyFor(v.daily); if (w && D) w.innerHTML = worldLine(D) }).catch(() => {})
@@ -1513,8 +1592,9 @@ function clipTile(c, i, extra) {
   const k = BYID[c.id] || c
   const img = k.media === 'youtube' ? `<img loading="lazy" src="${thumb(k.id)}" alt="">` : `<div class="comicposter" style="aspect-ratio:16/9"><b>${esc(k.comic)}</b></div>`
   const href = k.media === 'youtube' ? `https://www.youtube.com/watch?v=${k.id}` : '#'
-  return `<a class="tile" href="${href}" target="_blank" rel="noopener">${i != null ? `<span class="num">${i + 1}</span>` : ''}
-    <div class="poster">${img}<div class="cap"><b>${esc(k.title)}</b><span>${esc(k.comic)}${extra ? ' · ' + extra : ''}</span></div></div></a>`
+  const wm = watchMark(k.id)
+  return `<a class="tile${wm.cls}" href="${href}" target="_blank" rel="noopener"${wm.title ? ` title="${esc(wm.title)}"` : ''}>${i != null ? `<span class="num">${i + 1}</span>` : ''}
+    <div class="poster">${img}${wm.html}<div class="cap"><b>${esc(k.title)}</b><span>${esc(k.comic)}${extra ? ' · ' + extra : ''}</span></div></div></a>`
 }
 function comicTile(c, i, extra) {
   const first = CLIPS.find((k) => k.comic === c.comic && k.media === 'youtube')
@@ -2224,7 +2304,8 @@ function paintDaily() {
   const D = dailyFor(dayStr()); dailyDay = D?.date || dayStr()
   const playing = !!D && dailyOfCurrent() === D.date && ['intro', 'left', 'right', 'vote', 'done'].includes(stage)
   if (D && !dailyDone(D.date)) checkDailyRemote(D.date)
-  if (!D || dailyDone(D.date) || playing || !servable(BYID[D.a]) || !servable(BYID[D.b])) { el.hidden = true; el.innerHTML = '' }
+  const fbSeen = !!D && !D.editorial && (tierOf(watchOf(D.a)) === 'finished' || tierOf(watchOf(D.b)) === 'finished') // the fallback is rotation: never a finished clip
+  if (!D || dailyDone(D.date) || playing || fbSeen || !servable(BYID[D.a]) || !servable(BYID[D.b])) { el.hidden = true; el.innerHTML = '' }
   else {
     const A = BYID[D.a], B = BYID[D.b]
     el.hidden = false
@@ -2392,8 +2473,8 @@ function clashRow(e, i) {
   const v = e.v, A = BYID[v.a], B = BYID[v.b], win = e.kind === 'pick' ? v.winner : null
   const ws = { L: v.leftWatchedSec, R: v.rightWatchedSec }
   if (e.sub === 'clash' || e.sub === 'notfunny') { if (v.clip === v.a && ws.L == null) ws.L = v.watchedSec; if (v.clip === v.b && ws.R == null) ws.R = v.watchedSec }
-  const th = (c, id, side) => `<span class="hth${win === id ? ' won' : ''}${win && win !== id ? ' lost' : ''}"><span class="hpic">${!c || c.media === 'youtube' ? `<img loading="lazy" decoding="async" src="${thumb(esc(id))}" alt="">` : ''}</span>
-    <b>${esc(c?.comic || 'Retired clip')}</b><small>${ws[side] != null ? 'watched ' + secs(ws[side]) : '&nbsp;'}</small></span>`
+  const th = (c, id, side) => { const wm = watchMark(id); return `<span class="hth${win === id ? ' won' : ''}${win && win !== id ? ' lost' : ''}${wm.cls}"${wm.title ? ` title="${esc(wm.title)}"` : ''}><span class="hpic">${!c || c.media === 'youtube' ? `<img loading="lazy" decoding="async" src="${thumb(esc(id))}" alt="">` : ''}${wm.html.replace(/<span class="wtag">.*$/, '')}</span>
+    <b>${esc(c?.comic || 'Retired clip')}</b><small>${ws[side] != null ? 'watched ' + secs(ws[side]) : '&nbsp;'}</small></span>` }
   const stg = { intro: 'Skipped at the intro', left: 'Skipped during #1', right: 'Skipped during #2', vote: 'Skipped the ballot', done: 'Moved on' }
   const W = BYID[win]
   const what = e.kind === 'pick' ? `Picked <b>${esc(W?.comic || '?')}</b>${e.counted ? '' : ' <span class="hmuted">· didn\u2019t count (under 30s)</span>'}`
@@ -2407,7 +2488,7 @@ function clashRow(e, i) {
   for (const s of e.nf || []) chips.push(`<span class="hchip nf">\u201cNot funny\u201d on #${s.stage === 'left-skip' ? 1 : 2}${s.comic ? ' · ' + esc(s.comic) : ''}</span>`)
   const live = A && B
   return `<li class="hrow"><div class="hpair">${th(A, v.a, 'L')}<i>vs</i>${th(B, v.b, 'R')}</div>
-    <div class="hmeta"><p class="hwhat">${what}<span class="htime">${hhmm(e.t)}</span></p>${chips.length ? `<p class="hchips">${chips.join('')}</p>` : ''}
+    <div class="hmeta"><p class="hwhat">${what}<time class="htime" datetime="${esc(e.t)}" title="${esc(new Date(e.t).toLocaleString())}">${hhmm(e.t)}</time></p>${chips.length ? `<p class="hchips">${chips.join('')}</p>` : ''}
     ${live ? `<p class="hacts"><a class="hbtn" href="#clash/${encodeURIComponent(v.a)}/${encodeURIComponent(v.b)}&from=history">Rewatch</a><button type="button" class="hbtn send" data-hshare="${i}" title="Send to a friend — see if they agree">Share ↗</button></p>` : ''}</div></li>`
 }
 function specialRow(e) {
@@ -2466,12 +2547,13 @@ function exportData() {
   const blob = new Blob([JSON.stringify({ kind: 'funnier.local-data', version: 1, exported: new Date().toISOString(), data }, null, 2)], { type: 'application/json' })
   try { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `funnier-data-${dayStr()}.json`; document.body.appendChild(a); a.click(); a.remove() } catch { toast('Download blocked by the browser.') }
 }
-const HISTORY_KEYS = ['votes', 'partials', 'passes', 'skips', 'skipped', 'seen', 'shown', 'preds', 'dur', 'specials', 'dailyAuto', 'dailyDone', 'engine', 'engineLog']
+const HISTORY_KEYS = ['votes', 'partials', 'passes', 'skips', 'skipped', 'seen', 'shown', 'preds', 'dur', 'specials', 'dailyAuto', 'dailyDone', 'engine', 'engineLog', 'watches', 'wSyncedAt', 'wSyncedUser']
 function clearHistory() {
   let ok = false
   try { ok = window.confirm('Clear your Funnier history on this device?\n\nThis removes your picks, passes, skips and specials log, and resets your taste model here. Picks already published to Bluesky stay published.') } catch { ok = false }
   if (!ok) return
   for (const k of HISTORY_KEYS) { try { localStorage.removeItem('funnier.' + k) } catch {} }
+  W_MEM = null
   MODEL = fitLocal(); TRAITS = fitTraits(); delete ENGS.me; chartChanged()
   paintHistory(); paintYou(); paintDaily(); toast('History cleared.')
 }
@@ -2543,7 +2625,7 @@ async function initAccount() {
 }
 async function afterSignIn(needs, fresh) {
   paintUser(); paintProfilePage(); paintDaily() // a daily finished on another device hides here too
-  syncVotes().catch(() => {}); syncEvents(); syncProfile().catch(() => {}); syncChars().catch(() => {}); syncVersions().catch(() => {})
+  syncVotes().catch(() => {}); syncEvents(); syncWatches(true); syncProfile().catch(() => {}); syncChars().catch(() => {}); syncVersions().catch(() => {})
   const pa = LS.get('pendingAccept', null)
   if (pa?.code) {
     try { const r = await api(`/invites/${encodeURIComponent(pa.code)}/accept`, { method: 'POST', body: { open_id: pa.open_id } }); if (r.ok) toast(`You and ${r.j.friend?.username || pa.username} are now friends.`) } catch {}

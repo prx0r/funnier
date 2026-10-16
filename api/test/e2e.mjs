@@ -54,10 +54,11 @@ try { execSync('npx wrangler d1 execute funnier --local --file migrations/0005_v
 execSync('npx wrangler d1 execute funnier --local --file migrations/0006_profiles.sql', { stdio: 'ignore' }) // idempotent
 try { execSync('npx wrangler d1 execute funnier --local --file migrations/0007_humour_passport.sql', { stdio: 'ignore' }) } catch {} // already applied -> duplicate column
 execSync('npx wrangler d1 execute funnier --local --file migrations/0008_characters_versions.sql', { stdio: 'ignore' }) // idempotent
-execSync(`npx wrangler d1 execute funnier --local --command "DELETE FROM votes; DELETE FROM friends; DELETE FROM invites; DELETE FROM invite_opens; DELETE FROM users; DELETE FROM laughs; DELETE FROM clip_durations; DELETE FROM clip_audio; DELETE FROM watch_events; DELETE FROM humour_profiles; DELETE FROM profiles; DELETE FROM specials_log; DELETE FROM sets; DELETE FROM characters; DELETE FROM model_versions;"`, { stdio: 'ignore' })
+execSync('npx wrangler d1 execute funnier --local --file migrations/0009_watches.sql', { stdio: 'ignore' }) // idempotent
+execSync(`npx wrangler d1 execute funnier --local --command "DELETE FROM votes; DELETE FROM friends; DELETE FROM invites; DELETE FROM invite_opens; DELETE FROM users; DELETE FROM laughs; DELETE FROM clip_durations; DELETE FROM clip_audio; DELETE FROM watch_events; DELETE FROM humour_profiles; DELETE FROM profiles; DELETE FROM specials_log; DELETE FROM sets; DELETE FROM characters; DELETE FROM model_versions; DELETE FROM watches;"`, { stdio: 'ignore' })
 const PORT = 8797, BASE = `http://127.0.0.1:${PORT}`
 const dev = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT), '--ip', '127.0.0.1',
-  '--var', `GOOGLE_CLIENT_ID:${CID}`, '--var', 'ALLOW_TEST_JWKS:1', '--var', 'TEST_JWKS_URL:http://127.0.0.1:8798/jwks', '--var', 'SESSION_SECRET:local-test-secret-not-for-prod'], { stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+  '--var', `GOOGLE_CLIENT_ID:${CID}`, '--var', 'ALLOW_TEST_JWKS:1', '--var', 'TEST_JWKS_URL:http://127.0.0.1:8798/jwks', '--var', 'SESSION_SECRET:local-test-secret-not-for-prod', '--var', 'EXPORT_SALT:local-export-salt-not-for-prod'], { stdio: ['ignore', 'pipe', 'pipe'], detached: true })
 let log = ''; dev.stdout.on('data', (d) => (log += d)); dev.stderr.on('data', (d) => (log += d))
 const stop = () => { try { process.kill(-dev.pid) } catch {} jwksSrv.close() }
 try {
@@ -281,6 +282,33 @@ try {
     og = await fetch(BASE + '/og/u/DeadpanDuck42.png'); ok(og.status === 404, 'private profile -> no OG image')
     p = await J('GET', '/u/DeadpanDuck42', t2); ok(p.j.hidden === true, 'private profile hidden even from friends')
     await J('PUT', '/me/profile-data', t1, { vis_profile: 'public' })
+  }
+  { // seen tracking: /me/watches (max / or merge)
+    let w = await J('GET', '/me/watches', null); ok(w.s === 401, 'GET /me/watches needs a session')
+    w = await J('POST', '/me/watches', t1, { watches: [{ clip: 'wclipAAAAAA', first: '2026-10-03T10:00:00.000Z', last: '2026-10-03T10:01:00.000Z', secs: 50, pos: 52, frac: 0.95, finished: false, shows: 1 },
+      { clip: 'wclipBBBBBB', first: '2026-10-04T10:00:00.000Z', last: '2026-10-04T10:00:20.000Z', secs: 20, pos: 20, frac: 0.4, shows: 2, passed: 1 }, { clip: 'bad clip!', first: 'x' }] })
+    ok(w.s === 200 && w.j.saved === 2 && w.j.skipped === 1, `POST /me/watches saves valid rows (${JSON.stringify(w.j)})`)
+    w = await J('POST', '/me/watches', t1, { watches: [{ clip: 'wclipBBBBBB', first: '2026-10-01T09:00:00.000Z', last: '2026-10-02T09:00:00.000Z', secs: 5, pos: 5, frac: 0.1, finished: false, shows: 1, rewatches: 0 }] })
+    w = await J('GET', '/me/watches', t1); const A = w.j.watches.find((x) => x.clip === 'wclipAAAAAA'), B = w.j.watches.find((x) => x.clip === 'wclipBBBBBB')
+    ok(A?.finished === true, '>= 90% of the window counts as finished server-side too')
+    ok(B && B.first === '2026-10-01T09:00:00.000Z' && B.last === '2026-10-04T10:00:20.000Z' && B.secs === 20 && B.frac === 0.4 && B.shows === 2 && B.passed === 1 && !B.finished, `merge: earliest first, latest last, max measures (${JSON.stringify(B)})`)
+    w = await J('GET', '/me/watches', t2); ok(w.s === 200 && !w.j.watches.some((x) => x.clip === 'wclipAAAAAA'), "another user doesn't see your watch log")
+  }
+  { // public anonymised export
+    await J('POST', '/votes', t2, { votes: [{ a: 'expclipAAAA', b: 'expclipBBBB', winner: 'expclipAAAA', ms: 1800, createdAt: '2026-10-10T10:00:00.000Z', signals: { leftWatchedSec: 40, policy: { m: 'training', pm: 400, pp: 25000, v: 'screen-1' } } },
+      { a: 'expclipCCCC', b: 'expclipAAAA', winner: 'expclipCCCC', createdAt: '2026-10-10T11:00:00.000Z' }] })
+    await J('POST', '/events', t2, { events: [{ kind: 'pass', a: 'expclipAAAA', b: 'expclipDDDD', createdAt: '2026-10-10T12:00:00.000Z', ms: 10000, signals: { timedOut: true, policy: { m: 'explore', pm: 200, v: 'screen-1' } } }] })
+    const ex = await fetch(BASE + '/export/votes?since=2026-10-10T00:00:00Z&limit=1'), ej = await ex.json(), raw = JSON.stringify(ej)
+    ok(ex.status === 200 && ex.headers.get('access-control-allow-origin') === '*' && /max-age=\d+/.test(ex.headers.get('cache-control') || ''), 'GET /export/votes public, any origin, cached')
+    const v0 = ej.votes?.[0]
+    ok(ej.votes.length === 1 && v0.a === 'expclipAAAA' && v0.winner === 'expclipAAAA' && v0.ms === 1800 && v0.basis === 'watched' && v0.policy?.m === 'training' && /^d1:[0-9a-f]{16}$/.test(v0.voter) && !!ej.next, `export row shape + pagination (${raw.slice(0, 220)})`)
+    const pii = ['g2@example.com', 'Test g2', 'googleusercontent', 'user_id', 'email', 'username', 'country', '"cc"']
+    ok(!pii.some((x) => raw.includes(x)), 'export carries no PII (email, name, avatar, username, country, user id)')
+    const ex2 = await (await fetch(BASE + '/export/votes?since=2026-10-10T00:00:00Z&limit=1&cursor=' + encodeURIComponent(ej.next))).json()
+    ok(ex2.votes.length === 1 && ex2.votes[0].a === 'expclipAAAA' && ex2.votes[0].b === 'expclipCCCC' && ex2.votes[0].voter === v0.voter, 'next page: the second vote (cursor), same stable voter hash')
+    const me2 = await J('GET', '/me', t2); ok(!JSON.stringify(ex2).includes(me2.j.user.id), 'the hash is not the user id')
+    const ev = await (await fetch(BASE + '/export/events?since=2026-10-10T00:00:00Z')).json()
+    ok(ev.events?.some((e) => e.kind === 'pass' && e.b === 'expclipDDDD' && e.signals?.timedOut === true && e.policy?.m === 'explore' && e.voter === v0.voter), 'GET /export/events: passes with signals + policy, same voter hash')
   }
   r = await J('POST', '/auth/logout', t1); ok(r.s === 200 && /funnier_session=;/.test(r.h.get('set-cookie') || ''), 'logout clears the cookie')
 } catch (e) { fails.push(String(e)); console.log('ERROR', e, log.slice(-2000)) } finally { stop() }

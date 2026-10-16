@@ -7,6 +7,7 @@ import { structSim } from '../src/structsim.js'
 import { cleanPolicy } from '../src/policy.js'
 import { resolveParams } from '../src/screening.js'
 import { buildSessions, trainScreening } from './train-screening.mjs'
+import { fetchExport, mergeVotes, eventsForTraining } from './sources.mjs'
 
 const COLLECTION = 'io.github.prx0r.funnier.vote'
 const [, , CLIPS_PATH, OUT] = process.argv
@@ -172,6 +173,34 @@ if (process.env.SYNTH) { // test: true strengths Norm>Louis>Rock>Seinfeld
     votes.push({ did: 'synthd' + i, voter: 'human', a: D.a, b: D.b, winner: Math.random() < p ? D.a : D.b, daily: D.date, cc: i % 50 === 7 ? 'IS' : CCS[i % CCS.length], ms: Math.round(500 + Math.random() * 9000), createdAt: new Date().toISOString() })
   }
 }
+// ---------- D1 (Google sign-in) votes + passes/skips: the Worker's public anonymised export ----------
+// FUNNIER_API (default https://api.funnier.si; 'off' disables). SYNTH runs make synthetic export rows instead,
+// including copies of some AT votes (the same person signed in to both) that must collapse into one voter.
+let d1Votes = [], d1Events = []
+if (process.env.SYNTH) {
+  const n = Math.round(0.25 * +process.env.SYNTH), tr = { 'Norm Macdonald': 0.8, 'Louis C.K.': 0.4, 'Chris Rock': 0, 'Jerry Seinfeld': -0.4 }
+  for (let i = 0; i < n; i++) {
+    const a = clips[Math.floor(Math.random() * clips.length)], b = clips[Math.floor(Math.random() * clips.length)]
+    if (a.id === b.id) continue
+    const p = 1 / (1 + Math.exp(-((tr[a.comic] || 0) - (tr[b.comic] || 0))))
+    const voter = 'd1:' + (0xabc000 + (i % 11)).toString(16).padStart(16, '0'), at = new Date(Date.now() - i * 1000).toISOString()
+    d1Votes.push({ voter, a: a.id, b: b.id, winner: Math.random() < p ? a.id : b.id, createdAt: at, ms: 2000, signals: { policy: { m: 'training', pm: 400, pp: 30000, v: SCREEN.version } } })
+    if (i % 3 === 0) d1Events.push({ voter, kind: 'pass', a: b.id, b: a.id, createdAt: at, signals: { timedOut: true, policy: { m: 'explore', pm: 200, v: SCREEN.version } } })
+  }
+  for (const v of votes.slice(0, 5)) d1Votes.push({ voter: 'd1:00000000000dd0' + votes.indexOf(v).toString(16).padStart(2, '0'), a: v.a, b: v.b, winner: v.winner, createdAt: v.createdAt })
+} else if ((process.env.FUNNIER_API || '') !== 'off') {
+  const base = process.env.FUNNIER_API || 'https://api.funnier.si'
+  try { d1Votes = await fetchExport(base, 'votes'); d1Events = await fetchExport(base, 'events'); console.log('d1 export', d1Votes.length, 'votes', d1Events.length, 'events') }
+  catch (e) { console.warn('d1 export skipped:', e?.message || e) }
+}
+{
+  const m = mergeVotes(votes, d1Votes, byId)
+  votes.length = 0; votes.push(...m.votes)
+  for (const [did, n] of Object.entries(m.d1Voters)) voters.push({ did, handle: null, kind: 'human', votes: n, source: 'd1' })
+  for (const vt of voters) if (vt.source !== 'd1') vt.votes = votes.filter((v) => v.did === vt.did).length || vt.votes
+  d1Events = eventsForTraining(d1Events, m.alias)
+  console.log('sources: merged', votes.length, 'votes;', Object.keys(m.d1Voters).length, 'D1 voters;', Object.keys(m.alias).length, 'aliased to a DID;', d1Events.length, 'D1 passes/skips')
+}
 votes.sort((x, y) => Date.parse(x.createdAt) - Date.parse(y.createdAt))
 
 // ---------- Hierarchical Bradley-Terry ----------
@@ -266,9 +295,9 @@ for (let i = 0; i < clips.length; i++) for (let j = i + 1; j < clips.length; j++
 pairs.sort((x, y) => y.w - x.w)
 fs.writeFileSync(path.join(DATA, 'pairs.json'), JSON.stringify({ updated: board.updated, explore: 0.2, screen: SCREEN.version, pairs }))
 // ---------- screening trainer (gated; dry run until >= 500 logged sessions beat the baseline on held-out data) ----------
-// From the public records: votes carry signals.policy. Passes and skips live in D1 only (node tally/train-screening.mjs --remote).
+// From the public records + the D1 export: votes carry signals.policy; passes and skips come from GET /export/events.
 {
-  const sessions = buildSessions(votes.filter((v) => v.signals?.policy).map((v) => ({ user: v.did, a: v.a, b: v.b, at: v.createdAt, signals: v.signals })), [])
+  const sessions = buildSessions(votes.filter((v) => v.signals?.policy).map((v) => ({ user: v.did, a: v.a, b: v.b, at: v.createdAt, signals: v.signals })), d1Events)
   const res = trainScreening(sessions)
   fs.writeFileSync(path.join(DATA, 'screening-params.json'), JSON.stringify(res, null, 1))
   console.log('screening', sessions.length, 'logged sessions; gate', res.gate.passed ? 'PASSED' : 'closed (' + res.gate.reason + ')')
