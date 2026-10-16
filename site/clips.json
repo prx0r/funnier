@@ -48,7 +48,16 @@
   "format": "horizontal",
   "t_start": 1169,
   "t_source": "title-anchor",
-  "carrier": "licensed"
+  "carrier": "licensed",
+  "ops": {
+   "split_knowledge": 0.894,
+   "double_interpret": 0.038,
+   "repeat_variation": 0.035,
+   "status_invert": 0.009,
+   "rigidify": 0.008
+  },
+  "opsSource": "bits",
+  "opsN": 4
  },
  {
   "id": "OwlxYYtqHfc",
@@ -1395,9 +1404,11 @@
   "sec": 211,
   "dur": 211,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "storytelling"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -1702,9 +1713,11 @@
   "sec": 71,
   "dur": 71,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -1875,9 +1888,11 @@
   "sec": 88,
   "dur": 88,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "storytelling"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -1917,9 +1932,11 @@
   "sec": 124,
   "dur": 124,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -1943,9 +1960,11 @@
   "sec": 87,
   "dur": 87,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -1990,9 +2009,11 @@
   "sec": 62,
   "dur": 62,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -2011,9 +2032,11 @@
   "sec": 79,
   "dur": 79,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -2762,9 +2785,11 @@
   "sec": 53,
   "dur": 53,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -2930,9 +2955,11 @@
   "sec": 88,
   "dur": 88,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -2951,9 +2978,11 @@
   "sec": 56,
   "dur": 56,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -2972,9 +3001,11 @@
   "sec": 50,
   "dur": 50,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -3187,9 +3218,11 @@
   "sec": 82,
   "dur": 82,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -3307,9 +3340,11 @@
   "sec": 87,
   "dur": 87,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -3402,9 +3437,11 @@
   "sec": 33,
   "dur": 33,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -3449,9 +3486,11 @@
   "sec": 40,
   "dur": 40,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -3517,9 +3556,11 @@
   "sec": 73,
   "dur": 73,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -3611,9 +3652,11 @@
   "sec": 54,
   "dur": 54,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -3689,9 +3732,11 @@
   "sec": 52,
   "dur": 52,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -3731,9 +3776,11 @@
   "sec": 60,
   "dur": 60,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -3757,9 +3804,11 @@
   "sec": 32,
   "dur": 32,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -3809,9 +3858,11 @@
   "sec": 32,
   "dur": 32,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -3908,9 +3959,11 @@
   "sec": 59,
   "dur": 59,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -3934,9 +3987,11 @@
   "sec": 25,
   "dur": 25,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -3960,9 +4015,11 @@
   "sec": 19,
   "dur": 19,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -4059,9 +4116,11 @@
   "sec": 43,
   "dur": 43,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -4085,9 +4144,11 @@
   "sec": 43,
   "dur": 43,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -4111,9 +4172,11 @@
   "sec": 30,
   "dur": 30,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -4341,9 +4404,11 @@
   "sec": 89,
   "dur": 89,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -4367,9 +4432,11 @@
   "sec": 104,
   "dur": 104,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -4393,9 +4460,11 @@
   "sec": 60,
   "dur": 60,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -4492,9 +4561,11 @@
   "sec": 54,
   "dur": 54,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -4539,9 +4610,11 @@
   "sec": 33,
   "dur": 33,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -4565,9 +4638,11 @@
   "sec": 29,
   "dur": 29,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -4591,9 +4666,11 @@
   "sec": 24,
   "dur": 24,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -4638,9 +4715,11 @@
   "sec": 173,
   "dur": 173,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "dark"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -4890,9 +4969,11 @@
   "sec": 59,
   "dur": 59,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -4958,9 +5039,11 @@
   "sec": 547,
   "dur": 547,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -4985,9 +5068,11 @@
   "sec": 45,
   "dur": 45,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -5519,9 +5604,11 @@
   "sec": 43,
   "dur": 43,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -5870,9 +5957,11 @@
   "sec": 34,
   "dur": 34,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -5917,9 +6006,11 @@
   "sec": 19,
   "dur": 19,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "one-liners"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -5938,9 +6029,11 @@
   "sec": 15,
   "dur": 15,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "one-liners"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -6001,9 +6094,11 @@
   "sec": 17,
   "dur": 17,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "one-liners"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -6242,9 +6337,11 @@
   "sec": 17,
   "dur": 17,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "one-liners"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -6468,9 +6565,11 @@
   "sec": 73,
   "dur": 73,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -6489,9 +6588,11 @@
   "sec": 17,
   "dur": 17,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "one-liners"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -6793,9 +6894,11 @@
   "sec": 88,
   "dur": 88,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -6929,9 +7032,11 @@
   "sec": 58,
   "dur": 58,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -6992,9 +7097,11 @@
   "sec": 69,
   "dur": 69,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -7140,9 +7247,11 @@
   "sec": 256,
   "dur": 256,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "storytelling"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -7314,9 +7423,11 @@
   "sec": 33,
   "dur": 33,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_ref": null,
   "special_id": null,
@@ -7461,9 +7572,11 @@
   "sec": 67,
   "dur": 67,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -7513,9 +7626,11 @@
   "sec": 86,
   "dur": 86,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -7565,9 +7680,11 @@
   "sec": 209,
   "dur": 209,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "crowd-work"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [
    "mark normand",
    "comedy",
@@ -7899,7 +8016,16 @@
    "phrase": "tupac",
    "frac_through": 0.7062
   },
-  "carrier": "unofficial"
+  "carrier": "unofficial",
+  "ops": {
+   "split_knowledge": 0.644,
+   "repeat_variation": 0.282,
+   "status_invert": 0.044,
+   "juxtapose": 0.015,
+   "double_interpret": 0.008
+  },
+  "opsSource": "bits",
+  "opsN": 3
  },
  {
   "id": "_hYkjHm05As",
@@ -7953,7 +8079,16 @@
    "frac_through": 0.3307
   },
   "needsCut": true,
-  "carrier": "unofficial"
+  "carrier": "unofficial",
+  "ops": {
+   "split_knowledge": 0.897,
+   "repeat_variation": 0.051,
+   "unmask": 0.017,
+   "double_interpret": 0.013,
+   "identity_contradict": 0.009
+  },
+  "opsSource": "bits",
+  "opsN": 4
  },
  {
   "id": "_rabQNrVE_g",
@@ -8011,7 +8146,16 @@
    "frac_through": 0.7157
   },
   "needsCut": true,
-  "carrier": "unofficial"
+  "carrier": "unofficial",
+  "ops": {
+   "split_knowledge": 0.392,
+   "repeat_variation": 0.163,
+   "status_invert": 0.15,
+   "juxtapose": 0.133,
+   "literalize_or_other": 0.133
+  },
+  "opsSource": "bits",
+  "opsN": 6
  },
  {
   "id": "ane_aAqMo4s",
@@ -8043,7 +8187,16 @@
    "frac_through": 0.0926
   },
   "needsCut": true,
-  "carrier": "unofficial"
+  "carrier": "unofficial",
+  "ops": {
+   "split_knowledge": 0.626,
+   "repeat_variation": 0.254,
+   "double_interpret": 0.087,
+   "status_invert": 0.015,
+   "rigidify": 0.005
+  },
+  "opsSource": "bits",
+  "opsN": 11
  },
  {
   "id": "AEFPKrXkfPg",
@@ -8115,7 +8268,16 @@
    "phrase": "high school",
    "frac_through": 0.1218
   },
-  "carrier": "unofficial"
+  "carrier": "unofficial",
+  "ops": {
+   "split_knowledge": 0.754,
+   "juxtapose": 0.155,
+   "double_interpret": 0.048,
+   "repeat_variation": 0.028,
+   "status_invert": 0.012
+  },
+  "opsSource": "bits",
+  "opsN": 5
  },
  {
   "id": "tQD1QJGCDRw",
@@ -8145,7 +8307,16 @@
    "phrase": "bad apples",
    "frac_through": 0.0613
   },
-  "carrier": "unofficial"
+  "carrier": "unofficial",
+  "ops": {
+   "double_interpret": 0.417,
+   "split_knowledge": 0.41,
+   "repeat_variation": 0.149,
+   "status_invert": 0.011,
+   "juxtapose": 0.011
+  },
+  "opsSource": "bits",
+  "opsN": 6
  },
  {
   "id": "Od_s2CMeWWE",
@@ -9407,7 +9578,16 @@
    "frac_through": 0.4092
   },
   "needsCut": true,
-  "carrier": "unofficial"
+  "carrier": "unofficial",
+  "ops": {
+   "split_knowledge": 0.721,
+   "status_invert": 0.211,
+   "repeat_variation": 0.015,
+   "double_interpret": 0.015,
+   "rigidify": 0.015
+  },
+  "opsSource": "bits",
+  "opsN": 4
  },
  {
   "id": "C--4udLexFI",
@@ -9434,7 +9614,16 @@
    "frac_through": 0.709
   },
   "needsCut": true,
-  "carrier": "unofficial"
+  "carrier": "unofficial",
+  "ops": {
+   "split_knowledge": 0.703,
+   "repeat_variation": 0.121,
+   "juxtapose": 0.121,
+   "status_invert": 0.029,
+   "double_interpret": 0.01
+  },
+  "opsSource": "bits",
+  "opsN": 7
  },
  {
   "id": "0eUbnkVFQuE",
@@ -10730,7 +10919,16 @@
    "phrase": "george washington",
    "frac_through": 0.0759
   },
-  "carrier": "unofficial"
+  "carrier": "unofficial",
+  "ops": {
+   "split_knowledge": 0.49,
+   "juxtapose": 0.213,
+   "false_analogy": 0.206,
+   "double_interpret": 0.029,
+   "repeat_variation": 0.019
+  },
+  "opsSource": "bits",
+  "opsN": 3
  },
  {
   "id": "rXURLOOupHc",
@@ -10761,7 +10959,16 @@
    "phrase": "suicide",
    "frac_through": 0.2044
   },
-  "carrier": "unofficial"
+  "carrier": "unofficial",
+  "ops": {
+   "split_knowledge": 0.49,
+   "double_interpret": 0.229,
+   "repeat_variation": 0.219,
+   "status_invert": 0.019,
+   "juxtapose": 0.013
+  },
+  "opsSource": "bits",
+  "opsN": 3
  },
  {
   "id": "hO_bbvd2g-s",
@@ -10792,7 +10999,16 @@
    "phrase": "wikipedia",
    "frac_through": 0.4243
   },
-  "carrier": "unofficial"
+  "carrier": "unofficial",
+  "ops": {
+   "split_knowledge": 0.575,
+   "status_invert": 0.183,
+   "juxtapose": 0.177,
+   "double_interpret": 0.024,
+   "repeat_variation": 0.016
+  },
+  "opsSource": "bits",
+  "opsN": 4
  },
  {
   "id": "d-DTWb_2ubE",
@@ -10823,7 +11039,16 @@
    "phrase": "has",
    "frac_through": 0.129
   },
-  "carrier": "unofficial"
+  "carrier": "unofficial",
+  "ops": {
+   "split_knowledge": 0.89,
+   "double_interpret": 0.029,
+   "repeat_variation": 0.019,
+   "status_invert": 0.019,
+   "juxtapose": 0.013
+  },
+  "opsSource": "bits",
+  "opsN": 3
  },
  {
   "id": "MEYbL1-62Zk",
@@ -11005,9 +11230,11 @@
   "sec": 57,
   "dur": 57,
   "checked": "2026-10-16",
-  "style": [],
+  "style": [
+   "storytelling"
+  ],
   "topics": [],
-  "tagsSource": "draft-auto",
+  "tagsSource": "auto-meta",
   "draftTags": [],
   "special_id": null,
   "special_ref": null,

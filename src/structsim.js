@@ -5,6 +5,7 @@
 //   topic Jaccard (clips.json topics)        0.15     stylometry closeness (z-scored)         0.15
 //   delivery archetype match                 0.15     MARY closeness (arousal/valence/power)  0.05
 // Operator mixes and stylometry use the matched special when both clips have one, otherwise the comic's (theory.json).
+// A clip's own operator mix (clips.json ops, opsSource "bits": the bits on screen, tools/import-clip-features.mjs) beats both.
 export const SIM_W = { style: 0.25, ops: 0.25, topic: 0.15, sty: 0.15, arch: 0.15, mary: 0.05 }
 const arr = (x) => (Array.isArray(x) ? x : [])
 function jaccard(a, b) {
@@ -46,7 +47,9 @@ export function structParts(a, b, T, opts = {}) {
     arch: comicOk && ca?.archetype && cb?.archetype ? (ca.archetype === cb.archetype ? 1 : 0) : null,
     mary: comicOk ? maryClose(ca?.mary, cb?.mary) : null,
     sty: both ? styClose(sa.sty, sb.sty, T?.styScale) : comicOk ? styClose(ca?.sty, cb?.sty, T?.styScale) : null,
-    ops: both ? opsClose(sa.ops, sb.ops, T?.opsMean) : comicOk ? opsClose(ca?.ops, cb?.ops, T?.opsMean) : null,
+    ops: a.ops && b.ops ? opsClose(a.ops, b.ops, T?.opsMean) // both clip-level: real evidence even within one comic
+      : (a.ops || b.ops) && comicOk ? opsClose(a.ops || sa?.ops || ca?.ops, b.ops || sb?.ops || cb?.ops, T?.opsMean)
+      : both ? opsClose(sa.ops, sb.ops, T?.opsMean) : comicOk ? opsClose(ca?.ops, cb?.ops, T?.opsMean) : null,
   }
 }
 export function structSim(a, b, T, opts) {

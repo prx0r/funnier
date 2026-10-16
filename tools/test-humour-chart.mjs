@@ -21,4 +21,8 @@ ok(/^<svg/.test(svg) && (svg.match(/class="hcs"/g) || []).length === 2 && !/NaN/
 ok(Object.values(clipFeatures(clips[norm[0]], theory)).every((v) => v >= 0 && v <= 1), 'clip features stay in 0..1')
 const srv = computeChart({ clips, theory, votes, server: { weights: { status_invert: 1.2 }, line: 'You laugh hardest at status flips.' } })
 ok(srv.ops.some((o) => o.k === 'status_invert') && /status flips/.test(srv.serverLine), 'GET /me/humour weights + line blend in')
+const crowdIds = ids.filter((i) => (clips[i].style || []).includes('crowd-work'))
+if (crowdIds.length) ok('crowd' in z.dims, `Crowd work axis shows once clips carry the tag (${crowdIds.length} clips)`)
+const bitClip = Object.values(clips).find((x) => x.opsSource === 'bits')
+if (bitClip) ok(JSON.stringify(clipFeatures(bitClip, theory)) !== JSON.stringify(clipFeatures({ ...bitClip, ops: undefined }, theory)), `per-clip bit ops change the clip's features (${bitClip.id})`)
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASS'); process.exit(fails.length ? 1 : 0)

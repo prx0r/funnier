@@ -39,11 +39,17 @@ if (fs.existsSync(bp) && norm?.t_start != null) {
 {
   const H = clips.filter((c) => c.kind === 'human'), all = []
   for (let i = 0; i < H.length; i++) for (let j = i + 1; j < H.length; j++) { const x = structSim(H[i], H[j], T), y = structSim(H[j], H[i], T); all.push(x); if (Math.abs(x - y) > 1e-9) { ok(false, 'struct_sim symmetric'); break } }
-  ok(all.every((x) => x >= 0 && x <= 1), `struct_sim in [0,1] over ${all.length} pairs (min ${Math.min(...all)}, max ${Math.max(...all)})`)
+  ok(all.every((x) => x >= 0 && x <= 1), `struct_sim in [0,1] over ${all.length} pairs (min ${all.reduce((m, x) => Math.min(m, x), 1)}, max ${all.reduce((m, x) => Math.max(m, x), 0)})`)
   const [n1, n2] = H.filter((c) => c.comic === 'Norm Macdonald')
   const pp = structParts(n1, n2, T, { pairing: true })
   ok(pp.arch == null && pp.ops == null && pp.sty == null, 'pairing: same-comic pairs drop comic-level traits (identical by construction)')
-  ok(structParts(n1, n2, T).ops === 1, 'recommendation: same comic keeps comic-level operator match')
+  const [m1, m2] = H.filter((c) => c.comic === 'Norm Macdonald' && !c.ops && !c.special_id)
+  ok(structParts(m1, m2, T).ops === 1, 'recommendation: same comic keeps comic-level operator match')
+  // per-clip operator mixes (clips.json ops, opsSource "bits", tools/import-clip-features.mjs)
+  const B = H.filter((c) => c.opsSource === 'bits')
+  ok(B.length > 0 && B.every((c) => Object.keys(c.ops).length <= 5 && Object.values(c.ops).every((v) => v > 0 && v <= 1) && c.opsN >= 2), `${B.length} clips carry a bit-level operator mix (top 5, from >= 2 labelled bits)`)
+  const [b1, b2] = B.filter((c) => c.comic === B[0].comic)
+  if (b1 && b2) { const v = structParts(b1, b2, T, { pairing: true }).ops; ok(v != null && v < 1, `pairing: two clips of one comic with their own bits still compare on ops (${v?.toFixed(3)})`) }
   const L = H.find((c) => c.comic === 'Louis C.K.' && !c.special_id), R = H.find((c) => c.comic === 'Chris Rock' && !c.special_id), J = H.find((c) => c.comic === 'Jerry Seinfeld' && !c.special_id)
   ok(structParts(L, J, T).ops > structParts(L, R, T).ops, 'operator lift tells comics apart (Louis~Seinfeld closer than Louis~Rock on ops)')
   ok(structSim({ comic: 'X', style: ['dark'] }, { comic: 'Y', style: ['dark'] }, {}) === 1 && structSim({ comic: 'X' }, { comic: 'Y' }, {}) === 0, 'no theory: falls back to tags; nothing known -> 0')

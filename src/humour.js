@@ -51,6 +51,7 @@ const clamp = (x, a, b) => Math.max(a, Math.min(b, x))
 const arr = (x) => (Array.isArray(x) ? x : [])
 
 function opsOf(c, T) {
+  if (c?.ops && typeof c.ops === 'object') return c.ops // the clip's own bits (opsSource "bits")
   const sp = c?.special_id ? T?.specials?.[c.special_id] : null
   return sp?.ops || T?.comics?.[c?.comic]?.ops || null
 }

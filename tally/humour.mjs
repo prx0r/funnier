@@ -58,6 +58,7 @@ export function rows(ms, { clipsById, theory, loadBits }) {
     const sp = c.special_id ? theory.specials?.[c.special_id] : null
     const bits = sp && c.t_start != null ? bitsInWindow(c, sp, loadBits(theory.comics?.[c.comic]?.slug, c.special_id), m.t0, m.t1) : []
     if (bits.length) { for (const b of bits) R.push({ x: bitVec(b), y: m.y, w: W_BIT / bits.length, basis: 'bit' }); continue }
+    if (c.ops) { R.push({ x: mixVec(c.ops), y: m.y, w: W_SPECIAL, basis: 'clip' }); continue } // the clip's own bits (opsSource "bits")
     if (sp) { R.push({ x: mixVec(sp.ops), y: m.y, w: W_SPECIAL, basis: 'special' }); continue }
     const cm = theory.comics?.[c.comic]
     if (cm?.ops) R.push({ x: mixVec(cm.ops), y: m.y, w: W_COMIC, basis: 'comic' })
