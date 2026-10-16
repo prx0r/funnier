@@ -879,3 +879,20 @@ button.up-fav.empty:hover{border-color:var(--gold);color:var(--gold)}
 .ss-size button.on{background:#2a2a33;color:var(--text)}
 .why .rctaste{display:block;margin:10px auto 0;font-size:12px;color:var(--muted);text-decoration:underline;text-underline-offset:3px}
 .why .rctaste:hover{color:var(--gold)}
+/* humour engine v2: uncertainty bands, confidence, "How each clip changed you" */
+.up-bar .up-band,.barrow .track .up-band{position:absolute;top:-2px;bottom:-2px;background:rgba(245,199,107,.13);border-radius:6px;text-decoration:none}
+.barrow .track .up-band{top:0;bottom:0}
+.up-dim>span,.barrow.eng>span{display:flex;flex-direction:column;line-height:1.2;min-width:0}
+.up-conf{font-size:10.5px;color:var(--muted);font-weight:400;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.up-conf.c-high{color:rgba(245,199,107,.75)}
+.tl{margin-top:16px;border-top:1px solid rgba(255,255,255,.06);padding-top:10px}
+.tl summary{cursor:pointer;font-size:12.5px;color:rgba(255,255,255,.72);list-style:none;display:flex;gap:8px;align-items:baseline}
+.tl summary::-webkit-details-marker{display:none}
+.tl summary::before{content:'+';font-family:var(--mono);color:var(--muted);width:10px}
+.tl[open] summary::before{content:'\2013'}
+.tl summary .muted{font-size:11px}
+.tl-list{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:9px}
+.tl-list li{display:grid;gap:2px;font-size:12px;line-height:1.35;padding-left:10px;border-left:2px solid rgba(245,199,107,.25)}
+.tl-d{color:var(--text)}
+.tl-why{color:var(--muted)}
+.tl-list time{font-size:10.5px;color:rgba(141,139,147,.7);font-family:var(--mono)}

@@ -3,6 +3,7 @@ import { renderAvatar, PALETTES } from 'mascot-avatars' // MIT, (c) 2026 s1dashu
 import { structSim } from './structsim.js' // shared with tally/tally.mjs (characters2 §4a)
 import { computeChart, chartSVG, tasteMatch, STY, dimLabel, dimShort, dimPhrase, shortName, CHART_COLORS } from './humour.js' // the humour chart
 import { drawCard, toBlob, TEMPLATES } from './cards.js' // share cards (PNG)
+import { createEngine, basePrior, mergePrior, readout, deltas, deltaText, FEATURES, ENGINE_MODEL } from './engine.js' // humour engine v2 (handwired)
 
 // www.funnier.si/u/<username> (served by funnier-web with <base href="/">) -> the in-app route #u/<username>
 if (typeof location !== 'undefined' && typeof history !== 'undefined') { const m = location.pathname.match(/^(.*\/)u\/([A-Za-z0-9_]{3,20})\/?$/); if (m) history.replaceState(null, '', m[1] + '#u/' + m[2] + location.search) }
@@ -20,6 +21,7 @@ const LS = {
   set: (k, v) => localStorage.setItem('funnier.' + k, JSON.stringify(v)),
 }
 
+let CROWD_TASTE = null // data/engine-prior.json (tally): the crowd's taste weights = everyone's starting prior
 let CLIPS = [], BYID = {}, BOARD = null, PAIRS = [], COMICS = {}, PUBVOTES = [], DAILY = [], DAILYRES = null, THEORY = {}
 let LANE = LS.get('lane', 'human'), BOARDKIND = 'all'
 // ---------- device-aware clips (tunable) ----------
@@ -76,6 +78,7 @@ async function loadData() {
   try { PAIRS = (await (await fetch('data/pairs.json', { cache: 'no-cache' })).json()).pairs || [] } catch { PAIRS = [] }
   try { THEORY = (await (await fetch('theory.json', { cache: 'no-cache' })).json()) || {} } catch { THEORY = {} }
   try { const d = await (await fetch('daily.json', { cache: 'no-cache' })).json(); DAILY = Array.isArray(d) ? d : [] } catch { DAILY = [] }
+  try { const r = await fetch('data/engine-prior.json', { cache: 'no-cache' }); const j = r && r.ok !== false ? await r.json() : null; CROWD_TASTE = j && j.weights && typeof j.weights === 'object' ? j : null } catch { CROWD_TASTE = null }
   await loadDailyResults()
 }
 // learned durations + crowd loudness from the API (both public, cached); applied silently
@@ -261,6 +264,95 @@ function humourType() {
   if (!top.length || top[0][1] < 0.15) return null
   return { key: top[0][0], name: TYPES[top[0][0]][0], line: TYPES[top[0][0]][1], also: top[1] && top[1][1] > 0.15 ? top[1][0] : null }
 }
+
+// ---------- humour engine v2 (src/engine.js): an interpretable model of YOUR sense of humour ----------
+// One handwired program: clip -> named features (operator mix, style tags, energy, punchline hold, pace, setting, format,
+// length) -> your taste weights -> P(you pick A over B), P(you rewind it), P(you finish it), P(you skip it). Trained on
+// this device after every vote and clip skip (MAP, warm start, the crowd's weights as the prior), so every pick
+// visibly moves your profile. Each update stores what it changed and why (funnier.engineLog).
+let ENGINE = null, ENG = null
+const ENGINE_MAX_VOTES = 300
+function crowdLogit(id) { // the public board's clip strength, in logits (0 when the clip has no bouts yet)
+  const k = BOARD?.boards?.all?.clips?.find?.((x) => x.id === id)
+  if (k && k.bouts) return (k.elo - 1500) / SCALE
+  const c = BOARD?.boards?.all?.comics?.find?.((x) => x.comic === BYID[id]?.comic && x.bouts)
+  return c ? (c.elo - 1500) / SCALE : 0
+}
+function engineOn() { if (!ENGINE && CLIPS.length) ENGINE = createEngine({ clips: CLIPS, theory: THEORY, crowd: crowdLogit }); return ENGINE }
+function enginePrior() {
+  let P = basePrior(CROWD_TASTE?.weights || null)
+  const imp = LS.get('enginePrior', null) // an imported Humour Passport: merged in as a prior, never as votes
+  if (imp && imp.weights && typeof imp.weights === 'object') P = mergePrior(P, imp.weights, imp.sd || {})
+  return P
+}
+function engineData() {
+  const votes = LS.get('votes', []).filter((v) => v && BYID[v.a] && BYID[v.b]).slice(-ENGINE_MAX_VOTES)
+    .map((v) => ({ a: v.a, b: v.b, winner: v.winner, w: Number.isFinite(v.weight) ? v.weight : voteWeight(v), signals: v }))
+  return { votes, skips: clipSkips().slice(-300).map((k) => ({ clip: k.clip, w: skipW(k) })), favs: favsLocal() }
+}
+const r4 = (x) => Math.round(x * 1e4) / 1e4
+function engineSaved() {
+  const s = LS.get('engine', null), NT = FEATURES.length + 7
+  return s && s.model === ENGINE_MODEL && Array.isArray(s.theta) && s.theta.length === NT ? s : null
+}
+function engineFit(iters = 4, fresh = false) {
+  const E = engineOn(); if (!E) return null
+  const st = fresh ? null : (ENG || engineSaved()), data = engineData()
+  const r = E.fit(E.samples(data), enginePrior(), st ? Float64Array.from(st.theta) : null, { iters })
+  ENG = { model: ENGINE_MODEL, theta: Array.from(r.theta, r4), sd: r.sd.map(r4), support: r.support.map((x) => Math.round(x * 10) / 10), n: data.votes.length, at: new Date().toISOString() }
+  try { LS.set('engine', ENG) } catch {}
+  return ENG
+}
+function engineReadout() {
+  const s = ENG || (ENG = engineSaved()) || engineFit(8, true)
+  return s ? { ...readout(s.theta, s.sd, s.support), model: ENGINE_MODEL, n: s.n } : null
+}
+function enginePredict(a, b) { const E = engineOn(), s = ENG || engineSaved(); return E && s ? E.predict(a, b, Float64Array.from(s.theta)) : null }
+const possessive = (comic) => { const n = shortName(comic, COMICS); return n + (/s$/i.test(n) ? '\u2019' : '\u2019s') }
+function engineWhy(ev) {
+  const E = engineOn(), d = (id) => (E ? E.describe(id) : 'clip')
+  if (ev.kind === 'vote') {
+    const W = BYID[ev.winner], L = BYID[ev.winner === ev.a ? ev.b : ev.a]; if (!W || !L) return ''
+    const rew = ev.rewound ? ` and rewound ${possessive(BYID[ev.rewound]?.comic)}` : ''
+    return `because you picked ${possessive(W.comic)} ${d(W.id)} over ${possessive(L.comic)} ${d(L.id)}${rew}`
+  }
+  const C = BYID[ev.clip]; if (!C) return ''
+  return `because you skipped ${possessive(C.comic)} ${d(C.id)}${Number.isFinite(ev.at) ? ` ${ev.at}s in` : ''}`
+}
+// after a vote or a clip skip: refit (warm start), store the delta + the reason. Deferred so the ballot never waits.
+let learnQ = []
+function engineLearn(ev) {
+  learnQ.push(ev)
+  setTimeout(() => {
+    const evs = learnQ; learnQ = []; if (!evs.length) return
+    try {
+      const before = engineReadout(); if (!before) return
+      const s = engineFit(4), after = s ? readout(s.theta, s.sd, s.support) : null; if (!after) return
+      const ds = deltas(before, after, { min: 0.5, top: 3 }), ev0 = evs[evs.length - 1]
+      const log = LS.get('engineLog', [])
+      log.push({ at: new Date().toISOString(), kind: ev0.kind, a: ev0.a, b: ev0.b, w: ev0.winner, clip: ev0.clip, p: ev0.p, hit: ev0.hit, d: ds.map((x) => ({ k: x.k, d: x.d })), why: engineWhy(ev0), n: s.n })
+      LS.set('engineLog', log.slice(-200))
+      chartChanged()
+      if (!$('#v-you')?.hidden) paintYou()
+      if (!$('#v-profile')?.hidden && profRoute().kind === 'me') paintProfilePage()
+    } catch (e) { console.warn('engine', e) }
+  }, 40)
+}
+const featLabel = (k) => FEATURES.find((f) => f.k === k)?.label || k
+function deltaPhrase(e) {
+  const ds = Array.isArray(e?.d) ? e.d.map((x) => ({ ...x, label: featLabel(x.k) })) : []
+  const verb = e.kind === 'vote' ? 'This vote' : 'This skip'
+  return ds.length ? `${verb}: ${deltaText(ds)}` : `${verb}: nothing moved much (your model expected it)`
+}
+const agoStr = (t) => { const s = (Date.now() - Date.parse(t)) / 1000; if (!(s >= 0)) return ''; if (s < 90) return 'just now'; if (s < 3600) return Math.round(s / 60) + 'm ago'; if (s < 86400) return Math.round(s / 3600) + 'h ago'; return Math.round(s / 86400) + 'd ago' }
+// "How each clip changed you": latest first, subtle
+function timelineHTML(limit = 8) {
+  const log = LS.get('engineLog', []).filter((e) => e && e.at).slice().reverse()
+  if (!log.length) return ''
+  const li = (e) => `<li><span class="tl-d">${esc(deltaPhrase(e))}</span>${e.why ? `<span class="tl-why">${esc(e.why)}</span>` : ''}<time>${esc(agoStr(e.at))}${e.kind === 'vote' && typeof e.hit === 'boolean' ? (e.hit ? ' · model called it' : ' · model guessed the other one') : ''}</time></li>`
+  return `<details class="tl"${limit > 8 ? ' open' : ''}><summary>How each clip changed you <span class="muted">${log.length} update${log.length === 1 ? '' : 's'}</span></summary><ol class="tl-list">${log.slice(0, limit).map(li).join('')}</ol></details>`
+}
+const confText = (cl, n) => `${cl || 'low'} confidence, ${Math.round(n || 0)} vote${Math.round(n || 0) === 1 ? '' : 's'}`
 
 // ---------- choosing the next double feature ----------
 function openPair(a, b) {
@@ -816,8 +908,9 @@ function mountScreening(first, oldEl) {
     return
   }
   const [a, b] = current, n = ++nScreen
-  const pL = MODEL ? sig(MODEL.score(a.id) + traitScore(a) - MODEL.score(b.id) - traitScore(b)) : 0.5
-  prediction = { p: pL, side: pL >= 0.5 ? 'L' : 'R' }
+  let pE = null; try { pE = enginePredict(a.id, b.id) } catch {}
+  const pL = pE != null ? pE : MODEL ? sig(MODEL.score(a.id) + traitScore(a) - MODEL.score(b.id) - traitScore(b)) : 0.5
+  prediction = { p: pL, side: pL >= 0.5 ? 'L' : 'R', model: pE != null ? 'engine' : 'bt' }
   host.insertAdjacentHTML('beforeend', slideHTML(a, b, n, first))
   const el = host.lastElementChild
   cur = { el, n, a, b }
@@ -969,6 +1062,7 @@ function skipClip() {
     style: Array.isArray(c.style) ? c.style : [], watchedSec: Math.round(10 * (sc.watched || 0)) / 10, ...signals(), at: new Date().toISOString() }
   LS.set('skips', [...LS.get('skips', []), rec].slice(-500)); queueEvents()
   try { MODEL = fitLocal(); TRAITS = fitTraits() } catch {}
+  engineLearn({ kind: 'skip', clip: c.id, a: a.id, b: b.id, at: rec.skippedAt ?? rec.leftSkippedAt ?? rec.rightSkippedAt })
   if (side === 'L') { toast('Skipped to #2. Noted against that clip.'); startClip('R') } else startVote()
   return true
 }
@@ -1057,7 +1151,7 @@ function skipClash() {
   if (stage === 'vote' && armedAt) rec.decisionMs = Math.round(now() - armedAt)
   LS.set('skips', [...LS.get('skips', []), rec].slice(-500)); queueEvents()
   LS.set('skipped', [...LS.get('skipped', []), pairKey(a.id, b.id)].slice(-500)); bumpSeen(a.id, b.id)
-  if (sc) { MODEL = fitLocal(); TRAITS = fitTraits(); paintYou() }
+  if (sc) { MODEL = fitLocal(); TRAITS = fitTraits(); paintYou(); if (skipW(rec) > 0) engineLearn({ kind: 'skip', clip: sc.clip.id, a: a.id, b: b.id, at: sc.skippedAt }) }
   goNext(null); paintHistory()
 }
 function goNext() {
@@ -1096,7 +1190,9 @@ async function vote(side) {
   }
   // latest pick per pair counts (same rule as the public tally), so a rewatch replaces the old pick
   LS.set('votes', [...LS.get('votes', []).filter((x) => !x || pairKey(x.a, x.b) !== pairKey(a.id, b.id)), v])
-  const preds = LS.get('preds', []); preds.push({ p: prediction.p, hit: prediction.side === side }); LS.set('preds', preds.slice(-200))
+  const preds = LS.get('preds', []); preds.push({ p: prediction.p, hit: prediction.side === side, m: prediction.model }); LS.set('preds', preds.slice(-200))
+  engineLearn({ kind: 'vote', a: a.id, b: b.id, winner: v.winner, p: Math.round(1000 * (side === 'L' ? prediction.p : 1 - prediction.p)) / 1000, hit: prediction.side === side,
+    rewound: (side === 'L' ? v.leftSeekTargets : v.rightSeekTargets)?.length ? v.winner : null })
   const dur = LS.get('dur', {}); dur[a.id] = screens.L.dur(); dur[b.id] = screens.R.dur(); LS.set('dur', dur)
   const guess = MODEL && MODEL.n >= 3 ? (prediction.side === side ? ' Your model called it.' : ' Your model guessed the other one.') : ''
   scheduleAdvance(fl ? 2400 : v.daily ? 1600 : reduced() ? 300 : 900)
@@ -1519,7 +1615,7 @@ function paintYou() {
     ${sureLine(votes)}
     <p class="sure"><a class="tolink" href="#profile">Your humour chart, Four Favourites and share cards →</a></p>
     ${(() => { const h = humourType(); return h ? `<div class="type"><span class="eyebrow">Your humour type</span><b>${h.name}</b><p>${h.line}${h.also ? ` With a streak of <i>${h.also}</i>.` : ''}</p></div>` : `<div class="type"><span class="eyebrow">Your humour type</span><b>Still reading you…</b><p>A few more picks across different styles and it will name your type.</p></div>` })()}
-    <h3>Styles you laugh at</h3><div class="bars">${STYLES.map((t) => { const x = TRAITS.w[t] || 0, wd = Math.min(50, Math.abs(x) * 40); return `<div class="barrow"><span>${t}</span><div class="track center"><i style="left:${x >= 0 ? 50 : 50 - wd}%;width:${wd}%"></i></div><span class="v">${(TRAITS.n[t] || 0) < 2 ? 'learning' : (x > 0 ? '+' : '') + x.toFixed(2)}</span></div>` }).join('')}</div>
+    ${engineYouHTML()}
     ${skipLists()}
     <h3>Comics, as your model sees them</h3><p class="muted">It starts from the crowd chart and moves toward your picks.</p><div class="bars">${bars}</div>
     <h3>What it's learning about you</h3><div class="bars">
@@ -1540,6 +1636,16 @@ function paintYou() {
   }).catch(() => {})
 }
 
+// Your model: the engine's strongest leans (both directions), each with its confidence, then the per-vote timeline
+function engineYouHTML() {
+  let ro = null; try { ro = engineReadout() } catch {}
+  if (!ro) return ''
+  const rows = FEATURES.map((f) => ({ f, e: ro.f[f.k] })).filter((x) => x.e && x.e.n >= 0.5).sort((x, y) => Math.abs(y.e.v - 50) - Math.abs(x.e.v - 50)).slice(0, 8)
+  const row = ({ f, e }) => { const d = e.v - 50, lo = Math.max(0, e.lo), hi = Math.min(100, e.hi)
+    return `<div class="barrow eng"><span>${esc(f.label)}<small class="up-conf c-${esc(e.conf)}">${esc(confText(e.conf, e.n))}</small></span><div class="track center"><s class="up-band" style="left:${lo}%;width:${Math.max(1, hi - lo)}%"></s><i style="left:${d >= 0 ? 50 : 50 + d}%;width:${Math.abs(d)}%"></i></div><span class="v">${e.v}</span></div>` }
+  return `<h3>Your humour model</h3><p class="muted">Every vote retrains it here on your device. 50 = neutral; the shade is how unsure it still is.</p>
+    <div class="bars">${rows.length ? rows.map(row).join('') : '<p class="muted">Still at the crowd\u2019s taste. A few votes and it starts to lean.</p>'}</div>${timelineHTML(20)}`
+}
 function skipLists() {
   const shown = LS.get('shown', {}) || {}, sk = {}
   for (const k of clipSkips()) { const c = BYID[k.clip].comic; sk[c] = (sk[c] || 0) + 1 }
@@ -1992,13 +2098,13 @@ function exportData() {
   const blob = new Blob([JSON.stringify({ kind: 'funnier.local-data', version: 1, exported: new Date().toISOString(), data }, null, 2)], { type: 'application/json' })
   try { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `funnier-data-${dayStr()}.json`; document.body.appendChild(a); a.click(); a.remove() } catch { toast('Download blocked by the browser.') }
 }
-const HISTORY_KEYS = ['votes', 'partials', 'passes', 'skips', 'skipped', 'seen', 'shown', 'preds', 'dur', 'specials', 'dailyAuto', 'dailyDone']
+const HISTORY_KEYS = ['votes', 'partials', 'passes', 'skips', 'skipped', 'seen', 'shown', 'preds', 'dur', 'specials', 'dailyAuto', 'dailyDone', 'engine', 'engineLog']
 function clearHistory() {
   let ok = false
   try { ok = window.confirm('Clear your Funnier history on this device?\n\nThis removes your picks, passes, skips and specials log, and resets your taste model here. Picks already published to Bluesky stay published.') } catch { ok = false }
   if (!ok) return
   for (const k of HISTORY_KEYS) { try { localStorage.removeItem('funnier.' + k) } catch {} }
-  MODEL = fitLocal(); TRAITS = fitTraits()
+  MODEL = fitLocal(); TRAITS = fitTraits(); ENG = null; chartChanged()
   paintHistory(); paintYou(); paintDaily(); toast('History cleared.')
 }
 function youSub(k) {
@@ -2355,13 +2461,14 @@ function myChart() {
   MODEL = MODEL || fitLocal()
   const votes = LS.get('votes', []).filter((v) => v && BYID[v.a] && BYID[v.b]).map((v) => ({ a: v.a, b: v.b, winner: v.winner, w: Number.isFinite(v.weight) ? v.weight : voteWeight(v) }))
   const skips = clipSkips().map((s) => ({ clip: s.clip, w: skipW(s) }))
-  CHART = computeChart({ votes, skips, favs: favsLocal(), clips: BYID, theory: THEORY, comics: COMICS, score: (id) => MODEL.score(id), server: SERVER_HUMOUR })
+  let engine = null; try { engine = engineReadout() } catch (e) { console.warn('engine', e) }
+  CHART = computeChart({ votes, skips, favs: favsLocal(), clips: BYID, theory: THEORY, comics: COMICS, score: (id) => MODEL.score(id), server: SERVER_HUMOUR, engine })
   return CHART
 }
-const chartSnap = (c) => ({ n: c.n, dims: c.dims, ops: c.ops, sty: c.sty, top: c.top, line: c.line, mml: c.mml, serverLine: c.serverLine || undefined, adjacent: c.adjacent || undefined, funniest: c.funniest || undefined })
+const chartSnap = (c) => ({ n: c.n, model: c.model, band: c.band, cl: c.cl, conf: c.conf, dims: c.dims, ops: c.ops, sty: c.sty, top: c.top, line: c.line, mml: c.mml, serverLine: c.serverLine || undefined, adjacent: c.adjacent || undefined, funniest: c.funniest || undefined })
 const chartKey = (c) => JSON.stringify([c.dims, c.line, c.mml, c.funniest?.id || ''])
 function chartChanged() { CHART = null; queueChartPush() }
-function saveFavs(a) { LS.set('favs', a.slice(0, 4)); LS.set('profAt', new Date().toISOString()); queueProfilePush({ favs: a.slice(0, 4) }); chartChanged() }
+function saveFavs(a) { LS.set('favs', a.slice(0, 4)); LS.set('profAt', new Date().toISOString()); queueProfilePush({ favs: a.slice(0, 4) }); try { engineFit(4) } catch {} chartChanged() }
 function savePins(a) { LS.set('pins', a.slice(0, 6)); LS.set('profAt', new Date().toISOString()); queueProfilePush({ pins: a.slice(0, 6) }) }
 
 // ---- sync ----
@@ -2424,6 +2531,7 @@ async function maybeUploadOG() {
 }
 
 // ---- rendering ----
+const DIM_HINT_V2 = 'Each number is your model\u2019s weight on that kind of comedy (50 = neutral), the shaded band is how unsure it still is. It starts at the crowd\u2019s taste and every vote moves it.'
 const DIM_HINT = 'Each number is how often that kind of comedy wins your pick when it\u2019s on screen (50 = neutral; it starts at 50 and moves with every vote).'
 function favTile(name, i, own) {
   if (!name) return own ? `<button type="button" class="up-fav empty" data-act="favs" aria-label="Pick a favourite comic"><span>+</span></button>` : '<div class="up-fav empty"></div>'
@@ -2436,21 +2544,23 @@ function fourHTML(favs, own) {
     <div class="up-four">${[0, 1, 2, 3].map((i) => favTile(favs[i], i, own)).join('')}</div></section>`
 }
 function dimRows(c) {
-  return Object.keys(c.dims).sort((x, y) => c.dims[y] - c.dims[x]).map((k) => { const v = c.dims[k], d = v - 50
-    return `<div class="up-dim"><span>${esc(dimLabel(k))}</span><i class="up-bar"><b style="${d >= 0 ? `left:50%;width:${d}%` : `left:${50 + d}%;width:${-d}%`}" class="${d >= 0 ? 'pos' : 'neg'}"></b></i><em>${v}</em></div>` }).join('')
+  return Object.keys(c.dims).sort((x, y) => c.dims[y] - c.dims[x]).map((k) => { const v = c.dims[k], d = v - 50, bd = c.band?.[k], cl = c.cl?.[k]
+    const band = Array.isArray(bd) ? `<s class="up-band" style="left:${Math.max(0, bd[0])}%;width:${Math.max(1, Math.min(100, bd[1]) - Math.max(0, bd[0]))}%"></s>` : ''
+    return `<div class="up-dim"${cl ? ` title="${esc(confText(cl, c.conf?.[k]))}"` : ''}><span>${esc(dimLabel(k))}${cl ? `<small class="up-conf c-${esc(cl)}">${esc(confText(cl, c.conf?.[k]))}</small>` : ''}</span><i class="up-bar">${band}<b style="${d >= 0 ? `left:50%;width:${d}%` : `left:${50 + d}%;width:${-d}%`}" class="${d >= 0 ? 'pos' : 'neg'}"></b></i><em>${v}</em></div>` }).join('')
 }
 function chartHTML(c, own, who) {
   if (!c?.dims) return `<section class="up-sec"><div class="up-sh"><h3>Sense of humour</h3></div><p class="muted">${own ? 'Vote on a few clashes (or pick your Four Favourites) and your chart draws itself.' : 'No chart yet.'}</p></section>`
   const sty = STY.filter((s) => c.sty?.[s.k] != null)
   return `<section class="up-sec"><div class="up-sh"><h3>Sense of humour</h3>${own ? '<button type="button" class="up-edit" data-act="share" data-kind="chart">Share chart ↗</button>' : ''}</div>
-    <div class="up-chart"><div class="up-radar">${chartSVG([{ dims: c.dims, color: CHART_COLORS[0] }], { size: 400, title: (who || 'Your') + ' humour chart' })}</div>
+    <div class="up-chart"><div class="up-radar">${chartSVG([{ dims: c.dims, band: c.band, color: CHART_COLORS[0] }], { size: 400, title: (who || 'Your') + ' humour chart' })}</div>
     <div class="up-legend">${c.adjacent ? `<p class="up-adj"><b>${c.adjacent.pct}%</b> ${esc(c.adjacent.short)}-adjacent</p>` : ''}
       <div class="up-dims">${dimRows(c)}</div>
       ${c.funniest ? `<p class="up-fun"><span class="eyebrow">Funniest to ${own ? 'you' : 'them'}</span><a href="https://www.youtube.com/watch?v=${esc(c.funniest.id)}" target="_blank" rel="noopener">\u201c${esc(c.funniest.title)}\u201d</a> <span class="muted">${esc(c.funniest.comic)}</span></p>` : ''}
       ${arr(c.ops).length ? `<div class="up-ops"><span class="eyebrow">Favourite moves</span>${c.ops.slice(0, 4).map((o) => `<span class="chip">${esc(o.label)} <b>${o.v}</b></span>`).join('')}</div>` : ''}
       ${sty.length ? `<div class="up-stys">${sty.map((s) => `<div class="up-sty"><span>${s.lo}</span><i><b style="left:${c.sty[s.k]}%"></b></i><span>${s.hi}</span></div>`).join('')}</div>` : ''}
       ${c.serverLine ? `<p class="muted small">From ${own ? 'your' : 'their'} rewinds: ${esc(c.serverLine)}</p>` : ''}
-      <p class="muted small up-hint">${DIM_HINT}${c.n ? ` Built from ${c.n} pick${c.n === 1 ? '' : 's'}.` : ''}</p></div></div></section>`
+      <p class="muted small up-hint">${c.band && Object.keys(c.band).length ? DIM_HINT_V2 : DIM_HINT}${c.n ? ` Built from ${c.n} pick${c.n === 1 ? '' : 's'}.` : ''}</p>
+      ${own ? timelineHTML(8) : ''}</div></div></section>`
 }
 function pinsHTML(pins, own) {
   const ok = pins.filter((id) => BYID[id])
@@ -2844,6 +2954,7 @@ function tabs() {
   await Promise.all([loadData(), loadConfig()])
   await Promise.race([loadClipMeta(), new Promise((r) => setTimeout(r, 1500))]) // durations + crowd loudness; never block the show for long
   MODEL = fitLocal(); TRAITS = fitTraits()
+  try { engineReadout() } catch (e) { console.warn('engine', e) } // the state before the next vote (its delta is measured from here)
   const sh = parseClash(location.hash), ic = parseInvite(location.hash)
   if (ic) { history.replaceState(null, '', location.pathname + location.search); await Promise.race([openInvite(ic), new Promise((r) => setTimeout(r, 4000))]) }
   else if (sh) { pendingClash = sh; history.replaceState(null, '', location.pathname + location.search) }

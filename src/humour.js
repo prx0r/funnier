@@ -89,8 +89,9 @@ export function clipStyle(c, T) {
 }
 
 // votes: [{ a, b, winner, w }] (w = pick confidence), skips: [{ clip, w }], favs: [comic], clips: {id: clip}
-// opts: { theory, comics, score(id) -> number (your model, for "funniest to you"), server: GET /me/humour profile }
-export function computeChart({ votes = [], skips = [], favs = [], clips = {}, theory = null, comics = {}, score = null, server = null } = {}) {
+// opts: { theory, comics, score(id) -> number (your model, for "funniest to you"), server: GET /me/humour profile,
+//   engine: readout() of the humour engine v2 (src/engine.js) -> its weights draw the axes, with uncertainty bands }
+export function computeChart({ votes = [], skips = [], favs = [], clips = {}, theory = null, comics = {}, score = null, server = null, engine = null } = {}) {
   const T = theory || {}, F = {}, S = {}
   const feat = (id) => (F[id] = F[id] || clipFeatures(clips[id], T))
   const sty = (id) => (id in S ? S[id] : (S[id] = clipStyle(clips[id], T)))
@@ -136,14 +137,20 @@ export function computeChart({ votes = [], skips = [], favs = [], clips = {}, th
     const m = comicMean(name); if (!m) continue
     for (const k of DIMK) { pos[k] += 0.6 * m[k]; exp[k] += 0.6 * (m[k] + rosterMean[k]) }
   }
-  const dims = {}, conf = {}
-  for (const k of DIMK) if (covered.has(k)) { dims[k] = Math.round(100 * (pos[k] + 1) / (exp[k] + 2)); conf[k] = Math.round(exp[k] * 10) / 10 }
-  const ops = Object.keys(opExp).filter((op) => opExp[op] >= 0.6).map((op) => ({ k: op, label: OP_LABEL[op] || op, v: Math.round(100 * ((opPos[op] || 0) + 1) / (opExp[op] + 2)) }))
-    .sort((x, y) => y.v - x.v)
-  const styOut = {}
-  for (const k of Object.keys(styAll)) {
-    const [sa, na] = styAll[k], [sw, nw] = styWon[k]
-    if (nw >= 1.5 && na > 0) styOut[k] = Math.round(clamp(50 + 50 * Math.tanh(4 * (sw / nw - sa / na)), 0, 100))
+  const dims = {}, conf = {}, band = {}, cl = {}
+  let ops, styOut = {}
+  if (engine?.f) { // engine v2: the axes ARE the taste weights (50 + 50 tanh w), the band is +-1 posterior sd
+    for (const k of DIMK) if (covered.has(k)) { const e = engine.f['ax_' + k]; if (!e) continue; dims[k] = e.v; conf[k] = e.n; band[k] = [e.lo, e.hi]; cl[k] = e.conf }
+    ops = Object.keys(OP_LABEL).map((op) => ({ op, e: engine.f['op_' + op] })).filter((x) => x.e && x.e.n >= 0.6).map((x) => ({ k: x.op, label: OP_LABEL[x.op], v: x.e.v })).sort((x, y) => y.v - x.v)
+    for (const k of ['energy', 'hold', 'pace']) { const e = engine.f[k]; if (e && e.n >= 1.5) styOut[k] = e.v }
+  } else {
+    for (const k of DIMK) if (covered.has(k)) { dims[k] = Math.round(100 * (pos[k] + 1) / (exp[k] + 2)); conf[k] = Math.round(exp[k] * 10) / 10 }
+    ops = Object.keys(opExp).filter((op) => opExp[op] >= 0.6).map((op) => ({ k: op, label: OP_LABEL[op] || op, v: Math.round(100 * ((opPos[op] || 0) + 1) / (opExp[op] + 2)) }))
+      .sort((x, y) => y.v - x.v)
+    for (const k of Object.keys(styAll)) {
+      const [sa, na] = styAll[k], [sw, nw] = styWon[k]
+      if (nw >= 1.5 && na > 0) styOut[k] = Math.round(clamp(50 + 50 * Math.tanh(4 * (sw / nw - sa / na)), 0, 100))
+    }
   }
   // server-side (offline) profile: its operator weights win when it is ready
   let serverLine = null
@@ -183,7 +190,7 @@ export function computeChart({ votes = [], skips = [], favs = [], clips = {}, th
     const best = seen.map((id) => [score(id), id]).sort((x, y) => y[0] - x[0])[0]
     if (best) { const c = clips[best[1]]; funniest = { id: c.id, title: c.title, comic: c.comic } }
   }
-  return { v: 1, n, favs: arr(favs).slice(0, 4), dims, conf, ops: ops.slice(0, 6), sty: styOut, top, low, adjacent, line, serverLine, funniest, mml: makeMeLaughBy(top, styOut) }
+  return { v: engine?.f ? 2 : 1, model: engine?.f ? engine.model || 'engine' : 'counts', n, favs: arr(favs).slice(0, 4), dims, conf, band, cl, ops: ops.slice(0, 6), sty: styOut, top, low, adjacent, line, serverLine, funniest, mml: makeMeLaughBy(top, styOut) }
 }
 
 // "Make me laugh by…" (a dating-app prompt), from your strongest dimension and your hold/energy lean
@@ -240,6 +247,14 @@ export function chartSVG(series, opts = {}) {
   g += `<defs>${series.map((s, j) => `<radialGradient id="${id}g${j}" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="${s.color || CHART_COLORS[j]}" stop-opacity=".08"/><stop offset="100%" stop-color="${s.color || CHART_COLORS[j]}" stop-opacity="${j ? '.22' : '.38'}"/></radialGradient>`).join('')}</defs>`
   for (const r of [25, 50, 75, 100]) g += `<polygon points="${poly(ks.map(() => r))}" fill="none" stroke="rgba(255,255,255,${r === 50 ? '.28' : '.09'})" stroke-width="${r === 50 ? 1.2 : 1}"${r === 50 ? ' stroke-dasharray="3 4"' : ''}/>`
   ks.forEach((k, i) => { const [x, y] = pt(i, 100); g += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,.08)"/>` })
+  // uncertainty band of the first series: the ring between each axis' lo and hi (engine v2, +-1 posterior sd)
+  const b0 = series[0]?.band
+  if (b0 && opts.bands !== false && ks.every((k) => Array.isArray(b0[k]))) {
+    const hi = ks.map((k) => clamp(b0[k][1], 4, 100)), lo = ks.map((k) => clamp(b0[k][0], 2, 100))
+    const P = (i, v) => pt(i, v).map((x) => x.toFixed(1)).join(',')
+    const outer = ks.map((_, i) => P(i, hi[i])).join(' L'), inner = ks.map((_, i) => P(i, lo[i])).reverse().join(' L')
+    g += `<path class="hcband" d="M${outer} Z M${inner} Z" fill="${series[0].color || CHART_COLORS[0]}" fill-opacity=".12" fill-rule="evenodd" stroke="none"/>`
+  }
   series.forEach((s, j) => {
     if (!s?.dims) return
     const vals = ks.map((k) => clamp(s.dims[k] ?? 50, 4, 100)), col = s.color || CHART_COLORS[j]

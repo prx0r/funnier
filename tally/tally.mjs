@@ -282,6 +282,20 @@ for (const vt of voters) {
   tasteIndex.push({ did: vt.did, handle: vt.handle, kind: vt.kind, votes: mine.length, top: prof[0]?.comic })
 }
 fs.writeFileSync(path.join(TASTE_DIR, 'index.json'), JSON.stringify(tasteIndex))
+// ---------- Crowd taste prior for the humour engine v2 (src/engine.js) ----------
+// The same interpretable program, fitted on everyone's human votes (pair labels only, strong shrinkage): its taste
+// weights are every new user's starting point (data/engine-prior.json; the client merges them into the prior mean).
+try {
+  const E = await import('../src/engine.js')
+  const hv = votes.filter((v) => v.voter === 'human' && byId[v.a] && byId[v.b]).slice(-5000)
+  const en = E.createEngine({ clips, theory: THEORY })
+  const prior = E.basePrior(), fitR = en.fit(en.samples({ votes: hv.map((v) => ({ a: v.a, b: v.b, winner: v.winner, w: 1 })) }), prior, null, { iters: 8 })
+  const r3 = (x) => Math.round(x * 1000) / 1000
+  // half-strength: the crowd's lean is a hint, not a verdict about a new person
+  const weights = Object.fromEntries(E.FK.map((k, i) => [k, r3(0.5 * fitR.theta[i])])), sd = Object.fromEntries(E.FK.map((k, i) => [k, r3(fitR.sd[i])]))
+  fs.writeFileSync(path.join(DATA, 'engine-prior.json'), JSON.stringify({ updated: board.updated, model: E.ENGINE_MODEL, votes: hv.length, shrink: 0.5, weights, sd }))
+  console.log('engine prior', hv.length, 'human votes')
+} catch (e) { console.warn('engine prior skipped:', e?.message || e) }
 // ---------- Daily clash results: totals, % split, per-country splits (>= 5 votes, rest = Other) ----------
 const MIN_CC = 5
 const pct = (x, n) => (n ? Math.round((1000 * x) / n) / 10 : 0)

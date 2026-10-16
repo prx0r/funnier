@@ -334,6 +334,13 @@ export function cleanChart(c) {
   for (const k of DIM_KEYS) { const v = n100(c.dims?.[k]); if (v != null) o.dims[k] = v }
   if (Object.keys(o.dims).length < 3) return null
   for (const k of ['energy', 'hold', 'pace']) { const v = n100(c.sty?.[k]); if (v != null) o.sty[k] = v }
+  // humour engine v2: uncertainty band (lo, hi), confidence label and evidence (votes) per axis, model id
+  if (typeof c.model === 'string' && /^[a-z0-9./-]{1,40}$/i.test(c.model)) o.model = c.model
+  for (const k of Object.keys(o.dims)) {
+    const b = c.band?.[k]; if (Array.isArray(b) && b.length === 2) { const lo = n100(b[0]), hi = n100(b[1]); if (lo != null && hi != null && lo <= hi) (o.band = o.band || {})[k] = [lo, hi] }
+    if (['low', 'medium', 'high'].includes(c.cl?.[k])) (o.cl = o.cl || {})[k] = c.cl[k]
+    const n = Number(c.conf?.[k]); if (Number.isFinite(n) && n >= 0) (o.conf = o.conf || {})[k] = Math.min(1e5, Math.round(n * 10) / 10)
+  }
   o.ops = (Array.isArray(c.ops) ? c.ops : []).filter((x) => x && OPS_KEYS.includes(x.k)).slice(0, 6).map((x) => ({ k: x.k, label: str(x.label, 40) || x.k, v: n100(x.v) ?? 50 }))
   o.top = (Array.isArray(c.top) ? c.top : []).filter((k) => DIM_KEYS.includes(k)).slice(0, 2)
   for (const k of ['line', 'mml', 'serverLine']) { const s = str(c[k], 160); if (s) o[k] = s }

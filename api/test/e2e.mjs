@@ -205,6 +205,10 @@ try {
       sty: { energy: 28, hold: 83 }, top: ['deadpan', 'absurd'], line: 'You like long holds and anti-jokes: 91% Norm-adjacent.', mml: 'doing a 40-second pause before the punchline',
       adjacent: { comic: 'Norm Macdonald', short: 'Norm', pct: 91 }, funniest: { id: 'n3LMSflEN54', title: 'The Most Convoluted Joke Ever', comic: 'Norm Macdonald' }, html: '<script>' }
     p = await J('PUT', '/me/profile-data', t1, { favs: ['Norm Macdonald', 'Louis C.K.', 'Norm Macdonald'], pins: ['n3LMSflEN54', 'clipAAAAAAA'], chart })
+    { const c2 = { n: 3, model: 'funnier-engine/2.0', dims: { absurd: 60, deadpan: 70, observational: 40, dark: 50 }, band: { absurd: [40, 80], deadpan: [90, 10], evil: [1, 2] }, cl: { absurd: 'low', deadpan: 'bogus' }, conf: { absurd: 6.25 } }
+      const r2 = await J('PUT', '/me/profile-data', t1, { chart: c2 })
+      ok(r2.s === 200 && r2.j.chart.model === 'funnier-engine/2.0' && JSON.stringify(r2.j.chart.band) === '{"absurd":[40,80]}' && JSON.stringify(r2.j.chart.cl) === '{"absurd":"low"}' && r2.j.chart.conf.absurd === 6.3, `engine v2 chart: band/confidence sanitised (${JSON.stringify(r2.j.chart.band)} ${JSON.stringify(r2.j.chart.cl)})`)
+      await J('PUT', '/me/profile-data', t1, { chart }) }
     ok(p.s === 200 && p.j.favs.length === 2 && p.j.pins.length === 2 && p.j.chart.dims.dark === 100 && !('evil' in p.j.chart.dims) && p.j.chart.ops.length === 1 && !('html' in p.j.chart), `PUT /me/profile-data: favourites deduped, chart sanitised (${JSON.stringify(p.j.chart?.dims)})`)
     p = await J('PUT', '/me/specials', t1, { log: { 'norm-nothing-special': { seen: true, stars: 4.3, note: 'The moth joke.', at: new Date(Date.now() - 60000).toISOString() }, 'BAD ID': { seen: true } } })
     ok(p.s === 200 && p.j.saved === 1 && p.j.specials['norm-nothing-special'].stars === 4.5, 'PUT /me/specials: stars rounded to halves, bad ids skipped')
