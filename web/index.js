@@ -14,9 +14,10 @@ async function profileShell(req, name) {
   const res = await up('/', req);
   if (!res.ok) return res;
   let html = await res.text();
-  let line = 'Their humour chart, Four Favourites and specials diary on Funnier.';
+  let line = 'Their humour chart, Four Favourites and specials diary on Funnier.', status = 200;
   try { // the public chart line, when the profile is public (short timeout: previews must not hang)
     const r = await fetch(`${API}/u/${encodeURIComponent(name)}`, { signal: AbortSignal.timeout(1500) });
+    if (r.status === 404) status = 404; // unknown name: the shell still renders the app's empty state, but as a real 404 (not indexed)
     if (r.ok) { const j = await r.json(); if (j?.chart?.line) line = j.chart.line.replace(/^You like /, `${j.user?.username || name} likes `); if (j?.user?.username) name = j.user.username; }
   } catch {}
   const url = `https://www.funnier.si/u/${name}`, img = `${url}/og.png`, title = `${name}'s sense of humour · Funnier`;
@@ -26,7 +27,8 @@ async function profileShell(req, name) {
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(line)}"><meta name="twitter:image" content="${esc(img)}">`;
   html = html.replace(/<meta (property="og:[^"]*"|name="twitter:[^"]*")[^>]*>/g, '') // the site-wide preview tags give way to the profile's
   html = html.replace('<head>', '<head>' + meta).replace(/<title>[^<]*<\/title>/, `<title>${esc(title)}</title>`);
-  return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60' } });
+  if (status === 404) html = html.replace('<head>', '<head><meta name="robots" content="noindex">');
+  return new Response(html, { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60' } });
 }
 // /c/<id>: the app shell (the app turns the path into #c/<id>) with the character's name in the preview tags when public
 async function charShell(req, id) {
