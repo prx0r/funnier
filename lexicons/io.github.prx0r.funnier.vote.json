@@ -182,6 +182,72 @@
           "minimum": 0,
           "maximum": 36000,
           "description": "Where clip b was when the viewer skipped it."
+        },
+        "policy": {
+          "type": "ref",
+          "ref": "#policy",
+          "description": "Optional: the screening policy that chose this pair (for off-policy training; see src/policy.js)."
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "m"
+      ],
+      "description": "Which mode chose the pair and with what probability (integers: probabilities x1000 / x1e6, features x1000).",
+      "properties": {
+        "m": {
+          "type": "string",
+          "knownValues": [
+            "foryou",
+            "training",
+            "explore",
+            "shared",
+            "daily",
+            "rewatch"
+          ]
+        },
+        "pm": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "P(mode) x1000"
+        },
+        "pp": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000,
+          "description": "P(pair | mode) x1e6 when the mode samples"
+        },
+        "f": {
+          "type": "array",
+          "maxLength": 3,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "Chosen pair's weight features x1000: close*unc*seen, fresh*seen, struct_sim*seen"
+        },
+        "z": {
+          "type": "array",
+          "maxLength": 3,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "The same features summed over the candidate set x1000"
+        },
+        "q": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "The model's predicted P(left wins) x1000"
+        },
+        "v": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Screening params version"
         }
       }
     }

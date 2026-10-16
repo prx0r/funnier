@@ -1,7 +1,8 @@
 // funnier-api: Google sign-in + accounts, public profiles (favourites, humour chart, diary), votes, friends, invites, taste match, clash stats, laughs, learned clip durations and crowd loudness on Cloudflare Workers + D1.
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { cleanPassport } from '../../src/passport.js' // Humour Passport schema (shared with the client)
+import { cleanPassport } from '../../src/passport.js'
+import { cleanPolicy } from '../../src/policy.js' // logged screening policy (off-policy training) // Humour Passport schema (shared with the client)
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose'
 
@@ -29,6 +30,7 @@ export function cleanSignals(x) {
   for (const [k, mx] of Object.entries(SIG_INT)) { const v = Number(x[k]); if (x[k] != null && Number.isFinite(v) && v >= 0) o[k] = Math.min(mx, Math.round(v)) }
   for (const k of SIG_ARR) if (Array.isArray(x[k])) { const a = x[k].slice(0, 20).map(Number).filter((v) => Number.isFinite(v) && v >= 0).map((v) => Math.min(36000, Math.round(v))); if (a.length) o[k] = a }
   for (const k of SIG_BOOL) if (x[k] === true) o[k] = true
+  const pol = cleanPolicy(x.policy); if (pol) o.policy = pol
   return Object.keys(o).length ? JSON.stringify(o) : null
 }
 

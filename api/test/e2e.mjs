@@ -150,10 +150,11 @@ try {
   const sql = (q) => JSON.parse(execSync(`npx wrangler d1 execute funnier --local --json --command "${q}"`, { encoding: 'utf8' }))[0].results
   const SA = 'sigAAAAAAAA', SB = 'sigBBBBBBBB'
   r = await J('POST', '/votes', t1, { votes: [{ a: SB, b: SA, winner: SA, createdAt: new Date().toISOString(),
-    signals: { leftWatchedSec: 41.6, rightWatchedSec: 33, rightPct: 0.9 * 100, replays: 2, rightSeekTargets: [72, 'x', -5, 118.4], rightSeekFrom: [80, 125], skippedAhead: true, evil: 'drop me', leftSkipped: 'yes' } }] })
+    signals: { leftWatchedSec: 41.6, rightWatchedSec: 33, rightPct: 0.9 * 100, replays: 2, rightSeekTargets: [72, 'x', -5, 118.4], rightSeekFrom: [80, 125], skippedAhead: true, evil: 'drop me', leftSkipped: 'yes', policy: { m: 'training', pm: 400, pp: 31250.7, f: [600, 200, 500], z: [1, 2], q: 480, v: 'screen-1-default', bad: 1 } } }] })
   ok(r.s === 200 && r.j.saved === 1, 'vote with signals accepted')
   let row = sql(`SELECT signals FROM votes WHERE a = '${SA}' AND b = '${SB}'`)[0]; let sg = JSON.parse(row?.signals || 'null')
   ok(sg && sg.shown[0] === SB && sg.leftWatchedSec === 42 && sg.rightPct === 90 && sg.replays === 2 && JSON.stringify(sg.rightSeekTargets) === '[72,118]' && sg.skippedAhead === true && !('evil' in sg) && !('leftSkipped' in sg), `signals sanitised + stored in shown order (${row?.signals})`)
+  ok(sg?.policy?.m === 'training' && sg.policy.pm === 400 && sg.policy.pp === 31251 && JSON.stringify(sg.policy.f) === '[600,200,500]' && !sg.policy.z && !('bad' in sg.policy), `logged screening policy kept, sanitised (${JSON.stringify(sg?.policy)})`)
   r = await J('POST', '/votes', t1, { votes: [{ a: SB, b: SA, winner: SB, createdAt: new Date(Date.now() + 1000).toISOString() }] })
   row = sql(`SELECT winner, signals FROM votes WHERE a = '${SA}' AND b = '${SB}'`)[0]
   ok(row.winner === SB && JSON.parse(row.signals || 'null')?.replays === 2, 'a later vote without signals keeps the earlier signals (backward compatible)')

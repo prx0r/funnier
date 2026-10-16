@@ -7,6 +7,8 @@ import { makePassport, passportPrompt, cleanPassport, passportPrior, passportRec
 import { glyphSVG, metaSVG, netSVG, typeName, lerpPassport, diffPassports } from './sigil.js' // the model, drawn (from a passport)
 import { humourPayload, shortPayload, chatgptURL } from './payload.js' // the LLM humour payload
 import { handoff } from './handoff.js' // characters2 handoff export
+import { resolveParams } from './screening.js'
+import { cleanPolicy } from './policy.js' // the screening's constants (learned values only when the gate passed)
 import { createEngine, basePrior, mergePrior, readout, deltas, deltaText, FEATURES, ENGINE_MODEL } from './engine.js' // humour engine v2 (handwired)
 
 // www.funnier.si/u/<username> (served by funnier-web with <base href="/">) -> the in-app route #u/<username>
@@ -26,6 +28,16 @@ const LS = {
   set: (k, v) => localStorage.setItem('funnier.' + k, JSON.stringify(v)),
 }
 
+// the screening's tunable constants (src/screening.js). data/screening-params.json overrides them only when its gate
+// passed (>= 500 logged sessions, beats the baseline on held-out data); otherwise these defaults = today's constants.
+let SCREEN = resolveParams(null), SP = SCREEN.params
+function applyScreen(file) {
+  SCREEN = resolveParams(file); SP = SCREEN.params
+  MIN_WIN = SP.minWindowSec; SNAP_MS = SP.snapMs; SLOW_MS = SP.slowMs; SNAP_MULT = SP.snapMult; SLOW_MULT = SP.slowMult; STRONG_MULT = SP.strongMult
+  SKIP_W = SP.skipLoss; CLIPSKIP_W = SP.clipSkipLoss; PENAL = { left: SKIP_W, right: SKIP_W, 'left-skip': CLIPSKIP_W, 'right-skip': CLIPSKIP_W }
+  VOTE_MS = SP.ballotMs; INTRO_MS = SP.introMs; VOTE_RESUME_MIN = SP.ballotResumeMs
+  FORMAT_PREFS.mobile.maxSec = SP.capMobileSec; FORMAT_PREFS.desktop.maxSec = SP.capDesktopSec
+}
 let CROWD_TASTE = null // data/engine-prior.json (tally): the crowd's taste weights = everyone's starting prior
 let CLIPS = [], BYID = {}, BOARD = null, PAIRS = [], COMICS = {}, PUBVOTES = [], DAILY = [], DAILYRES = null, THEORY = {}
 let LANE = LS.get('lane', 'human'), BOARDKIND = 'all'
@@ -48,7 +60,7 @@ let SHORT_MAX = 75 // seconds of each clip we screen when the clip is longer (se
 // Two clips only meet when their windows are within FAIR_RATIO of each other, and both then play the SAME length:
 // the shorter window (at least MIN_WIN, never past a clip's own window). Clips over LONG_SEC without an editorial
 // `start` are flagged needsCut and only paired when nothing else is left.
-const MIN_WIN = 30, FAIR_RATIO = 1.5, LONG_SEC = 180
+let MIN_WIN = 30; const FAIR_RATIO = 1.5, LONG_SEC = 180
 let PAIR_LEVEL = 0 // 0: fair + no needsCut, 1: fair (needsCut allowed), 2: anything (equal windows still apply)
 function clipWin(c, liveDur) {
   const s = Number(c?.start) || 0
@@ -83,6 +95,7 @@ async function loadData() {
   try { PAIRS = (await (await fetch('data/pairs.json', { cache: 'no-cache' })).json()).pairs || [] } catch { PAIRS = [] }
   try { THEORY = (await (await fetch('theory.json', { cache: 'no-cache' })).json()) || {} } catch { THEORY = {} }
   try { const d = await (await fetch('daily.json', { cache: 'no-cache' })).json(); DAILY = Array.isArray(d) ? d : [] } catch { DAILY = [] }
+  try { const r = await fetch('data/screening-params.json', { cache: 'no-cache' }); applyScreen(r && r.ok !== false ? await r.json() : null) } catch { applyScreen(null) }
   try { const r = await fetch('data/engine-prior.json', { cache: 'no-cache' }); const j = r && r.ok !== false ? await r.json() : null; CROWD_TASTE = j && j.weights && typeof j.weights === 'object' ? j : null } catch { CROWD_TASTE = null }
   await loadDailyResults()
 }
@@ -174,12 +187,13 @@ function bumpSeen(...ids) { const s = LS.get('seen', {}); ids.forEach((i) => (s[
 // <1.5s = snap pick (x1.25), >12s = hesitant (x0.7), otherwise x1.0.
 // Picking clip ONE in under 3s while less than 60% of clip TWO was watched = strong (x1.4): you didn't need the rest.
 // Old picks without signals keep weight 1.
-const SNAP_MS = 1500, SLOW_MS = 12000, LS_WIN_W = 1.2, LS_LOSE_W = 0.6
+let SNAP_MS = 1500, SLOW_MS = 12000; const LS_WIN_W = 1.2, LS_LOSE_W = 0.6
+let SNAP_MULT = 1.25, SLOW_MULT = 0.7, STRONG_MULT = 1.4
 function timingWeight(v) {
   const ms = v && v.decisionMs
   if (!Number.isFinite(ms)) return 1
-  let w = ms < SNAP_MS ? 1.25 : ms > SLOW_MS ? 0.7 : 1
-  if (v.winner === v.a && ms < 3000 && Number.isFinite(v.rightFrac) && v.rightFrac < 0.6) w = Math.max(w, 1.4)
+  let w = ms < SNAP_MS ? SNAP_MULT : ms > SLOW_MS ? SLOW_MULT : 1
+  if (v.winner === v.a && ms < 3000 && Number.isFinite(v.rightFrac) && v.rightFrac < 0.6) w = Math.max(w, STRONG_MULT)
   return w
 }
 function voteWeight(v) {
@@ -194,8 +208,8 @@ function voteWeight(v) {
 // Skips: leaving during a comic's clip = weak negative (SKIP_W = 0.3 of a pick) for that clip, its comic and its style tags.
 // Skips during the intro or the ballot, and 3-second passes, are stored but never penalise anyone.
 // "Not funny -> next" (stage left-skip / right-skip: ends that clip but stays in the clash) = CLIPSKIP_W = 0.4 of a loss.
-const SKIP_W = 0.3, CLIPSKIP_W = 0.4
-const PENAL = { left: SKIP_W, right: SKIP_W, 'left-skip': CLIPSKIP_W, 'right-skip': CLIPSKIP_W }
+let SKIP_W = 0.3, CLIPSKIP_W = 0.4
+let PENAL = { left: SKIP_W, right: SKIP_W, 'left-skip': CLIPSKIP_W, 'right-skip': CLIPSKIP_W }
 const skipW = (k) => PENAL[k?.stage] || 0
 function clipSkips() { const a = LS.get('skips', []); return (Array.isArray(a) ? a : []).filter((k) => k && skipW(k) > 0 && BYID[k.clip]) }
 
@@ -428,12 +442,18 @@ function pickForYou() {
   return null
 }
 function pickTraining() {
-  // the pairs the crowd chart is least sure about (computed by the tally)
+  // the pairs the crowd chart is least sure about (computed by the tally), sampled by weight; logs P(pair) + features
+  const wOf = (p) => (Array.isArray(p.f) ? SP.pairCloseUnc * p.f[0] + SP.pairFresh * p.f[1] + SP.pairStruct * p.f[2] : p.w)
   const ranked = PAIRS.filter((p) => openPair(p.a, p.b)).slice(0, 40)
   if (!ranked.length) return null
-  let x = Math.random() * ranked.reduce((s, p) => s + p.w, 0)
-  for (const p of ranked) { x -= p.w; if (x <= 0) return [BYID[p.a], BYID[p.b]] }
-  return [BYID[ranked[0].a], BYID[ranked[0].b]]
+  const ws = ranked.map(wOf), Z = ws.reduce((s, x) => s + x, 0)
+  let x = Math.random() * Z, i = 0
+  for (; i < ranked.length - 1; i++) { x -= ws[i]; if (x <= 0) break }
+  const p = ranked[i], pair = [BYID[p.a], BYID[p.b]]
+  const zf = [0, 1, 2].map((k) => ranked.reduce((s, q) => s + (Array.isArray(q.f) ? q.f[k] : 0), 0))
+  pair.pp = Z > 0 ? ws[i] / Z : 1 / ranked.length
+  if (Array.isArray(p.f)) { pair.f = p.f; pair.z = zf }
+  return pair
 }
 function pickExplore() {
   const seen = LS.get('seen', {}), P = shuffle(pool()).sort((x, y) => (seen[x.id] || 0) - (seen[y.id] || 0))
@@ -455,7 +475,7 @@ const MODES = {
 }
 function pickPair() {
   const n = LS.get('votes', []).length
-  const w = n < 6 ? { training: 0.55, explore: 0.45, foryou: 0 } : { foryou: 0.4, training: 0.4, explore: 0.2 }
+  const w = n < 6 ? { training: SP.coldTraining, explore: SP.coldExplore, foryou: 0 } : { foryou: SP.mixForyou, training: SP.mixTraining, explore: SP.mixExplore }
   let x = Math.random(), mode = 'explore'
   for (const k of Object.keys(w)) { x -= w[k]; if (x <= 0) { mode = k; break } }
   const order = [mode, ...Object.keys(MODES).filter((k) => k !== mode)]
@@ -465,7 +485,12 @@ function pickPair() {
       ROUND_FMT = fmt
       for (PAIR_LEVEL = 0; PAIR_LEVEL < 3; PAIR_LEVEL++) for (const m of order) {
         const p = MODES[m][1]()
-        if (p) { const pair = Math.random() < 0.5 ? p : [p[1], p[0]]; pair.mode = m; return pair }
+        if (p) {
+          const pair = Math.random() < 0.5 ? p : [p[1], p[0]]; pair.mode = m
+          // the logged policy (src/policy.js): P(mode) only when the sampled mode delivered (a fallback has no clean propensity)
+          pair.policy = { m, ...(m === mode && fmt === ROUND_FMT && PAIR_LEVEL === 0 ? { pm: Math.round(1000 * (w[m] || 0)) } : {}), ...(m === 'training' && Number.isFinite(p.pp) ? { pp: Math.round(1e6 * p.pp), ...(p.f ? { f: p.f.map((v) => Math.round(1000 * v)), z: p.z.map((v) => Math.round(1000 * v)) } : {}) } : {}), v: SCREEN.version }
+          return pair
+        }
       }
     }
   } finally { PAIR_LEVEL = 0; ROUND_FMT = null }
@@ -693,7 +718,7 @@ class Screen {
   }
   screened() { return Math.max(1, this.end() - this.start) }
   // the watch minimum: min(30s, 80% of what we screen), or the clip played to its end
-  enough() { return this.ended || (this.watched || 0) >= Math.min(30, 0.8 * this.screened()) - 0.5 || (this.started && this.t() >= this.end() - 0.3 && (this.watched || 0) > 3 && !this.jumped) }
+  enough() { return this.ended || (this.watched || 0) >= Math.min(SP.watchGateSec, SP.watchGateFrac * this.screened()) - 0.5 || (this.started && this.t() >= this.end() - 0.3 && (this.watched || 0) > 3 && !this.jumped) }
   pause() { this.wantPlay = false; clearInterval(this.armT); this.armT = null; try { this.a ? this.a.pause() : this.p?.pauseVideo?.() } catch {} }
   // skip / clip change: stop wanting playback now, fade out over FADE_OUT_MS, then pause
   fadePause() { if (this.wantPlay === false && this.fadeT == null) return this.pause(); this.wantPlay = false; clearInterval(this.armT); this.armT = null; this.fadeOut(() => { if (!this.wantPlay) this.pause() }) }
@@ -807,7 +832,7 @@ function toggleCrowd() {
 
 // ---------- the screening: intro face-off -> clip ONE full screen -> clip TWO -> 3s ballot ----------
 // stages: intro | left | right | vote | done
-const VOTE_MS = 7000, INTRO_MS = 2500, VOTE_RESUME_MIN = 2500
+let VOTE_MS = 7000, INTRO_MS = 2500, VOTE_RESUME_MIN = 2500
 let screens = {}, stage = 'idle', tick = null, armed = false, armedAt = 0, prediction = null
 let cur = null, nScreen = 0, timers = [], userStarted = false, moving = false
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
@@ -844,6 +869,7 @@ function sigPayload(v) {
   if (Number.isFinite(v.rightFrac)) o.rightPct = clamp(Math.round(100 * v.rightFrac), 0, 100)
   for (const k of SIG_ARR) if (Array.isArray(v[k]) && v[k].length) o[k] = v[k].slice(0, 20).map((x) => Math.max(0, Math.min(36000, Math.round(Number(x) || 0))))
   for (const k of SIG_BOOL) if (v[k]) o[k] = true
+  const pol = cleanPolicy(v.policy); if (pol) o.policy = pol
   return Object.keys(o).length ? o : undefined
 }
 function chip(c) { return c.kind === 'ai' ? '<span class="chip ai">AI</span>' : '' }
@@ -919,6 +945,7 @@ function stopScreening() {
 function newRound(first) { mountScreening(first, null) }
 function mountScreening(first, oldEl) {
   current = takeClash() || pickPair()
+  if (current && !current.policy) current.policy = { m: ['shared', 'daily', 'rewatch', 'foryou', 'training', 'explore'].includes(current.mode) ? current.mode : 'shared', v: SCREEN.version } // chosen by the user: no propensity
   if (current?.mode !== 'shared') sharedRound = null
   const host = $('#stage')
   if (!host) return
@@ -933,6 +960,7 @@ function mountScreening(first, oldEl) {
   let pE = null; try { pE = enginePredict(a.id, b.id, TRAIN_AS && charGet(TRAIN_AS) ? TRAIN_AS : null) } catch {}
   const pL = pE != null ? pE : MODEL ? sig(MODEL.score(a.id) + traitScore(a) - MODEL.score(b.id) - traitScore(b)) : 0.5
   prediction = { p: pL, side: pL >= 0.5 ? 'L' : 'R', model: pE != null ? 'engine' : 'bt' }
+  if (current.policy) current.policy.q = Math.round(1000 * pL)
   host.insertAdjacentHTML('beforeend', slideHTML(a, b, n, first))
   const el = host.lastElementChild
   cur = { el, n, a, b }
@@ -1156,7 +1184,7 @@ function pass() {
   if (!current) return
   const [a, b] = current
   armed = false
-  LS.set('passes', [...LS.get('passes', []), { a: a.id, b: b.id, ...signals(), ...(current.daily ? { daily: current.daily } : {}), at: new Date().toISOString() }].slice(-300)); queueEvents()
+  LS.set('passes', [...LS.get('passes', []), { a: a.id, b: b.id, ...signals(), ...(current.policy ? { policy: current.policy } : {}), ...(current.daily ? { daily: current.daily } : {}), at: new Date().toISOString() }].slice(-300)); queueEvents()
   LS.set('skipped', [...LS.get('skipped', []), pairKey(a.id, b.id)].slice(-500)); bumpSeen(a.id, b.id)
   toast('No pick, so it\u2019s a pass. Neither comic loses anything.')
   goNext(null); paintHistory()
@@ -1171,7 +1199,7 @@ function skipClash() {
   if (sc) { try { sc.track(); sc.skippedAt = Math.round(sc.t()) } catch {} }
   const sg = signals()
   const rec = { a: a.id, b: b.id, stage, comics: on.map((c) => c.comic), clip: sc ? sc.clip.id : null,
-    watchedSec: sc ? Math.round(10 * (sc.watched || 0)) / 10 : 0, ...sg, ...(current.daily ? { daily: current.daily } : {}), at: new Date().toISOString() }
+    watchedSec: sc ? Math.round(10 * (sc.watched || 0)) / 10 : 0, ...sg, ...(current.policy ? { policy: current.policy } : {}), ...(current.daily ? { daily: current.daily } : {}), at: new Date().toISOString() }
   if (stage === 'vote' && armedAt) rec.decisionMs = Math.round(now() - armedAt)
   const tc = TRAIN_AS && charGet(TRAIN_AS) ? TRAIN_AS : null
   if (tc) LS.set('cskips:' + tc, [...LS.get('cskips:' + tc, []), rec].slice(-500))
@@ -1196,7 +1224,7 @@ async function vote(side) {
   const [a, b] = current
   const decisionMs = armedAt && !sharedDuringBallot ? Math.max(0, Math.round(now() - armedAt)) : undefined
   const sg = signals()
-  const v = { a: a.id, b: b.id, winner: side === 'L' ? a.id : b.id, voter: 'human', basis: 'watched', mode: current.mode, decisionMs, ...sg, createdAt: new Date().toISOString() }
+  const v = { a: a.id, b: b.id, winner: side === 'L' ? a.id : b.id, voter: 'human', basis: 'watched', mode: current.mode, decisionMs, ...sg, ...(current.policy ? { policy: current.policy } : {}), createdAt: new Date().toISOString() }
   if (current.mode === 'daily' && DAY_RE.test(String(current.daily || ''))) v.daily = current.daily
   v.weight = voteWeight(v)
   q(`.pick.${side}`)?.classList.add('won')
@@ -3295,6 +3323,7 @@ function tabs() {
   tabs()
   SHORT_MAX = devPrefs().maxSec
   await Promise.all([loadData(), loadConfig()])
+  SHORT_MAX = devPrefs().maxSec // screening params may set the cap (only when their gate passed)
   await Promise.race([loadClipMeta(), new Promise((r) => setTimeout(r, 1500))]) // durations + crowd loudness; never block the show for long
   MODEL = fitLocal(); TRAITS = fitTraits()
   try { engineReadout() } catch (e) { console.warn('engine', e) } // the state before the next vote (its delta is measured from here)

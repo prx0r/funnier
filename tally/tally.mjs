@@ -4,6 +4,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { structSim } from '../src/structsim.js'
+import { cleanPolicy } from '../src/policy.js'
+import { resolveParams } from '../src/screening.js'
+import { buildSessions, trainScreening } from './train-screening.mjs'
 
 const COLLECTION = 'io.github.prx0r.funnier.vote'
 const [, , CLIPS_PATH, OUT] = process.argv
@@ -49,6 +52,7 @@ function cleanSignals(x) {
   for (const [k, mx] of Object.entries(SIG_INT)) { const n = Number(x[k]); if (x[k] != null && Number.isFinite(n) && n >= 0) o[k] = Math.min(mx, Math.round(n)) }
   for (const k of SIG_ARR) if (Array.isArray(x[k])) { const a = x[k].slice(0, 20).map(Number).filter((n) => Number.isFinite(n) && n >= 0).map((n) => Math.min(36000, Math.round(n))); if (a.length) o[k] = a }
   for (const k of SIG_BOOL) if (x[k] === true) o[k] = true
+  const pol = cleanPolicy(x.policy); if (pol) o.policy = pol
   return Object.keys(o).length ? o : undefined
 }
 // characters2 theory base (tools/import-theory.mjs): <out>/theory.json (published copy), else funnier/site/theory.json. Missing = struct_sim from tags only.
@@ -58,6 +62,9 @@ const THEORY = (() => {
   }
   return {}
 })()
+// screening params (tally/train-screening.mjs): applied only when its gate passed, else the defaults (dry run)
+const SCREEN = resolveParams((() => { try { return JSON.parse(fs.readFileSync(path.join(DATA, 'screening-params.json'), 'utf8')) } catch { return null } })())
+const SP = SCREEN.params
 const statePath = path.join(DATA, 'state.json')
 const state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : { cursor: null, dids: [] }
 const dids = new Set(state.dids)
@@ -249,10 +256,20 @@ for (let i = 0; i < clips.length; i++) for (let j = i + 1; j < clips.length; j++
   const fresh = 1 / (1 + Math.min(sa.bouts, sb.bouts) / 10)
   const seen = 1 / (1 + (pairCount[A.id + '|' + Bc.id] || pairCount[Bc.id + '|' + A.id] || 0))
   const st = structSim(A, Bc, THEORY, { pairing: true })
-  pairs.push({ a: A.id, b: Bc.id, kind: A.kind, s: st, w: Math.round(1000 * (0.4 * close * unc + 0.3 * fresh + 0.3 * st) * seen) / 1000 })
+  // features of the weight (logged with each Training pick so the screening trainer can recompute P(pair) under other weights)
+  const f = [close * unc * seen, fresh * seen, st * seen].map((x) => Math.round(x * 1e4) / 1e4)
+  pairs.push({ a: A.id, b: Bc.id, kind: A.kind, s: st, f, w: Math.round(1000 * (SP.pairCloseUnc * f[0] + SP.pairFresh * f[1] + SP.pairStruct * f[2])) / 1000 })
 }
 pairs.sort((x, y) => y.w - x.w)
-fs.writeFileSync(path.join(DATA, 'pairs.json'), JSON.stringify({ updated: board.updated, explore: 0.2, pairs }))
+fs.writeFileSync(path.join(DATA, 'pairs.json'), JSON.stringify({ updated: board.updated, explore: 0.2, screen: SCREEN.version, pairs }))
+// ---------- screening trainer (gated; dry run until >= 500 logged sessions beat the baseline on held-out data) ----------
+// From the public records: votes carry signals.policy. Passes and skips live in D1 only (node tally/train-screening.mjs --remote).
+{
+  const sessions = buildSessions(votes.filter((v) => v.signals?.policy).map((v) => ({ user: v.did, a: v.a, b: v.b, at: v.createdAt, signals: v.signals })), [])
+  const res = trainScreening(sessions)
+  fs.writeFileSync(path.join(DATA, 'screening-params.json'), JSON.stringify(res, null, 1))
+  console.log('screening', sessions.length, 'logged sessions; gate', res.gate.passed ? 'PASSED' : 'closed (' + res.gate.reason + ')')
+}
 
 // ---------- Personal taste: per-voter comic ratings, shrunk toward the global board ----------
 // Empirical-Bayes: start from global comic ratings, take a few gradient steps on the voter's own votes
