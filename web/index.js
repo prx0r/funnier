@@ -1,12 +1,47 @@
 // Serves www.funnier.si from GitHub Pages (prx0r.github.io/characters). Apex redirects to www.
+// /u/<username>: the app shell (index.html with <base href="/">, so its relative assets load) plus per-profile link-preview
+// tags; the app turns the path into its #u/<username> route. /u/<username>/og.png: the owner's card from the API
+// (api.funnier.si/og/u/<name>.png), falling back to the site card when there is none or the profile isn't public.
 const ORIGIN = 'https://prx0r.github.io/characters';
+const API = 'https://api.funnier.si';
+const USER = /^\/u\/([A-Za-z0-9_]{3,20})\/?$/, OG = /^\/u\/([A-Za-z0-9_]{3,20})\/og\.png$/;
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const up = (path, req) => fetch(ORIGIN + path, { headers: { 'User-Agent': req.headers.get('User-Agent') || 'funnier-web' }, redirect: 'manual', cf: { cacheTtl: 60 } });
+
+async function profileShell(req, name) {
+  const res = await up('/', req);
+  if (!res.ok) return res;
+  let html = await res.text();
+  let line = 'Their humour chart, Four Favourites and specials diary on Funnier.';
+  try { // the public chart line, when the profile is public (short timeout: previews must not hang)
+    const r = await fetch(`${API}/u/${encodeURIComponent(name)}`, { signal: AbortSignal.timeout(1500) });
+    if (r.ok) { const j = await r.json(); if (j?.chart?.line) line = j.chart.line.replace(/^You like /, `${j.user?.username || name} likes `); if (j?.user?.username) name = j.user.username; }
+  } catch {}
+  const url = `https://www.funnier.si/u/${name}`, img = `${url}/og.png`, title = `${name}'s sense of humour · Funnier`;
+  const meta = `<base href="/"><link rel="canonical" href="${esc(url)}"><meta property="og:type" content="profile"><meta property="og:site_name" content="Funnier">
+<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(line)}"><meta property="og:url" content="${esc(url)}">
+<meta property="og:image" content="${esc(img)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(line)}"><meta name="twitter:image" content="${esc(img)}">`;
+  html = html.replace('<head>', '<head>' + meta).replace(/<title>[^<]*<\/title>/, `<title>${esc(title)}</title>`);
+  return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60' } });
+}
+async function ogImage(req, name) {
+  try {
+    const r = await fetch(`${API}/og/u/${encodeURIComponent(name)}.png`, { signal: AbortSignal.timeout(3000) });
+    if (r.ok) return new Response(r.body, { headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=600' } });
+  } catch {}
+  const d = await up('/img/og-default.png', req);
+  return new Response(d.body, { status: d.ok ? 200 : 404, headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=600' } });
+}
+
 export default {
   async fetch(req) {
     const url = new URL(req.url);
     if (url.hostname === 'funnier.si') { url.hostname = 'www.funnier.si'; return Response.redirect(url.toString(), 301); }
-    let path = url.pathname;
-    const upstream = ORIGIN + path + url.search;
-    let res = await fetch(upstream, { headers: { 'User-Agent': req.headers.get('User-Agent') || 'funnier-web' }, redirect: 'manual', cf: { cacheTtl: 60 } });
+    let path = url.pathname, m;
+    if ((m = path.match(OG))) return ogImage(req, m[1]);
+    if ((m = path.match(USER))) return profileShell(req, m[1]);
+    let res = await up(path + url.search, req);
     if (res.status >= 300 && res.status < 400) {
       const loc = res.headers.get('Location') || '';
       const fixed = loc.replace(/^https?:\/\/prx0r\.github\.io\/characters/, 'https://www.funnier.si');
