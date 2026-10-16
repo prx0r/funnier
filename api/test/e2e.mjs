@@ -53,7 +53,8 @@ execSync('npx wrangler d1 execute funnier --local --file migrations/0004_watch_s
 try { execSync('npx wrangler d1 execute funnier --local --file migrations/0005_votes_signals.sql', { stdio: 'ignore' }) } catch {} // already applied -> duplicate column
 execSync('npx wrangler d1 execute funnier --local --file migrations/0006_profiles.sql', { stdio: 'ignore' }) // idempotent
 try { execSync('npx wrangler d1 execute funnier --local --file migrations/0007_humour_passport.sql', { stdio: 'ignore' }) } catch {} // already applied -> duplicate column
-execSync(`npx wrangler d1 execute funnier --local --command "DELETE FROM votes; DELETE FROM friends; DELETE FROM invites; DELETE FROM invite_opens; DELETE FROM users; DELETE FROM laughs; DELETE FROM clip_durations; DELETE FROM clip_audio; DELETE FROM watch_events; DELETE FROM humour_profiles; DELETE FROM profiles; DELETE FROM specials_log; DELETE FROM sets;"`, { stdio: 'ignore' })
+execSync('npx wrangler d1 execute funnier --local --file migrations/0008_characters_versions.sql', { stdio: 'ignore' }) // idempotent
+execSync(`npx wrangler d1 execute funnier --local --command "DELETE FROM votes; DELETE FROM friends; DELETE FROM invites; DELETE FROM invite_opens; DELETE FROM users; DELETE FROM laughs; DELETE FROM clip_durations; DELETE FROM clip_audio; DELETE FROM watch_events; DELETE FROM humour_profiles; DELETE FROM profiles; DELETE FROM specials_log; DELETE FROM sets; DELETE FROM characters; DELETE FROM model_versions;"`, { stdio: 'ignore' })
 const PORT = 8797, BASE = `http://127.0.0.1:${PORT}`
 const dev = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT), '--ip', '127.0.0.1',
   '--var', `GOOGLE_CLIENT_ID:${CID}`, '--var', 'ALLOW_TEST_JWKS:1', '--var', 'TEST_JWKS_URL:http://127.0.0.1:8798/jwks', '--var', 'SESSION_SECRET:local-test-secret-not-for-prod'], { stdio: ['ignore', 'pipe', 'pipe'], detached: true })
@@ -236,7 +237,30 @@ try {
       await J('PUT', '/me/profile-data', t1, { vis_profile: 'friends' })
       hj = await fetch(BASE + '/u/DeadpanDuck42/humour.json'); ok(hj.status === 403, 'humour.json only when the profile is public (friends-only -> 403)')
       await J('PUT', '/me/profile-data', t1, { vis_profile: 'public' })
-      hj = await fetch(BASE + '/u/nobody_here/humour.json'); ok(hj.status === 404, 'humour.json: unknown user -> 404') }
+      hj = await fetch(BASE + '/u/nobody_here/humour.json'); ok(hj.status === 404, 'humour.json: unknown user -> 404')
+      // characters trained from scratch + immutable versions
+      let cr = await J('PUT', '/characters/cabc12345', t1, { name: 'Gravel Gus', bio: 'A deadpan gravedigger.', avatar_seed: 'gus01', passport: pass })
+      ok(cr.s === 200 && cr.j.character.visibility === 'private' && cr.j.character.passport?.hash && !cr.j.character.passport.votes, `PUT /characters/:id creates a private character (no raw votes in its passport)`)
+      cr = await J('PUT', '/characters/cabc12345', t2, { name: 'Hijack' }); ok(cr.s === 403, "someone else can't edit it")
+      cr = await J('PUT', '/characters/BAD', t1, { name: 'x y' }); ok(cr.s === 400, 'bad id -> 400')
+      cr = await J('GET', '/c/cabc12345', null); ok(cr.s === 403, 'a private character is hidden from strangers')
+      cr = await J('GET', '/c/cabc12345', t1); ok(cr.s === 200 && cr.j.own === true && cr.j.chat === false, 'the owner sees it (chat slot off)')
+      const ver = { id: (cr.j.character.passport.hash) + '-' + Date.now().toString(36), name: 'The Slow-Burn Straight Face', at: new Date().toISOString(), passport: pass }
+      let vr = await J('POST', '/me/versions', t1, { subject: 'cabc12345', version: ver }); ok(vr.s === 200 && vr.j.hash === cr.j.character.passport.hash, 'POST /me/versions: an immutable passport version for the character')
+      vr = await J('POST', '/me/versions', t1, { subject: 'cabc12345', version: { ...ver, name: 'changed' } }); vr = await J('GET', '/me/versions?subject=cabc12345', t1)
+      ok(vr.j.versions.length === 1 && vr.j.versions[0].name === 'The Slow-Burn Straight Face' && vr.j.versions[0].passport?.schema === 'funnier.humour/v1', 'versions are immutable (a re-post changes nothing)')
+      vr = await J('POST', '/me/versions', t2, { subject: 'cabc12345', version: ver }); ok(vr.s === 403, "you can't version someone else's character")
+      await J('PUT', '/me/versions', t1, {}); vr = await J('POST', '/me/versions', t1, { subject: 'me', version: { ...ver, id: ver.id.replace(/-.*/, '-me1234') } }); ok(vr.s === 200, 'your own model can be versioned too')
+      await J('PUT', '/characters/cabc12345', t1, { visibility: 'public' })
+      cr = await J('GET', '/c/cabc12345', null); ok(cr.s === 200 && cr.j.character.name === 'Gravel Gus' && cr.j.versions.length === 1 && cr.j.owner?.username === 'DeadpanDuck42', 'public character page: /c/<id> with versions and owner')
+      vr = await J('GET', '/c/cabc12345/v/' + ver.id, null); ok(vr.s === 200 && vr.j.passport?.hash === cr.j.character.passport.hash, 'a public version passport is readable')
+      let fk = await J('POST', '/characters/cabc12345/fork', t2, { id: 'cfork00001' })
+      ok(fk.s === 200 && fk.j.character.parent_id === 'cabc12345' && fk.j.character.parent_hash === cr.j.character.passport.hash && fk.j.character.visibility === 'private', 'fork: a private copy with parent_id + the snapshot hash')
+      cr = await J('GET', '/c/cabc12345', null); ok(cr.j.forks === 0, 'private forks are not counted publicly')
+      const ch = await fetch(BASE + '/c/cabc12345/chat', { method: 'POST', headers: { origin: ORIGIN, 'content-type': 'application/json' }, body: '{}' }); ok(ch.status === 501, 'POST /c/:id/chat is a disabled slot (501) until a key is configured')
+      p = await J('GET', '/u/DeadpanDuck42', null); ok(p.j.characters?.length === 1 && p.j.characters[0].id === 'cabc12345' && !p.j.characters[0].passport, 'public profile lists public characters')
+      cr = await J('DELETE', '/characters/cabc12345', t2); ok(cr.s === 403, "can't delete someone else's character")
+      cr = await J('DELETE', '/characters/cfork00001', t2); ok(cr.s === 200, 'owner deletes a character') }
     // OG image
     const png = new Uint8Array(400); png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
     let og = await fetch(BASE + '/og/u/DeadpanDuck42.png'); ok(og.status === 404, 'no OG image yet -> 404')

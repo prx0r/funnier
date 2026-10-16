@@ -4,10 +4,14 @@ import { structSim } from './structsim.js' // shared with tally/tally.mjs (chara
 import { computeChart, chartSVG, tasteMatch, STY, dimLabel, dimShort, dimPhrase, shortName, CHART_COLORS } from './humour.js' // the humour chart
 import { drawCard, toBlob, TEMPLATES } from './cards.js' // share cards (PNG)
 import { makePassport, passportPrompt, cleanPassport, passportPrior, passportRecord, SCHEMA as PASSPORT_SCHEMA } from './passport.js' // Humour Passport (funnier.humour/v1)
+import { glyphSVG, metaSVG, netSVG, typeName, lerpPassport, diffPassports } from './sigil.js' // the model, drawn (from a passport)
+import { humourPayload, shortPayload, chatgptURL } from './payload.js' // the LLM humour payload
+import { handoff } from './handoff.js' // characters2 handoff export
 import { createEngine, basePrior, mergePrior, readout, deltas, deltaText, FEATURES, ENGINE_MODEL } from './engine.js' // humour engine v2 (handwired)
 
 // www.funnier.si/u/<username> (served by funnier-web with <base href="/">) -> the in-app route #u/<username>
-if (typeof location !== 'undefined' && typeof history !== 'undefined') { const m = location.pathname.match(/^(.*\/)u\/([A-Za-z0-9_]{3,20})\/?$/); if (m) history.replaceState(null, '', m[1] + '#u/' + m[2] + location.search) }
+if (typeof location !== 'undefined' && typeof history !== 'undefined') { const m = location.pathname.match(/^(.*\/)u\/([A-Za-z0-9_]{3,20})\/?$/); if (m) history.replaceState(null, '', m[1] + '#u/' + m[2] + location.search)
+  const c = location.pathname.match(/^(.*\/)c\/(c[a-z0-9]{8,16})\/?$/); if (c) history.replaceState(null, '', c[1] + '#c/' + c[2] + location.search) }
 
 // Laugh button, crowd-laugh particles and the "Crowd laughs" toggle are switched OFF for now. The code (and the
 // /laughs API + the laugh terms in the taste model) stays in place; nothing laugh-related renders or calls the API
@@ -271,8 +275,11 @@ function humourType() {
 // length) -> your taste weights -> P(you pick A over B), P(you rewind it), P(you finish it), P(you skip it). Trained on
 // this device after every vote and clip skip (MAP, warm start, the crowd's weights as the prior), so every pick
 // visibly moves your profile. Each update stores what it changed and why (funnier.engineLog).
-let ENGINE = null, ENG = null
+let ENGINE = null, ENGS = {} // ENGS[subject]: the live state of you ('me') or a character you train
 const ENGINE_MAX_VOTES = 300
+// the subject a model belongs to: null = you, else a character id. TRAIN_AS = whose model the screening's votes train.
+const subjKey = (k, s) => (s ? k + ':' + s : k)
+let TRAIN_AS = null
 function crowdLogit(id) { // the public board's clip strength, in logits (0 when the clip has no bouts yet)
   const k = BOARD?.boards?.all?.clips?.find?.((x) => x.id === id)
   if (k && k.bouts) return (k.elo - 1500) / SCALE
@@ -280,45 +287,55 @@ function crowdLogit(id) { // the public board's clip strength, in logits (0 when
   return c ? (c.elo - 1500) / SCALE : 0
 }
 function engineOn() { if (!ENGINE && CLIPS.length) ENGINE = createEngine({ clips: CLIPS, theory: THEORY, crowd: crowdLogit }); return ENGINE }
-function enginePrior() {
+function enginePrior(s = null) {
+  if (s) { // a character starts from scratch (zero weights), or from the passport it was forked from
+    let P = basePrior(null); const ch = charGet(s)
+    if (ch?.prior?.weights) P = mergePrior(P, ch.prior.weights, ch.prior.sd || {}, 1)
+    return P
+  }
   let P = basePrior(CROWD_TASTE?.weights || null)
   const imp = LS.get('enginePrior', null) // an imported Humour Passport: merged in as a prior, never as votes
   if (imp && imp.weights && typeof imp.weights === 'object') P = mergePrior(P, imp.weights, imp.sd || {})
   return P
 }
-function engineData() {
-  const votes = LS.get('votes', []).filter((v) => v && BYID[v.a] && BYID[v.b]).slice(-ENGINE_MAX_VOTES)
+function engineData(s = null) {
+  const vsrc = s ? LS.get('cvotes:' + s, []) : LS.get('votes', [])
+  const votes = vsrc.filter((v) => v && BYID[v.a] && BYID[v.b]).slice(-ENGINE_MAX_VOTES)
     .map((v) => ({ a: v.a, b: v.b, winner: v.winner, w: Number.isFinite(v.weight) ? v.weight : voteWeight(v), signals: v }))
-  return { votes, skips: clipSkips().slice(-300).map((k) => ({ clip: k.clip, w: skipW(k) })), favs: favsLocal() }
+  const sk = s ? LS.get('cskips:' + s, []).filter((k) => k && skipW(k) > 0 && BYID[k.clip]) : clipSkips()
+  return { votes, skips: sk.slice(-300).map((k) => ({ clip: k.clip, w: skipW(k) })), favs: s ? [] : favsLocal() }
 }
 const r4 = (x) => Math.round(x * 1e4) / 1e4
-function engineSaved() {
-  const s = LS.get('engine', null), NT = FEATURES.length + 7
-  return s && s.model === ENGINE_MODEL && Array.isArray(s.theta) && s.theta.length === NT ? s : null
+function engineSaved(s = null) {
+  const v = LS.get(subjKey('engine', s), null), NT = FEATURES.length + 7
+  return v && v.model === ENGINE_MODEL && Array.isArray(v.theta) && v.theta.length === NT ? v : null
 }
-function engineFit(iters = 4, fresh = false) {
+function engineFit(iters = 4, fresh = false, s = null) {
   const E = engineOn(); if (!E) return null
-  const st = fresh ? null : (ENG || engineSaved()), data = engineData()
-  const r = E.fit(E.samples(data), enginePrior(), st ? Float64Array.from(st.theta) : null, { iters })
-  ENG = { model: ENGINE_MODEL, theta: Array.from(r.theta, r4), sd: r.sd.map(r4), support: r.support.map((x) => Math.round(x * 10) / 10), n: data.votes.length, at: new Date().toISOString() }
-  try { LS.set('engine', ENG) } catch {}
-  return ENG
+  const key = s || 'me', st = fresh ? null : (ENGS[key] || engineSaved(s)), data = engineData(s)
+  const r = E.fit(E.samples(data), enginePrior(s), st ? Float64Array.from(st.theta) : null, { iters })
+  const out = { model: ENGINE_MODEL, theta: Array.from(r.theta, r4), sd: r.sd.map(r4), support: r.support.map((x) => Math.round(x * 10) / 10), n: data.votes.length, at: new Date().toISOString() }
+  ENGS[key] = out
+  try { LS.set(subjKey('engine', s), out) } catch {}
+  if (s) queueCharPush(s)
+  return out
 }
-function engineReadout() {
-  const s = ENG || (ENG = engineSaved()) || engineFit(8, true)
-  return s ? { ...readout(s.theta, s.sd, s.support), model: ENGINE_MODEL, n: s.n } : null
+function engineReadout(s = null) {
+  const key = s || 'me'
+  const v = ENGS[key] || (ENGS[key] = engineSaved(s)) || engineFit(8, true, s)
+  return v ? { ...readout(v.theta, v.sd, v.support), model: ENGINE_MODEL, n: v.n } : null
 }
-function enginePredict(a, b) { const E = engineOn(), s = ENG || engineSaved(); return E && s ? E.predict(a, b, Float64Array.from(s.theta)) : null }
+function enginePredict(a, b, s = null) { const E = engineOn(), v = ENGS[s || 'me'] || engineSaved(s); return E && v ? E.predict(a, b, Float64Array.from(v.theta)) : null }
 const possessive = (comic) => { const n = shortName(comic, COMICS); return n + (/s$/i.test(n) ? '\u2019' : '\u2019s') }
 function engineWhy(ev) {
-  const E = engineOn(), d = (id) => (E ? E.describe(id) : 'clip')
+  const E = engineOn(), d = (id) => (E ? E.describe(id) : 'clip'), who = ev.s ? (charGet(ev.s)?.name || 'they') : 'you'
   if (ev.kind === 'vote') {
     const W = BYID[ev.winner], L = BYID[ev.winner === ev.a ? ev.b : ev.a]; if (!W || !L) return ''
     const rew = ev.rewound ? ` and rewound ${possessive(BYID[ev.rewound]?.comic)}` : ''
-    return `because you picked ${possessive(W.comic)} ${d(W.id)} over ${possessive(L.comic)} ${d(L.id)}${rew}`
+    return `because ${who} picked ${possessive(W.comic)} ${d(W.id)} over ${possessive(L.comic)} ${d(L.id)}${rew}`
   }
   const C = BYID[ev.clip]; if (!C) return ''
-  return `because you skipped ${possessive(C.comic)} ${d(C.id)}${Number.isFinite(ev.at) ? ` ${ev.at}s in` : ''}`
+  return `because ${who} skipped ${possessive(C.comic)} ${d(C.id)}${Number.isFinite(ev.at) ? ` ${ev.at}s in` : ''}`
 }
 // after a vote or a clip skip: refit (warm start), store the delta + the reason. Deferred so the ballot never waits.
 let learnQ = []
@@ -326,29 +343,33 @@ function engineLearn(ev) {
   learnQ.push(ev)
   setTimeout(() => {
     const evs = learnQ; learnQ = []; if (!evs.length) return
-    try {
-      const before = engineReadout(); if (!before) return
-      const s = engineFit(4), after = s ? readout(s.theta, s.sd, s.support) : null; if (!after) return
-      const ds = deltas(before, after, { min: 0.5, top: 3 }), ev0 = evs[evs.length - 1]
-      const log = LS.get('engineLog', [])
-      log.push({ at: new Date().toISOString(), kind: ev0.kind, a: ev0.a, b: ev0.b, w: ev0.winner, clip: ev0.clip, p: ev0.p, hit: ev0.hit, d: ds.map((x) => ({ k: x.k, d: x.d })), why: engineWhy(ev0), n: s.n })
-      LS.set('engineLog', log.slice(-200))
-      chartChanged()
-      if (!$('#v-you')?.hidden) paintYou()
-      if (!$('#v-profile')?.hidden && profRoute().kind === 'me') paintProfilePage()
-    } catch (e) { console.warn('engine', e) }
+    for (const sub of [...new Set(evs.map((e) => e.s || null))]) {
+      try {
+        const mine = evs.filter((e) => (e.s || null) === sub), ev0 = mine[mine.length - 1]
+        const before = engineReadout(sub); if (!before) continue
+        const v = engineFit(4, false, sub), after = v ? readout(v.theta, v.sd, v.support) : null; if (!after) continue
+        const ds = deltas(before, after, { min: 0.5, top: 3 })
+        const log = LS.get(subjKey('engineLog', sub), [])
+        log.push({ at: new Date().toISOString(), kind: ev0.kind, a: ev0.a, b: ev0.b, w: ev0.winner, clip: ev0.clip, p: ev0.p, hit: ev0.hit, d: ds.map((x) => ({ k: x.k, d: x.d })), why: engineWhy(ev0), n: v.n })
+        LS.set(subjKey('engineLog', sub), log.slice(-200))
+      } catch (e) { console.warn('engine', e) }
+    }
+    chartChanged()
+    if (!$('#v-you')?.hidden) paintYou()
+    if (!$('#v-profile')?.hidden) paintProfilePage()
   }, 40)
 }
 const featLabel = (k) => FEATURES.find((f) => f.k === k)?.label || k
 function deltaPhrase(e) {
   const ds = Array.isArray(e?.d) ? e.d.map((x) => ({ ...x, label: featLabel(x.k) })) : []
-  const verb = e.kind === 'vote' ? 'This vote' : 'This skip'
+  const verb = e.kind === 'vote' ? 'This vote' : e.kind === 'import' ? 'Imported' : 'This skip'
+  if (e.kind === 'import') return 'Imported a passport'
   return ds.length ? `${verb}: ${deltaText(ds)}` : `${verb}: nothing moved much (your model expected it)`
 }
 const agoStr = (t) => { const s = (Date.now() - Date.parse(t)) / 1000; if (!(s >= 0)) return ''; if (s < 90) return 'just now'; if (s < 3600) return Math.round(s / 60) + 'm ago'; if (s < 86400) return Math.round(s / 3600) + 'h ago'; return Math.round(s / 86400) + 'd ago' }
 // "How each clip changed you": latest first, subtle
-function timelineHTML(limit = 8) {
-  const log = LS.get('engineLog', []).filter((e) => e && e.at).slice().reverse()
+function timelineHTML(limit = 8, sub = null) {
+  const log = LS.get(subjKey('engineLog', sub), []).filter((e) => e && e.at).slice().reverse()
   if (!log.length) return ''
   const li = (e) => `<li><span class="tl-d">${esc(deltaPhrase(e))}</span>${e.why ? `<span class="tl-why">${esc(e.why)}</span>` : ''}<time>${esc(agoStr(e.at))}${e.kind === 'vote' && typeof e.hit === 'boolean' ? (e.hit ? ' · model called it' : ' · model guessed the other one') : ''}</time></li>`
   return `<details class="tl"${limit > 8 ? ' open' : ''}><summary>How each clip changed you <span class="muted">${log.length} update${log.length === 1 ? '' : 's'}</span></summary><ol class="tl-list">${log.slice(0, limit).map(li).join('')}</ol></details>`
@@ -357,7 +378,7 @@ const confText = (cl, n) => `${cl || 'low'} confidence, ${Math.round(n || 0)} vo
 
 // ---------- choosing the next double feature ----------
 function openPair(a, b) {
-  const done = new Set(LS.get('votes', []).map((v) => pairKey(v.a, v.b)))
+  const done = new Set((TRAIN_AS && charGet(TRAIN_AS) ? LS.get('cvotes:' + TRAIN_AS, []) : LS.get('votes', [])).map((v) => pairKey(v.a, v.b)))
   const skipped = new Set(LS.get('skipped', []))
   const A = BYID[a], B = BYID[b]
   if (!A || !B || a === b || done.has(pairKey(a, b)) || skipped.has(pairKey(a, b))) return false
@@ -909,7 +930,7 @@ function mountScreening(first, oldEl) {
     return
   }
   const [a, b] = current, n = ++nScreen
-  let pE = null; try { pE = enginePredict(a.id, b.id) } catch {}
+  let pE = null; try { pE = enginePredict(a.id, b.id, TRAIN_AS && charGet(TRAIN_AS) ? TRAIN_AS : null) } catch {}
   const pL = pE != null ? pE : MODEL ? sig(MODEL.score(a.id) + traitScore(a) - MODEL.score(b.id) - traitScore(b)) : 0.5
   prediction = { p: pL, side: pL >= 0.5 ? 'L' : 'R', model: pE != null ? 'engine' : 'bt' }
   host.insertAdjacentHTML('beforeend', slideHTML(a, b, n, first))
@@ -1061,9 +1082,11 @@ function skipClip() {
   const c = sc.clip, [a, b] = current
   const rec = { a: a.id, b: b.id, stage: side === 'L' ? 'left-skip' : 'right-skip', comics: [c.comic], comic: c.comic, clip: c.id, ...(current.daily ? { daily: current.daily } : {}),
     style: Array.isArray(c.style) ? c.style : [], watchedSec: Math.round(10 * (sc.watched || 0)) / 10, ...signals(), at: new Date().toISOString() }
-  LS.set('skips', [...LS.get('skips', []), rec].slice(-500)); queueEvents()
+  const tc = TRAIN_AS && charGet(TRAIN_AS) ? TRAIN_AS : null
+  if (tc) LS.set('cskips:' + tc, [...LS.get('cskips:' + tc, []), rec].slice(-500))
+  else { LS.set('skips', [...LS.get('skips', []), rec].slice(-500)); queueEvents() }
   try { MODEL = fitLocal(); TRAITS = fitTraits() } catch {}
-  engineLearn({ kind: 'skip', clip: c.id, a: a.id, b: b.id, at: rec.skippedAt ?? rec.leftSkippedAt ?? rec.rightSkippedAt })
+  engineLearn({ kind: 'skip', s: tc, clip: c.id, a: a.id, b: b.id, at: rec.skippedAt ?? rec.leftSkippedAt ?? rec.rightSkippedAt })
   if (side === 'L') { toast('Skipped to #2. Noted against that clip.'); startClip('R') } else startVote()
   return true
 }
@@ -1150,9 +1173,11 @@ function skipClash() {
   const rec = { a: a.id, b: b.id, stage, comics: on.map((c) => c.comic), clip: sc ? sc.clip.id : null,
     watchedSec: sc ? Math.round(10 * (sc.watched || 0)) / 10 : 0, ...sg, ...(current.daily ? { daily: current.daily } : {}), at: new Date().toISOString() }
   if (stage === 'vote' && armedAt) rec.decisionMs = Math.round(now() - armedAt)
-  LS.set('skips', [...LS.get('skips', []), rec].slice(-500)); queueEvents()
+  const tc = TRAIN_AS && charGet(TRAIN_AS) ? TRAIN_AS : null
+  if (tc) LS.set('cskips:' + tc, [...LS.get('cskips:' + tc, []), rec].slice(-500))
+  else { LS.set('skips', [...LS.get('skips', []), rec].slice(-500)); queueEvents() }
   LS.set('skipped', [...LS.get('skipped', []), pairKey(a.id, b.id)].slice(-500)); bumpSeen(a.id, b.id)
-  if (sc) { MODEL = fitLocal(); TRAITS = fitTraits(); paintYou(); if (skipW(rec) > 0) engineLearn({ kind: 'skip', clip: sc.clip.id, a: a.id, b: b.id, at: sc.skippedAt }) }
+  if (sc) { MODEL = fitLocal(); TRAITS = fitTraits(); paintYou(); if (skipW(rec) > 0) engineLearn({ kind: 'skip', s: tc, clip: sc.clip.id, a: a.id, b: b.id, at: sc.skippedAt }) }
   goNext(null); paintHistory()
 }
 function goNext() {
@@ -1187,6 +1212,16 @@ async function vote(side) {
     askWhy(v, true, fl)
     scheduleAdvance(fl ? 2400 : v.daily ? 1600 : 700)
     paintDaily(); paintHistory()
+    return
+  }
+  if (TRAIN_AS && charGet(TRAIN_AS)) { // training a character: the pick trains ITS model, not yours, and is not published
+    const cid = TRAIN_AS, ch = charGet(cid)
+    v.as = cid
+    LS.set('cvotes:' + cid, [...LS.get('cvotes:' + cid, []).filter((x) => !x || pairKey(x.a, x.b) !== pairKey(a.id, b.id)), v].slice(-1000))
+    engineLearn({ kind: 'vote', s: cid, a: a.id, b: b.id, winner: v.winner, p: Math.round(1000 * (side === 'L' ? prediction.p : 1 - prediction.p)) / 1000, hit: prediction.side === side })
+    scheduleAdvance(reduced() ? 300 : 900)
+    askWhy(v, true, null, `Trained ${ch.name}.`)
+    paintTrainPill(); paintHistory()
     return
   }
   // latest pick per pair counts (same rule as the public tally), so a rewatch replaces the old pick
@@ -1699,6 +1734,178 @@ function openPortSheet() {
     if (t === 'file' && e.target.files?.[0]) { const f = e.target.files[0]; if (f.size > 200000) return toast('That file is too big for a passport.'); f.text().then((x) => { if (importPassport(x)) paint() }) }
   }
 }
+// ---------- characters you train from scratch (same engine, same passport, own votes) ----------
+const CHAR_RE = /^c[a-z0-9]{8,16}$/
+const charsLocal = () => arr(LS.get('chars', [])).filter((c) => c && CHAR_RE.test(c.id))
+function charGet(id) { return charsLocal().find((c) => c.id === id) || null }
+function charSave(ch) { const all = charsLocal().filter((c) => c.id !== ch.id); all.unshift({ ...ch, updated: new Date().toISOString() }); LS.set('chars', all.slice(0, 50)); queueCharPush(ch.id) }
+function newCharId() { let x = ''; while (x.length < 10) x += Math.random().toString(36).slice(2); return 'c' + x.slice(0, 10) }
+function subjPassport(sub = null) {
+  if (!sub) return myPassport()
+  const ch = charGet(sub); if (!ch) return null
+  const ro = engineReadout(sub); if (!ro) return null
+  const vs = LS.get('cvotes:' + sub, []).filter((v) => v && BYID[v.a] && BYID[v.b])
+  const wins = [...new Set(vs.map((v) => v.winner))].slice(-3).map((id) => BYID[id]).filter(Boolean)
+  return makePassport({ readout: ro, features: FEATURES, model: ENGINE_MODEL, n: vs.length, skips: LS.get('cskips:' + sub, []).length, favs: [], topClips: wins, line: ch.bio || null })
+}
+const charPush = {}
+function queueCharPush(id) {
+  if (!signedIn()) return
+  clearTimeout(charPush[id]); charPush[id] = setTimeout(async () => {
+    const ch = charGet(id); if (!ch) return
+    let passport = null; try { passport = subjPassport(id) } catch {}
+    const r = await api('/characters/' + id, { method: 'PUT', body: { name: ch.name, bio: ch.bio || '', avatar_seed: ch.avatar_seed || null, visibility: ch.visibility || 'private', ...(ch.parent_id ? { parent_id: ch.parent_id, parent_hash: ch.parent_hash || null } : {}), ...(passport ? { passport } : {}) } }).catch(() => null)
+    if (r?.ok) { const all = charsLocal(); const i = all.findIndex((c) => c.id === id); if (i >= 0) { all[i].synced = new Date().toISOString(); LS.set('chars', all) } }
+  }, 1200)
+}
+async function syncChars() { // pull your characters from the API (another device made them) and push local-only ones
+  if (!signedIn()) return
+  const r = await api('/me/characters').catch(() => null); if (!r?.ok) return
+  const local = charsLocal(), ids = new Set(local.map((c) => c.id))
+  for (const c of r.j.characters || []) if (!ids.has(c.id)) { local.push({ id: c.id, name: c.name, bio: c.bio, avatar_seed: c.avatar_seed, visibility: c.visibility, parent_id: c.parent_id, parent_hash: c.parent_hash, created: c.created_at, prior: c.passport ? passportPrior(c.passport) : null, remoteOnly: true }) }
+  LS.set('chars', local)
+  const remote = new Set((r.j.characters || []).map((c) => c.id))
+  for (const c of local) if (!remote.has(c.id)) queueCharPush(c.id)
+}
+function setTrainAs(id) {
+  TRAIN_AS = id && charGet(id) ? id : null
+  LS.set('trainAs', TRAIN_AS)
+  paintTrainPill()
+  if (TRAIN_AS) toast(`Training ${charGet(TRAIN_AS).name}: your picks now shape their taste, not yours.`)
+}
+function paintTrainPill() {
+  let el = $('#trainpill')
+  const ch = TRAIN_AS ? charGet(TRAIN_AS) : null
+  if (!ch) { if (el) el.hidden = true; return }
+  if (!el) { el = document.createElement('div'); el.id = 'trainpill'; document.body.appendChild(el); el.onclick = (e) => { if (e.target.closest('[data-tp="stop"]')) setTrainAs(null); else if (e.target.closest('[data-tp="open"]')) location.hash = 'c/' + TRAIN_AS } }
+  el.hidden = false
+  const n = LS.get('cvotes:' + ch.id, []).length
+  el.innerHTML = `<button type="button" data-tp="open" class="tp-who"><span class="tp-av">${seedSVG(ch.avatar_seed || ch.id)}</span><span>Training <b>${esc(ch.name)}</b><small>${n} pick${n === 1 ? '' : 's'}</small></span></button><button type="button" data-tp="stop" class="tp-stop" aria-label="Stop training">Stop</button>`
+}
+function openCharSheet() {
+  const sh = $('#sheet'); if (!sh) return
+  sh.innerHTML = `<div class="sheetcard charsheet" role="dialog" aria-modal="true" aria-labelledby="chh"><button type="button" class="sheetx" data-ob="close" aria-label="Close">×</button>
+    <h2 id="chh">Create a character</h2><p class="muted">A comic with its own sense of humour. You train it by voting as it would: same screening, its own model.</p>
+    ${rollerHTML('Reroll mascot')}
+    <label class="obf">Name<input id="chname" maxlength="40" placeholder="Gravel Gus" autocomplete="off"></label>
+    <label class="obf">Short bio<input id="chbio" maxlength="160" placeholder="A deadpan gravedigger who thinks everything is hilarious" autocomplete="off"></label>
+    <p class="obmsg muted small" id="chmsg"></p>
+    <div class="obact"><button type="button" class="dhbtn" data-ob="create">Create and start training</button><button type="button" class="dhghost" data-ob="close">Cancel</button></div></div>`
+  sh.hidden = false
+  const roll = avatarRoller(sh.querySelector('.charsheet'), null)
+  sh.onclick = (e) => {
+    const ob = e.target.closest('[data-ob]')?.dataset.ob
+    if (e.target === sh || ob === 'close') { sh.hidden = true; sh.innerHTML = ''; return }
+    if (ob === 'create') {
+      const name = sh.querySelector('#chname').value.trim(), bio = sh.querySelector('#chbio').value.trim()
+      if (name.length < 2) { sh.querySelector('#chmsg').textContent = 'Give them a name (2 to 40 characters).'; sh.querySelector('#chname').focus(); return }
+      const ch = { id: newCharId(), name: name.slice(0, 40), bio: bio.slice(0, 160), avatar_seed: roll.seed, visibility: 'private', created: new Date().toISOString() }
+      charSave(ch); sh.hidden = true; sh.innerHTML = ''
+      setTrainAs(ch.id); location.hash = 'c/' + ch.id
+    }
+  }
+}
+function charRowHTML(c, own) {
+  const t = c.type || (own ? (() => { try { const p = subjPassport(c.id); return p ? typeName(p).name : '' } catch { return '' } })() : '')
+  return `<a class="up-char" href="#c/${esc(c.id)}"><span class="up-charav">${seedSVG(c.avatar_seed || c.id)}</span><span class="up-chart-t"><b>${esc(c.name)}</b><small>${esc(t || 'untrained')}${own ? ` · ${c.visibility === 'public' ? 'public' : 'private'}` : ''}</small></span></a>`
+}
+function charactersHTML(list, own) {
+  if (!own && !arr(list).length) return ''
+  return `<section class="up-sec"><div class="up-sh"><h3>${own ? 'My characters' : 'Characters'}</h3>${own ? '<button type="button" class="up-edit" data-act="newchar">Create a character</button>' : ''}</div>
+    ${arr(list).length ? `<div class="up-chars">${list.map((c) => charRowHTML(c, own)).join('')}</div>` : '<p class="muted">Make a comic with its own taste: name it, pick a mascot, then train it by voting the way it would laugh.</p>'}</section>`
+}
+
+// ---------- the model, drawn: glyph + computed type name, meta-axes, the net; versions; the humour payload ----------
+const lastGlyph = {}
+function glyphBlock(p, key, opts = {}) {
+  if (!p) return ''
+  const tn = typeName(p), changed = lastGlyph[key] && lastGlyph[key] !== p.hash; lastGlyph[key] = p.hash
+  const ty = p.type || {}
+  return `<div class="sg-wrap${changed ? ' sg-pop' : ''}">${glyphSVG(p, { size: opts.size || 340, labels: opts.labels !== false, id: 'g' + key })}</div>
+    <p class="sg-name">${esc(tn.name)}</p>${tn.settled && ty.wing ? `<p class="sg-wing">${esc(TYPES_SHORT[ty.k] || '')}${ty.wing ? ` \u00b7 ${esc(TYPES_SHORT[ty.wing] || '')} wing` : ''}</p>` : '<p class="sg-wing">still reading</p>'}`
+}
+const TYPE_LINES = { absurd: 'Logic is optional. The weirder the turn, the bigger my laugh.', deadpan: 'I laugh hardest when nobody on stage does.', observational: 'The thing everyone saw and nobody said.', dark: 'Nothing is off-limits if the joke earns it.', story: 'Five minutes for one perfect payoff? Gladly.', wordplay: 'Setup, punch, next. No wasted words.', rant: 'Give me a comic with a righteous head of steam.', selfdep: 'I trust a comic who makes themselves the target.', crowd: 'I live for the moment the comic turns to the room.' }
+const TYPES_SHORT = { absurd: 'Surrealist', deadpan: 'Straight Face', observational: 'Noticer', dark: 'Gallows', story: 'Long Game', wordplay: 'Purist', rant: 'Choir', selfdep: 'Confessor', crowd: 'Front Row' }
+function modelHTML(p, key, who = 'Your') {
+  if (!p) return ''
+  return `<section class="up-sec up-model" data-mkey="${esc(key)}"><div class="up-sh"><h3>${esc(who)} model</h3><div class="seg" role="tablist"><button type="button" role="tab" data-mt="meta" class="on">Meta-axes</button><button type="button" role="tab" data-mt="net">The net</button></div></div>
+    <div class="mt-pane" data-pane="meta">${metaSVG(p, { size: 380, id: 'm' + key })}<p class="muted small">Seven bipolar axes read off the weights. Warm = leans in, cool = bounces off; blur = still unsure.</p></div>
+    <div class="mt-pane" data-pane="net" hidden>${netSVG(p, { id: 'n' + key })}<p class="muted small">The actual model: each feature\u2019s weight into your taste (thickness = strength, warm = more of it wins you over, cool = less), then the four things it predicts.</p></div></section>`
+}
+function bindModelTabs(root) {
+  root.querySelectorAll('.up-model').forEach((sec) => sec.querySelectorAll('[data-mt]').forEach((b) => (b.onclick = () => {
+    sec.querySelectorAll('[data-mt]').forEach((x) => x.classList.toggle('on', x === b))
+    sec.querySelectorAll('.mt-pane').forEach((x) => (x.hidden = x.dataset.pane !== b.dataset.mt))
+  })))
+}
+// versions: immutable passport snapshots (yours or a character's); the live model keeps training
+const verKey = (sub) => subjKey('versions', sub)
+const versionsLocal = (sub) => arr(LS.get(verKey(sub), [])).filter((v) => v && v.passport && v.id)
+function saveVersion(sub = null) {
+  const p = subjPassport(sub); if (!p) return null
+  const list = versionsLocal(sub)
+  if (list[0] && list[0].hash === p.hash) { toast('Already saved: nothing has changed since that version.'); return list[0] }
+  const v = { id: p.hash + '-' + Date.now().toString(36), at: new Date().toISOString(), n: p.n.votes, hash: p.hash, name: typeName(p).name, passport: p }
+  LS.set(verKey(sub), [v, ...list].slice(0, 40))
+  if (signedIn()) api('/me/versions', { method: 'POST', body: { subject: sub || 'me', version: { id: v.id, name: v.name, at: v.at, passport: p } } }).catch(() => {})
+  toast(`Saved version ${v.hash}: ${v.name}.`)
+  return v
+}
+function versionsHTML(sub, own) {
+  const list = versionsLocal(sub)
+  if (!own && !list.length) return ''
+  const day = (t) => { try { return new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) } catch { return '' } }
+  return `<section class="up-sec"><div class="up-sh"><h3>Versions</h3>${own ? `<button type="button" class="up-edit" data-act="savever" data-sub="${esc(sub || '')}">Save this version</button>` : ''}</div>
+    ${list.length ? `<ol class="up-vers">${list.map((v) => `<li><span class="uv-g">${glyphSVG(v.passport, { size: 72, labels: false, animate: false, id: 'v' + v.id.slice(-6) })}</span><span class="uv-t"><b>${esc(v.name)}</b><small>${day(v.at)} \u00b7 ${v.n} vote${v.n === 1 ? '' : 's'} \u00b7 <code>${esc(v.hash)}</code></small></span>
+      <span class="uv-a"><button type="button" class="linkbtn" data-act="cmpver" data-vid="${esc(v.id)}" data-sub="${esc(sub || '')}">Compare</button><button type="button" class="linkbtn" data-act="payver" data-vid="${esc(v.id)}" data-sub="${esc(sub || '')}">Payload</button><button type="button" class="linkbtn" data-act="jsonver" data-vid="${esc(v.id)}" data-sub="${esc(sub || '')}">JSON</button></span></li>`).join('')}</ol>`
+      : '<p class="muted">Snapshot your model any time. Each version is a passport you can compare, export or hand to an assistant; the live model keeps training.</p>'}</section>`
+}
+function openCompare(sub, vid) {
+  const sh = $('#sheet'); if (!sh) return
+  const v = versionsLocal(sub).find((x) => x.id === vid), live = subjPassport(sub); if (!v || !live) return
+  const ds = diffPassports(v.passport, live, 8)
+  sh.innerHTML = `<div class="sheetcard cmpsheet" role="dialog" aria-modal="true" aria-labelledby="cph"><button type="button" class="sheetx" data-ob="close" aria-label="Close">×</button>
+    <h2 id="cph">${esc(v.name)} \u2192 now</h2><p class="muted small">Version <code>${esc(v.hash)}</code> (${v.n} votes) morphing into the live model (${live.n.votes} votes, ${esc(typeName(live).name)}).</p>
+    <div class="cmp-stage"></div><div class="obact"><button type="button" class="dhghost" data-ob="replay">Replay</button></div>
+    ${ds.length ? `<ul class="cmp-diff">${ds.map((d) => `<li><span>${esc(d.label)}</span><i class="${d.d > 0 ? 'up' : 'down'}">${d.d > 0 ? '\u25b2' : '\u25bc'} ${Math.abs(d.d).toFixed(2)}</i></li>`).join('')}</ul>` : '<p class="muted">No weight moved since this version.</p>'}</div>`
+  sh.hidden = false
+  const stage = sh.querySelector('.cmp-stage')
+  let raf = 0
+  const play = () => {
+    cancelAnimationFrame?.(raf); const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now(), dur = 1600
+    const step = (now) => { const t = Math.min(1, ((now || Date.now()) - t0) / dur), e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
+      stage.innerHTML = glyphSVG(lerpPassport(v.passport, live, e), { size: 320, labels: true, animate: false, id: 'cmp' }); if (t < 1 && !sh.hidden) raf = requestAnimationFrame(step) }
+    if (typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(step); else stage.innerHTML = glyphSVG(live, { size: 320, labels: true, id: 'cmp' })
+  }
+  stage.innerHTML = glyphSVG(v.passport, { size: 320, labels: true, animate: false, id: 'cmp' }); setTimeout(play, 300)
+  sh.onclick = (e) => { const ob = e.target.closest('[data-ob]')?.dataset.ob; if (e.target === sh || ob === 'close') { sh.hidden = true; sh.innerHTML = '' } else if (ob === 'replay') play() }
+}
+// the humour payload: rules + compact JSON for ChatGPT / Claude (per snapshot, or speaking AS a character)
+function openPayloadSheet(p, opts = {}) {
+  const sh = $('#sheet'); if (!sh || !p) return
+  const text = humourPayload(p, opts), url = chatgptURL(text) || chatgptURL(shortPayload(p, opts))
+  sh.innerHTML = `<div class="sheetcard paysheet" role="dialog" aria-modal="true" aria-labelledby="pyh"><button type="button" class="sheetx" data-ob="close" aria-label="Close">×</button>
+    <h2 id="pyh">${opts.as ? `Prompt ${esc(opts.as.name)}` : 'Humour payload'}</h2>
+    <p class="muted small">${opts.as ? `Paste it into ChatGPT or Claude and ${esc(opts.as.name)} will joke in this taste.` : 'Give ChatGPT or Claude your taste so they can joke in your style and write your cards and captions.'} Version <code>${esc(p.hash)}</code>, ${p.n?.votes ?? 0} votes.</p>
+    <pre class="py-text">${esc(text)}</pre>
+    <div class="obact"><button type="button" class="dhbtn" data-py="copy">Copy payload</button>${url ? `<a class="dhghost" data-py="gpt" href="${esc(url)}" target="_blank" rel="noopener">Open in ChatGPT</a>` : '<button type="button" class="dhghost" data-py="gptcopy">Copy, then open ChatGPT</button>'}<button type="button" class="dhghost" data-py="claude">Copy for Claude</button></div></div>`
+  sh.hidden = false
+  sh.onclick = (e) => {
+    const ob = e.target.closest('[data-ob]')?.dataset.ob, py = e.target.closest('[data-py]')?.dataset.py
+    if (e.target === sh || ob === 'close') { sh.hidden = true; sh.innerHTML = ''; return }
+    if (py === 'copy') copyText(text).then((ok) => toast(ok ? 'Payload copied.' : 'Copy blocked: select the text above.'))
+    else if (py === 'gptcopy') { copyText(text).then(() => { try { window.open('https://chatgpt.com/', '_blank', 'noopener') } catch {} toast('Copied. Paste it into ChatGPT.') }) }
+    else if (py === 'claude') { copyText(text).then(() => { try { window.open('https://claude.ai/new', '_blank', 'noopener') } catch {} toast('Copied. Paste it into Claude.') }) }
+  }
+}
+function versionAct(k, sub, vid) {
+  const v = versionsLocal(sub || null).find((x) => x.id === vid); if (!v) return
+  const ch = sub ? charGet(sub) : null
+  if (k === 'cmpver') openCompare(sub || null, vid)
+  else if (k === 'payver') openPayloadSheet(v.passport, ch ? { as: { name: ch.name, bio: ch.bio } } : {})
+  else if (k === 'jsonver') downloadJSON(v.passport, `funnier-humour-${ch ? ch.name.replace(/\W+/g, '-').toLowerCase() : USER?.username || 'me'}-${v.hash}.json`)
+}
+
 // Your model: the engine's strongest leans (both directions), each with its confidence, then the per-vote timeline
 function engineYouHTML() {
   let ro = null; try { ro = engineReadout() } catch {}
@@ -2167,7 +2374,7 @@ function clearHistory() {
   try { ok = window.confirm('Clear your Funnier history on this device?\n\nThis removes your picks, passes, skips and specials log, and resets your taste model here. Picks already published to Bluesky stay published.') } catch { ok = false }
   if (!ok) return
   for (const k of HISTORY_KEYS) { try { localStorage.removeItem('funnier.' + k) } catch {} }
-  MODEL = fitLocal(); TRAITS = fitTraits(); ENG = null; chartChanged()
+  MODEL = fitLocal(); TRAITS = fitTraits(); delete ENGS.me; chartChanged()
   paintHistory(); paintYou(); paintDaily(); toast('History cleared.')
 }
 function youSub(k) {
@@ -2238,7 +2445,7 @@ async function initAccount() {
 }
 async function afterSignIn(needs, fresh) {
   paintUser(); paintProfilePage()
-  syncVotes().catch(() => {}); syncEvents(); syncProfile().catch(() => {})
+  syncVotes().catch(() => {}); syncEvents(); syncProfile().catch(() => {}); syncChars().catch(() => {})
   const pa = LS.get('pendingAccept', null)
   if (pa?.code) {
     try { const r = await api(`/invites/${encodeURIComponent(pa.code)}/accept`, { method: 'POST', body: { open_id: pa.open_id } }); if (r.ok) toast(`You and ${r.j.friend?.username || pa.username} are now friends.`) } catch {}
@@ -2618,7 +2825,7 @@ function dimRows(c) {
 function chartHTML(c, own, who) {
   if (!c?.dims) return `<section class="up-sec"><div class="up-sh"><h3>Sense of humour</h3></div><p class="muted">${own ? 'Vote on a few clashes (or pick your Four Favourites) and your chart draws itself.' : 'No chart yet.'}</p></section>`
   const sty = STY.filter((s) => c.sty?.[s.k] != null)
-  return `<section class="up-sec"><div class="up-sh"><h3>Sense of humour</h3>${own ? '<button type="button" class="up-edit" data-act="share" data-kind="chart">Share chart ↗</button>' : ''}</div>
+  return `<section class="up-sec"><div class="up-sh"><h3>Read it: the chart</h3>${own ? '<button type="button" class="up-edit" data-act="share" data-kind="chart">Share chart ↗</button>' : ''}</div>
     <div class="up-chart"><div class="up-radar">${chartSVG([{ dims: c.dims, band: c.band, color: CHART_COLORS[0] }], { size: 400, title: (who || 'Your') + ' humour chart' })}</div>
     <div class="up-legend">${c.adjacent ? `<p class="up-adj"><b>${c.adjacent.pct}%</b> ${esc(c.adjacent.short)}-adjacent</p>` : ''}
       <div class="up-dims">${dimRows(c)}</div>
@@ -2656,22 +2863,26 @@ function heroHTML(P) {
   const own = P.own, u = P.user || {}, name = u.username || null, c = P.chart
   const av = own ? (signedIn() ? `<button type="button" class="pfav up-avbtn" data-act="avatar" aria-label="Change avatar" title="Change avatar">${meHTML()}<span class="pfavdice">${DICE}</span></button>` : `<span class="up-avbtn">${meHTML()}</span>`) : avatarHTML(u)
   const acts = own
-    ? (signedIn() && name ? `<button type="button" class="dhbtn" data-act="share" data-kind="chart">Share my taste ↗</button><button type="button" class="dhghost" data-act="port">Export / Port my humour</button><button type="button" class="dhghost" data-act="copy">Copy profile link</button><button type="button" class="dhghost" data-act="edit">Edit profile</button>`
-      : signedIn() ? `<button type="button" class="dhbtn" data-act="edit">Pick a username</button><button type="button" class="dhghost" data-act="share" data-kind="chart">Share my taste ↗</button><button type="button" class="dhghost" data-act="port">Export / Port my humour</button>`
-        : `<button type="button" class="dhbtn" data-act="share" data-kind="chart">Share my taste ↗</button><button type="button" class="dhghost" data-act="port">Export / Port my humour</button><button type="button" class="dhghost" data-act="signin">Sign in to publish it</button>`)
+    ? (signedIn() && name ? `<button type="button" class="dhbtn" data-act="share" data-kind="type">Share my type ↗</button><button type="button" class="dhghost" data-act="payload">Humour payload</button><button type="button" class="dhghost" data-act="port">Export / Port my humour</button><button type="button" class="dhghost" data-act="copy">Copy profile link</button><button type="button" class="dhghost" data-act="edit">Edit profile</button>`
+      : signedIn() ? `<button type="button" class="dhbtn" data-act="edit">Pick a username</button><button type="button" class="dhghost" data-act="share" data-kind="type">Share my type ↗</button><button type="button" class="dhghost" data-act="payload">Humour payload</button><button type="button" class="dhghost" data-act="port">Export / Port my humour</button>`
+        : `<button type="button" class="dhbtn" data-act="share" data-kind="type">Share my type ↗</button><button type="button" class="dhghost" data-act="payload">Humour payload</button><button type="button" class="dhghost" data-act="port">Export / Port my humour</button><button type="button" class="dhghost" data-act="signin">Sign in to publish it</button>`)
     : `<button type="button" class="dhbtn" data-act="compare" data-name="${esc(name || '')}">Compare with me</button><button type="button" class="dhghost" data-act="copy" data-name="${esc(name || '')}">Copy link</button>`
-  return `<section class="up-hero"><div class="up-av">${av}</div><div class="up-id">
+  const pp = P.passport
+  return `<section class="up-hero${pp ? ' has-glyph' : ''}"><div class="up-av">${av}</div><div class="up-id">
     <span class="eyebrow">${own ? (signedIn() ? 'Your profile' : 'Your profile · on this device') : 'Sense of humour'}</span>
     <h1>${esc(name || (own ? 'You' : ''))}</h1>${name ? `<p class="up-url">${esc(PROFILE_HOST + name)}</p>` : ''}
     ${c?.line ? `<p class="up-line">${esc(c.line)}</p>` : ''}${c?.mml ? `<p class="up-mml"><span>Make me laugh by\u2026</span> ${esc(c.mml)}</p>` : ''}
-    <div class="up-acts">${acts}</div></div></section>`
+    <div class="up-acts">${acts}</div></div>${pp ? `<div class="up-glyph">${glyphBlock(pp, own ? 'me' : 'u' + (name || ''))}</div>` : ''}</section>`
 }
 function profileHTML(P) {
   if (P.hidden) return `${heroHTML({ ...P, chart: null })}<p class="muted up-private">${P.vis_profile === 'friends' ? 'This profile is for friends only.' : 'This profile is private.'}</p>`
-  return heroHTML(P) + fourHTML(arr(P.favs), P.own) + chartHTML(P.chart, P.own, P.own ? 'Your' : (P.user?.username || 'Their') + '\u2019s') + pinsHTML(arr(P.pins), P.own)
-    + diaryHTML(P.specials, P.own, P.diaryNote) + setsHTML(P.sets, P.own)
+  const who = P.own ? 'Your' : (P.user?.username || 'Their') + '\u2019s'
+  return heroHTML(P) + fourHTML(arr(P.favs), P.own) + modelHTML(P.passport, P.own ? 'me' : 'u', who) + chartHTML(P.chart, P.own, who) + (P.own ? versionsHTML(null, true) : '') + pinsHTML(arr(P.pins), P.own)
+    + diaryHTML(P.specials, P.own, P.diaryNote) + charactersHTML(P.own ? charsLocal() : P.characters, P.own)
 }
 function bindProfile(el, P) {
+  bindModelTabs(el)
+  el.onchange = (e) => { const t = e.target; if (t.id === 'charvis') { const ch = charGet(t.dataset.id); if (ch) { charSave({ ...ch, visibility: t.value }); toast(t.value === 'public' ? `${ch.name} is public at funnier.si/c/${ch.id}.` : `${ch.name} is private.`) } } }
   el.onclick = (e) => {
     const b = e.target.closest('[data-act]'); if (!b || !el.contains(b)) return
     const k = b.dataset.act
@@ -2680,6 +2891,15 @@ function bindProfile(el, P) {
     else if (k === 'share') openShareStudio(b.dataset.kind || 'chart')
     else if (k === 'copy') { const n = b.dataset.name || USER?.username; if (n) copyText(profileURL(n)).then((ok) => toast(ok ? 'Profile link copied.' : 'Copy this link: ' + profileURL(n))) }
     else if (k === 'port') openPortSheet()
+    else if (k === 'payload') openPayloadSheet(P.sub ? subjPassport(P.sub) : P.own ? myPassport() : P.passport, P.charAs ? { as: P.charAs } : {})
+    else if (k === 'newchar') openCharSheet()
+    else if (k === 'savever') { saveVersion(b.dataset.sub || null); paintProfilePage() }
+    else if (k === 'cmpver' || k === 'payver' || k === 'jsonver') versionAct(k, b.dataset.sub || null, b.dataset.vid)
+    else if (k === 'train') { setTrainAs(TRAIN_AS === b.dataset.id ? null : b.dataset.id); paintProfilePage() }
+    else if (k === 'handoff') { const ch = charGet(b.dataset.id), pp = subjPassport(b.dataset.id); if (ch && pp) downloadJSON(handoff(pp, ch, THEORY), `funnier-character-${ch.id}-${pp.hash}.handoff.json`) }
+    else if (k === 'fork') forkChar(b.dataset.id, P.passport)
+    else if (k === 'delchar') deleteChar(b.dataset.id)
+    else if (k === 'copychar') copyText(charURL(b.dataset.id)).then((ok) => toast(ok ? 'Character link copied.' : 'Copy this link: ' + charURL(b.dataset.id)))
     else if (k === 'compare') location.hash = 'vs/' + encodeURIComponent(b.dataset.name)
     else if (k === 'signin') setMenu(true)
     else if (k === 'edit') openOnboarding()
@@ -2688,7 +2908,8 @@ function bindProfile(el, P) {
   }
 }
 const profRoute = () => {
-  const h = location.hash, m = h.match(/^#u\/([A-Za-z0-9_]{3,20})/), v = h.match(/^#vs\/([A-Za-z0-9_,]+)/)
+  const h = location.hash, m = h.match(/^#u\/([A-Za-z0-9_]{3,20})/), v = h.match(/^#vs\/([A-Za-z0-9_,]+)/), cm = h.match(/^#c\/(c[a-z0-9]{8,16})/)
+  if (cm) return { kind: 'char', id: cm[1] }
   if (v) return { kind: 'vs', names: v[1].split(',').filter((x) => /^[A-Za-z0-9_]{3,20}$/.test(x)).slice(0, 3) }
   if (m && m[1].toLowerCase() !== 'me' && !(signedIn() && USER?.username && USER.username.toLowerCase() === m[1].toLowerCase())) return { kind: 'public', name: m[1] }
   return { kind: 'me' }
@@ -2698,11 +2919,13 @@ async function paintProfilePage() {
   const el = $('#profileview'); if (!el || $('#v-profile')?.hidden) return
   const r = profRoute()
   if (r.kind === 'vs') return paintVs(el, r.names)
+  if (r.kind === 'char') return paintChar(el, r.id)
   if (r.kind === 'public') return paintPublic(el, r.name)
   return paintMine(el)
 }
 async function paintMine(el) {
-  const P = { own: true, user: signedIn() ? USER : null, favs: favsLocal(), pins: pinsLocal(), chart: myChart(), specials: spGet(), sets: [] }
+  let passport = null; try { passport = myPassport() } catch (e) { console.warn('passport', e) }
+  const P = { own: true, user: signedIn() ? USER : null, favs: favsLocal(), pins: pinsLocal(), chart: myChart(), specials: spGet(), sets: [], passport }
   const vis = visLocal(), VIS = [['public', 'Everyone'], ['friends', 'Friends'], ['private', 'Only me']]
   const sel = (id, v) => `<select id="${id}">${VIS.map(([k, l]) => `<option value="${k}"${v === k ? ' selected' : ''}>${l}</option>`).join('')}</select>`
   const extra = signedIn() ? `<section class="up-sec"><div class="up-sh"><h3>Friends</h3></div>
@@ -2732,6 +2955,55 @@ async function paintMine(el) {
   $('#pfinv').innerHTML = list.length ? list.slice(0, 20).map((x) => `<div class="pfrow"><span class="pfclash">${esc(BYID[x.a]?.comic || 'Retired clip')} <i>vs</i> ${esc(BYID[x.b]?.comic || 'Retired clip')}</span><span class="pfppl">${(x.people || []).slice(0, 6).map((p) => `<span class="fa" title="${esc(p.username || '')}${p.voted ? ' voted' : ' opened'}">${avatarHTML(p)}</span>`).join('')}</span><small class="muted">${x.opens} open${x.opens === 1 ? '' : 's'} · ${x.voted} voted</small></div>`).join('')
     : '<p class="muted">Nothing shared yet.</p>'
 }
+// ---- a character's page: #c/<id> (www.funnier.si/c/<id>) ----
+const charURL = (id) => (CFG.shareBase || SHARE_BASE).replace(/#.*$/, '').replace(/\/?$/, '/') + 'c/' + id
+async function paintChar(el, id) {
+  const local = charGet(id)
+  let ch = local, p = null, own = !!local, owner = null, serverVers = [], forks = 0
+  if (local) { try { p = subjPassport(id) } catch (e) { console.warn('passport', e) } }
+  else {
+    el.innerHTML = '<div class="up"><p class="muted up-loading">Loading\u2026</p></div>'
+    const r = CFG.apiBase ? await api('/c/' + id).catch(() => null) : null
+    if (profRoute().id !== id) return
+    if (!r || !r.ok || !r.j?.character) { el.innerHTML = `<div class="up"><section class="up-hero"><div class="up-id"><span class="eyebrow">Character</span><h1>Not here</h1><p class="muted">${r?.status === 403 ? 'This character is private.' : 'No character at this address (yet).'}</p><div class="up-acts"><a class="dhbtn" href="#">Watch tonight\u2019s screening</a></div></div></section></div>`; return }
+    ch = r.j.character; p = ch.passport; owner = r.j.owner; serverVers = r.j.versions || []; forks = r.j.forks || 0
+  }
+  const training = TRAIN_AS === id
+  const acts = own
+    ? `<button type="button" class="dhbtn" data-act="train" data-id="${esc(id)}">${training ? 'Stop training' : `Train as ${esc(ch.name)}`}</button><button type="button" class="dhghost" data-act="payload">Prompt them</button><button type="button" class="dhghost" data-act="copychar" data-id="${esc(id)}">Copy link</button><button type="button" class="dhghost" data-act="handoff" data-id="${esc(id)}">Export for characters2</button>`
+    : `<button type="button" class="dhbtn" data-act="payload">Prompt them</button>${signedIn() ? `<button type="button" class="dhghost" data-act="fork" data-id="${esc(id)}">Fork and fine-tune</button>` : ''}<button type="button" class="dhghost" data-act="copychar" data-id="${esc(id)}">Copy link</button>`
+  const n = own ? LS.get('cvotes:' + id, []).length : p?.n?.votes || 0
+  const hero = `<section class="up-hero${p ? ' has-glyph' : ''}"><div class="up-av"><span class="up-avbtn">${seedSVG(ch.avatar_seed || id)}</span></div><div class="up-id">
+    <span class="eyebrow">Character${own ? ' \u00b7 yours' : owner?.username ? ` \u00b7 by <a href="#u/${esc(owner.username)}">${esc(owner.username)}</a>` : ''}${ch.parent_id ? ` \u00b7 forked from <a href="#c/${esc(ch.parent_id)}">${esc(ch.parent_id)}</a>` : ''}</span>
+    <h1>${esc(ch.name)}</h1>${ch.bio ? `<p class="up-line">${esc(ch.bio)}</p>` : ''}<p class="up-url">${esc('funnier.si/c/' + id)} \u00b7 trained on ${n} pick${n === 1 ? '' : 's'}${forks ? ` \u00b7 ${forks} fork${forks === 1 ? '' : 's'}` : ''}</p>
+    <div class="up-acts">${acts}</div>
+    ${own ? `<label class="up-vis1">Visibility <select id="charvis" data-id="${esc(id)}"><option value="private"${ch.visibility !== 'public' ? ' selected' : ''}>Only me</option><option value="public"${ch.visibility === 'public' ? ' selected' : ''}>Public</option></select></label>` : ''}</div>
+    ${p ? `<div class="up-glyph">${glyphBlock(p, 'c' + id)}</div>` : ''}</section>`
+  const vers = own ? versionsHTML(id, true) : serverVers.length ? `<section class="up-sec"><div class="up-sh"><h3>Versions</h3></div><ol class="up-vers">${serverVers.map((v) => `<li><span class="uv-t"><b>${esc(v.name || v.hash)}</b><small>${esc(String(v.created_at).slice(0, 10))} \u00b7 ${v.votes} votes \u00b7 <code>${esc(v.hash)}</code></small></span></li>`).join('')}</ol></section>` : ''
+  const empty = own && !n ? `<section class="up-sec"><p class="muted">${esc(ch.name)} has no taste yet. ${training ? 'You are training them now: every pick in the screening shapes their model, not yours.' : 'Tap \u201cTrain as ' + esc(ch.name) + '\u201d, then vote the way they would laugh.'} <a href="#">Go to the screening</a></p></section>` : ''
+  const P = { own, sub: own ? id : null, passport: p, charAs: { name: ch.name, bio: ch.bio } }
+  el.innerHTML = `<div class="up up-charpage">${hero}${empty}${modelHTML(p, 'c' + id, ch.name + '\u2019s')}${vers}${own ? `<section class="up-sec">${timelineHTML(12, id) || '<p class="muted small">Every pick you make as them will show here: what it changed and why.</p>'}</section>
+    <section class="up-sec"><p class="muted small">Prompt them: the Worker has no AI key yet, so \u201cPrompt them\u201d hands their humour payload to ChatGPT or Claude. <b>Perform this set</b> (voice and video) arrives with the characters2 pipeline. <button type="button" class="linkbtn" data-act="delchar" data-id="${esc(id)}">Delete ${esc(ch.name)}</button></p></section>` : ''}</div>`
+  bindProfile(el, P)
+}
+async function forkChar(id, parentPassport) {
+  if (!signedIn()) return toast('Sign in to fork a character.')
+  const nid = newCharId(), r = await api('/characters/' + id + '/fork', { method: 'POST', body: { id: nid } }).catch(() => null)
+  if (!r?.ok || !r.j?.character) return toast('Couldn\u2019t fork it. Try again in a moment.')
+  const c = r.j.character
+  const all = charsLocal(); all.unshift({ id: c.id, name: c.name, bio: c.bio, avatar_seed: c.avatar_seed, visibility: 'private', parent_id: c.parent_id, parent_hash: c.parent_hash, created: c.created_at, prior: parentPassport ? passportPrior(parentPassport) : null }); LS.set('chars', all.slice(0, 50))
+  setTrainAs(c.id); location.hash = 'c/' + c.id
+}
+function deleteChar(id) {
+  const ch = charGet(id); if (!ch) return
+  let ok = false; try { ok = window.confirm(`Delete ${ch.name} and their trained model? This can\u2019t be undone.`) } catch {}
+  if (!ok) return
+  LS.set('chars', charsLocal().filter((c) => c.id !== id))
+  for (const k of ['cvotes:', 'cskips:', 'engine:', 'engineLog:', 'versions:']) { try { localStorage.removeItem('funnier.' + k + id) } catch {} }
+  delete ENGS[id]; if (TRAIN_AS === id) setTrainAs(null)
+  if (signedIn()) api('/characters/' + id, { method: 'DELETE' }).catch(() => {})
+  location.hash = 'profile'
+}
 const PUBCACHE = new Map()
 async function fetchPublic(name) {
   const k = name.toLowerCase(), hit = PUBCACHE.get(k)
@@ -2747,7 +3019,7 @@ async function paintPublic(el, name) {
   if (profRoute().name !== name) return
   if (!r || r.status !== 200 || !r.j?.user) { el.innerHTML = `<div class="up"><section class="up-hero"><div class="up-id"><span class="eyebrow">Profile</span><h1>${esc(name)}</h1><p class="muted">${r?.status === 404 ? 'Nobody goes by that name on Funnier (yet).' : 'Couldn\u2019t load this profile. Check your connection.'}</p><div class="up-acts"><a class="dhbtn" href="#">Watch tonight\u2019s screening</a></div></div></section></div>`; return }
   const j = r.j
-  const P = { own: false, user: j.user, favs: j.favs, pins: j.pins, chart: j.chart, specials: j.specials, sets: j.sets, hidden: j.hidden, vis_profile: j.vis_profile,
+  const P = { own: false, user: j.user, favs: j.favs, pins: j.pins, chart: j.chart, specials: j.specials, sets: j.sets, hidden: j.hidden, vis_profile: j.vis_profile, passport: j.humour && j.humour.features ? j.humour : null, characters: j.characters || [],
     diaryNote: j.specials ? null : j.vis_diary === 'friends' ? 'Their diary is for friends only.' : j.vis_diary === 'private' ? 'Their diary is private.' : null }
   el.innerHTML = `<div class="up">${profileHTML(P)}<section class="up-sec up-cta"><p>What\u2019s <i>your</i> sense of humour? Every pick in tonight\u2019s screening draws your own chart.</p><a class="dhbtn" href="#">Start watching</a></section></div>`
   bindProfile(el, P)
@@ -2870,7 +3142,10 @@ function memeOptions() {
 }
 function cardData(extra = {}) {
   const c = myChart(), name = signedIn() ? USER?.username : null
-  return { username: name || 'me', avatarSVG: seedSVG(mySeed()), chart: c, mml: c.mml, url: name ? PROFILE_HOST + name : 'funnier.si', favs: favsLocal().map(comicPic), ...extra }
+  let p = null; try { p = myPassport() } catch {}
+  const tn = p ? typeName(p) : null, ty = p?.type || {}
+  return { username: name || 'me', avatarSVG: seedSVG(mySeed()), chart: c, mml: c.mml, url: name ? PROFILE_HOST + name : 'funnier.si', favs: favsLocal().map(comicPic),
+    glyphSVG: p ? glyphSVG(p, { size: 520, labels: true, animate: false, id: 'card' }) : '', typeName: tn?.name || 'The Open Book', typeWing: tn?.settled && ty.wing ? `${TYPES_SHORT[ty.k]} \u00b7 ${TYPES_SHORT[ty.wing]} wing` : '', typeLine: tn?.settled ? (TYPE_LINES[ty.k] || '') : 'Still calibrating my sense of humour.', ...extra }
 }
 function openShareStudio(kind = 'chart', opts = {}) {
   const sh = $('#sheet'); if (!sh) return Promise.resolve()
@@ -3006,7 +3281,7 @@ function tabs() {
   const route = () => {
     const ic = parseInvite(location.hash)
     if (ic) { history.replaceState(null, '', location.pathname + location.search); show('arena'); openInvite(ic).then((ok) => { if (ok && CLIPS.length) { moving = false; goNext(null) } }); return }
-    if (/^#(profile|u\/|vs\/)/.test(location.hash)) { show('profile'); paintProfilePage(); return }
+    if (/^#(profile|u\/|vs\/|c\/)/.test(location.hash)) { show('profile'); paintProfilePage(); return }
     const sh = parseClash(location.hash)
     if (sh) { pendingClash = sh; if (sh.rewatch) userStarted = true; history.replaceState(null, '', location.pathname + location.search); show('arena'); if (CLIPS.length) { moving = false; goNext(null) } return }
     if (/^#comic/.test(location.hash)) { show('comics'); paintComics() }
@@ -3023,6 +3298,7 @@ function tabs() {
   await Promise.race([loadClipMeta(), new Promise((r) => setTimeout(r, 1500))]) // durations + crowd loudness; never block the show for long
   MODEL = fitLocal(); TRAITS = fitTraits()
   try { engineReadout() } catch (e) { console.warn('engine', e) } // the state before the next vote (its delta is measured from here)
+  TRAIN_AS = (() => { const t = LS.get('trainAs', null); return t && charGet(t) ? t : null })(); paintTrainPill()
   const sh = parseClash(location.hash), ic = parseInvite(location.hash)
   if (ic) { history.replaceState(null, '', location.pathname + location.search); await Promise.race([openInvite(ic), new Promise((r) => setTimeout(r, 4000))]) }
   else if (sh) { pendingClash = sh; history.replaceState(null, '', location.pathname + location.search) }

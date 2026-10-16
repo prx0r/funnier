@@ -92,6 +92,8 @@ try {
     await sleep(1500)
     const st = await page.evaluate(() => ({ svg: !!document.querySelector('.up-radar svg polygon.hcs'), line: document.querySelector('.up-line')?.textContent, w: document.documentElement.scrollWidth, vw: innerWidth }))
     ok(st.svg && /adjacent/.test(st.line || ''), `${dev}: own profile renders the chart (${st.line})`)
+    const gl = await page.evaluate(() => ({ g: !!document.querySelector('.up-hero .up-glyph svg.sigil'), name: document.querySelector('.up-hero .sg-name')?.textContent, meta: !!document.querySelector('.up-model svg.metasvg'), gw: document.querySelector('.up-hero .up-glyph')?.getBoundingClientRect().width }))
+    ok(gl.g && /^The /.test(gl.name || '') && gl.meta && gl.gw > 150, `${dev}: hero glyph + computed type name (${gl.name}, ${Math.round(gl.gw)}px) + meta-axes`)
     ok(st.w <= st.vw + 1, `${dev}: no horizontal overflow (${st.w} vs ${st.vw})`)
     await page.screenshot({ path: `${OUT}/me-${dev}.png`, fullPage: true })
     if (dev === 'desktop') {
@@ -100,7 +102,7 @@ try {
       if (og[0]) fs.writeFileSync(OUT + '/og.png', og[0])
       // every template, feed + story
       await page.evaluate(() => document.querySelector('.up-hero [data-act="share"]').click()); await sleep(800)
-      for (const k of ['chart', 'mml', 'funny', 'four']) for (const sz of ['feed', 'story']) {
+      for (const k of ['type', 'chart', 'mml', 'funny', 'four']) for (const sz of ['feed', 'story']) {
         await page.evaluate((k, sz) => { document.querySelector(`#sheet [data-tpl="${k}"]`).click(); document.querySelector(`#sheet [data-size="${sz}"]`).click() }, k, sz)
         await sleep(900)
         const r = await page.evaluate(() => { const c = document.querySelector('#sheet .ss-cv'); return { w: c.width, h: c.height, url: c.toDataURL('image/png') } })

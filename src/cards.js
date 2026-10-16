@@ -7,6 +7,7 @@ import { chartAxes, dimShort, CHART_COLORS } from './humour.js'
 
 export const SIZES = { feed: [1080, 1350], story: [1080, 1920], og: [1200, 630] }
 export const TEMPLATES = [
+  { k: 'type', label: 'Humour type', sizes: ['feed', 'story'] },
   { k: 'chart', label: 'Humour chart', sizes: ['feed', 'story'] },
   { k: 'mml', label: 'Make me laugh by…', sizes: ['feed', 'story'] },
   { k: 'funny', label: 'Funny / Not funny', sizes: ['feed', 'story'] },
@@ -151,6 +152,24 @@ async function header(ctx, W, d, y, pad, k) {
 
 // ---------- templates ----------
 const T = {
+  // the Humour Card: the enneagram-style glyph drawn from the model's real weights + the computed type name. No numbers.
+  async type(ctx, W, H, d) {
+    const pad = 72, story = H / W > 1.6
+    wordmark(ctx, W / 2, story ? 170 : 110, 48, 'center')
+    kicker(ctx, '@' + (d.username || 'me') + '\u2019s humour type', W / 2, story ? 210 : 146, 22, MUTED, 'center')
+    const G = story ? 900 : 760, gy = story ? 280 : 196
+    const img = await loadImg(svgURL(d.glyphSVG || ''))
+    if (img) ctx.drawImage(img, (W - G) / 2, gy, G, G)
+    let y = gy + G + (story ? 60 : 18)
+    ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = TEXT
+    let fs = story ? 92 : 78; ctx.font = `400 ${fs}px ${F.display}`
+    while (ctx.measureText((d.typeName || '').toUpperCase()).width > W - 2 * pad && fs > 40) { fs -= 4; ctx.font = `400 ${fs}px ${F.display}` }
+    ctx.shadowColor = 'rgba(245,199,107,.35)'; ctx.shadowBlur = 30; ctx.fillText((d.typeName || 'The Open Book').toUpperCase(), W / 2, y); ctx.restore()
+    y += fs + 18
+    if (d.typeWing) { ctx.save(); ctx.font = `600 ${story ? 34 : 30}px ${F.sans}`; ctx.fillStyle = GOLD; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(d.typeWing, W / 2, y); ctx.restore(); y += 52 }
+    if (d.typeLine) textBlock(ctx, d.typeLine, W / 2, y, W - 2 * pad - 80, { size: story ? 34 : 28, min: 20, weight: 500, color: 'rgba(243,241,236,.72)', maxLines: 2, align: 'center' })
+    watermark(ctx, W, H, d, pad)
+  },
   async chart(ctx, W, H, d) {
     const pad = 72, story = H / W > 1.6, c = d.chart || {}
     await header(ctx, W, d, story ? 120 : 64, pad, 'My sense of humour')

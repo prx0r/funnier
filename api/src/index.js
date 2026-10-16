@@ -159,6 +159,8 @@ app.delete('/me', auth, async (c) => {
     DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM specials_log WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM sets WHERE user_id = ?').bind(id),
+    DB.prepare('DELETE FROM characters WHERE owner_id = ?').bind(id),
+    DB.prepare('DELETE FROM model_versions WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM friends WHERE user_id = ? OR friend_id = ?').bind(id, id),
     DB.prepare('DELETE FROM invite_opens WHERE code IN (SELECT code FROM invites WHERE inviter_id = ?)').bind(id),
     DB.prepare('UPDATE invite_opens SET opener_user_id = NULL WHERE opener_user_id = ?').bind(id),
@@ -447,11 +449,113 @@ app.get('/u/:username', async (c) => {
   if (canSee(P.vis_profile, v)) Object.assign(out, { favs: P.favs, pins: P.pins, chart: P.chart, og: !!p?.og_at, humour: P.humour ? { ...P.humour, votes: undefined } : null })
   else out.hidden = true
   if (canSee(P.vis_diary, v)) out.specials = await specialsOf(DB, owner.id)
+  if (canSee(P.vis_profile, v)) out.characters = ((await DB.prepare(`SELECT * FROM characters WHERE owner_id = ? ${v.self ? '' : "AND visibility = 'public'"} ORDER BY created_at DESC LIMIT 50`).bind(owner.id).all()).results || []).map((x) => charOut(x, false))
   if (canSee(P.vis_profile, v)) out.sets = (await DB.prepare(`SELECT id, kind, title, created_at FROM sets WHERE user_id = ? AND visibility IN (${v.self ? "'public','friends','private'" : v.friend ? "'public','friends'" : "'public'"}) ORDER BY created_at DESC LIMIT 50`).bind(owner.id).all()).results || []
   if (!v.self) c.header('cache-control', 'private, max-age=30')
   return c.json(out)
 })
 // the public link-preview image; 404 when there is none or the profile isn't public (funnier-web falls back to the site card)
+// ---------- characters (trained from scratch with the same engine) + model versions ----------
+const CHAR_ID = /^c[a-z0-9]{8,16}$/, VER_ID = /^[0-9a-f]{8}-[a-z0-9]{4,12}$/, SEED_OK = /^[A-Za-z0-9_-]{1,40}$/
+const charOut = (r, withPassport = true) => r && ({ id: r.id, parent_id: r.parent_id || null, parent_hash: r.parent_hash || null, name: r.name, bio: r.bio || '', avatar_seed: r.avatar_seed || null, visibility: r.visibility,
+  ...(withPassport ? { passport: jparse(r.passport, null) } : { hash: jparse(r.passport, null)?.hash || null, type: jparse(r.passport, null)?.type?.full || null }), created_at: r.created_at, updated_at: r.updated_at })
+app.get('/me/characters', auth, async (c) => {
+  const r = await c.env.DB.prepare('SELECT * FROM characters WHERE owner_id = ? ORDER BY created_at DESC LIMIT 100').bind(c.get('user').id).all()
+  return c.json({ characters: (r.results || []).map((x) => charOut(x)) })
+})
+// create or update one of your characters (the client makes the id, so it works offline first)
+app.put('/characters/:id', auth, async (c) => {
+  const id = c.req.param('id'), u = c.get('user'), b = (await body(c)) || {}, DB = c.env.DB, errs = {}
+  if (!CHAR_ID.test(id)) return c.json({ error: 'bad_id' }, 400)
+  const cur = await DB.prepare('SELECT * FROM characters WHERE id = ?').bind(id).first()
+  if (cur && cur.owner_id !== u.id) return c.json({ error: 'not_yours' }, 403)
+  const set = {}
+  if ('name' in b || !cur) { const n = str(b.name, 40)?.trim(); if (!n || n.length < 2) errs.name = '2-40 characters'; else set.name = n }
+  if ('bio' in b) set.bio = str(b.bio, 160)?.trim() || null
+  if ('avatar_seed' in b) { if (b.avatar_seed && !SEED_OK.test(b.avatar_seed)) errs.avatar_seed = 'bad seed'; else set.avatar_seed = b.avatar_seed || null }
+  if ('visibility' in b) { if (!['public', 'private'].includes(b.visibility)) errs.visibility = 'public or private'; else set.visibility = b.visibility }
+  if ('passport' in b) { if (b.passport === null) set.passport = null; else { const h = cleanPassport(b.passport, { allowVotes: false }); if (!h) errs.passport = 'a funnier.humour/v1 passport'; else set.passport = JSON.stringify(h) } }
+  if (!cur && b.parent_id) { if (!CHAR_ID.test(b.parent_id)) errs.parent_id = 'bad id'; else { set.parent_id = b.parent_id; set.parent_hash = /^[0-9a-f]{8}$/.test(b.parent_hash || '') ? b.parent_hash : null } }
+  if (Object.keys(errs).length) return c.json({ error: 'invalid', fields: errs }, 400)
+  const t = now()
+  if (!cur) {
+    const n = await DB.prepare('SELECT COUNT(*) AS n FROM characters WHERE owner_id = ?').bind(u.id).first()
+    if ((n?.n || 0) >= 50) return c.json({ error: 'too_many' }, 429)
+    const ks = Object.keys(set)
+    await DB.prepare(`INSERT INTO characters (id, owner_id, ${ks.join(', ')}, created_at, updated_at) VALUES (?, ?, ${ks.map(() => '?').join(', ')}, ?, ?)`).bind(id, u.id, ...ks.map((k) => set[k]), t, t).run()
+  } else if (Object.keys(set).length) {
+    const ks = Object.keys(set)
+    await DB.prepare(`UPDATE characters SET ${ks.map((k) => k + ' = ?').join(', ')}, updated_at = ? WHERE id = ?`).bind(...ks.map((k) => set[k]), t, id).run()
+  }
+  return c.json({ ok: true, character: charOut(await DB.prepare('SELECT * FROM characters WHERE id = ?').bind(id).first()) })
+})
+app.delete('/characters/:id', auth, async (c) => {
+  const id = c.req.param('id'), u = c.get('user'), DB = c.env.DB
+  const cur = await DB.prepare('SELECT owner_id FROM characters WHERE id = ?').bind(id).first()
+  if (!cur) return c.json({ error: 'not_found' }, 404)
+  if (cur.owner_id !== u.id) return c.json({ error: 'not_yours' }, 403)
+  await DB.batch([DB.prepare('DELETE FROM characters WHERE id = ?').bind(id), DB.prepare('DELETE FROM model_versions WHERE user_id = ? AND subject = ?').bind(u.id, id)])
+  return c.json({ ok: true })
+})
+// the public character page: /c/<id> (public, or the owner)
+app.get('/c/:id', async (c) => {
+  const id = c.req.param('id'), DB = c.env.DB
+  if (!CHAR_ID.test(id)) return c.json({ error: 'not_found' }, 404)
+  const r = await DB.prepare('SELECT * FROM characters WHERE id = ?').bind(id).first()
+  if (!r) return c.json({ error: 'not_found' }, 404)
+  const me = await currentUser(c), own = me && me.id === r.owner_id
+  if (r.visibility !== 'public' && !own) return c.json({ error: 'private' }, 403)
+  const [owner, vs, kids] = await Promise.all([DB.prepare('SELECT username, avatar_seed, avatar_id FROM users WHERE id = ?').bind(r.owner_id).first(),
+    DB.prepare('SELECT id, hash, name, votes, created_at FROM model_versions WHERE user_id = ? AND subject = ? ORDER BY created_at DESC LIMIT 50').bind(r.owner_id, id).all(),
+    DB.prepare("SELECT COUNT(*) AS n FROM characters WHERE parent_id = ? AND visibility = 'public'").bind(id).first()])
+  if (!own) c.header('cache-control', 'private, max-age=30')
+  return c.json({ character: charOut(r), owner: owner ? pub(owner) : null, own: !!own, versions: vs.results || [], forks: kids?.n || 0, chat: c.env.CHAT_ENABLED === 'true' })
+})
+app.get('/c/:id/v/:vid', async (c) => {
+  const id = c.req.param('id'), vid = c.req.param('vid'), DB = c.env.DB
+  if (!CHAR_ID.test(id) || !VER_ID.test(vid)) return c.json({ error: 'not_found' }, 404)
+  const r = await DB.prepare('SELECT owner_id, visibility FROM characters WHERE id = ?').bind(id).first(); if (!r) return c.json({ error: 'not_found' }, 404)
+  const me = await currentUser(c); if (r.visibility !== 'public' && !(me && me.id === r.owner_id)) return c.json({ error: 'private' }, 403)
+  const v = await DB.prepare('SELECT * FROM model_versions WHERE id = ? AND subject = ?').bind(vid, id).first(); if (!v) return c.json({ error: 'not_found' }, 404)
+  return c.json({ id: v.id, hash: v.hash, name: v.name, votes: v.votes, created_at: v.created_at, passport: jparse(v.passport, null) })
+})
+// fork / fine-tune: copy a public character (or your own) into a new private one you own, keeping parent_id + the snapshot hash
+app.post('/characters/:id/fork', auth, async (c) => {
+  const id = c.req.param('id'), u = c.get('user'), b = (await body(c)) || {}, DB = c.env.DB
+  const r = await DB.prepare('SELECT * FROM characters WHERE id = ?').bind(id).first()
+  if (!r || (r.visibility !== 'public' && r.owner_id !== u.id)) return c.json({ error: 'not_found' }, 404)
+  const nid = CHAR_ID.test(b.id || '') ? b.id : 'c' + crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+  if (await DB.prepare('SELECT 1 FROM characters WHERE id = ?').bind(nid).first()) return c.json({ error: 'id_taken' }, 409)
+  const t = now(), pp = jparse(r.passport, null)
+  await DB.prepare('INSERT INTO characters (id, owner_id, parent_id, parent_hash, name, bio, avatar_seed, visibility, passport, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(nid, u.id, r.id, pp?.hash || null, (str(b.name, 40)?.trim() || ('Son of ' + r.name).slice(0, 40)), r.bio, r.avatar_seed, 'private', r.passport, t, t).run()
+  return c.json({ ok: true, character: charOut(await DB.prepare('SELECT * FROM characters WHERE id = ?').bind(nid).first()) })
+})
+// "Prompt them": the slot for a server-side LLM. Off until a key + CHAT_ENABLED=true are configured; the client hands
+// the humour payload to the user's own assistant instead.
+app.post('/c/:id/chat', async (c) => {
+  if (c.env.CHAT_ENABLED !== 'true') return c.json({ error: 'chat_disabled', hint: 'Copy the humour payload into ChatGPT or Claude for now.' }, 501)
+  return c.json({ error: 'not_implemented' }, 501)
+})
+// immutable model versions (a passport artifact each), yours or your characters'
+app.post('/me/versions', auth, async (c) => {
+  const u = c.get('user'), b = (await body(c)) || {}, DB = c.env.DB, v = b.version || {}
+  const subject = b.subject === 'me' ? 'me' : CHAR_ID.test(b.subject || '') ? b.subject : null
+  if (!subject) return c.json({ error: 'bad_subject' }, 400)
+  if (subject !== 'me') { const r = await DB.prepare('SELECT owner_id FROM characters WHERE id = ?').bind(subject).first(); if (!r || r.owner_id !== u.id) return c.json({ error: 'not_yours' }, 403) }
+  const p = cleanPassport(v.passport, { allowVotes: false })
+  if (!VER_ID.test(v.id || '') || !p) return c.json({ error: 'invalid' }, 400)
+  const n = await DB.prepare('SELECT COUNT(*) AS n FROM model_versions WHERE user_id = ?').bind(u.id).first()
+  if ((n?.n || 0) >= 500) return c.json({ error: 'too_many' }, 429)
+  await DB.prepare('INSERT OR IGNORE INTO model_versions (id, user_id, subject, hash, name, votes, passport, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(v.id, u.id, subject, p.hash, str(v.name, 60) || null, p.n.votes, JSON.stringify(p), !isNaN(Date.parse(v.at)) ? new Date(Math.min(Date.parse(v.at), Date.now())).toISOString() : now()).run()
+  return c.json({ ok: true, id: v.id, hash: p.hash })
+})
+app.get('/me/versions', auth, async (c) => {
+  const s = c.req.query('subject') || 'me'
+  const r = await c.env.DB.prepare('SELECT id, subject, hash, name, votes, passport, created_at FROM model_versions WHERE user_id = ? AND subject = ? ORDER BY created_at DESC LIMIT 100').bind(c.get('user').id, s).all()
+  return c.json({ versions: (r.results || []).map((x) => ({ ...x, passport: jparse(x.passport, null) })) })
+})
 app.get('/og/u/:file', async (c) => {
   const m = c.req.param('file').match(/^([A-Za-z0-9_]{3,20})\.png$/)
   if (!m) return c.json({ error: 'not_found' }, 404)
