@@ -22,6 +22,7 @@ async function profileShell(req, name) {
 <meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(line)}"><meta property="og:url" content="${esc(url)}">
 <meta property="og:image" content="${esc(img)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(line)}"><meta name="twitter:image" content="${esc(img)}">`;
+  html = html.replace(/<meta (property="og:[^"]*"|name="twitter:[^"]*")[^>]*>/g, '') // the site-wide preview tags give way to the profile's
   html = html.replace('<head>', '<head>' + meta).replace(/<title>[^<]*<\/title>/, `<title>${esc(title)}</title>`);
   return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60' } });
 }
