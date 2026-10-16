@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS votes (
   daily TEXT,
   cc TEXT,
   created_at TEXT NOT NULL,
+  -- signals TEXT is added by migrations/0004_watch_signals.sql (JSON watch signals, lexicon #signals)
   UNIQUE (user_id, a, b)
 );
 CREATE INDEX IF NOT EXISTS votes_pair ON votes (a, b);

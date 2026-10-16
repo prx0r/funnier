@@ -121,7 +121,7 @@ async function publish(v) {
   const res = await agent.fetchHandler('/xrpc/com.atproto.repo.createRecord', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ repo: me.did, collection: COLLECTION,
-      record: { $type: COLLECTION, a: v.a, b: v.b, winner: v.winner, voter: 'human', basis: v.basis || 'watched', ...(v.why ? { why: v.why } : {}), ...(Number.isInteger(v.decisionMs) ? { ms: v.decisionMs } : {}), ...dailyFields(v), createdAt: v.createdAt } }),
+      record: { $type: COLLECTION, a: v.a, b: v.b, winner: v.winner, voter: 'human', basis: v.basis || 'watched', ...(v.why ? { why: v.why } : {}), ...(Number.isInteger(v.decisionMs) ? { ms: v.decisionMs } : {}), ...dailyFields(v), ...(sigPayload(v) ? { signals: sigPayload(v) } : {}), createdAt: v.createdAt } }),
   })
   if (!res.ok) throw new Error('createRecord ' + res.status + ' ' + (await res.text()))
 }
@@ -473,7 +473,10 @@ class Screen {
     if (this.lastT == null) { if (on) this.lastT = t; return } // start tracking at first real playback
     const d = t - this.lastT
     if (on && d > 0 && d < 2) this.watched += d
-    if (d < -2) this.replays++
+    if (d < -2) { // a jump back = rewatching something: keep where they jumped to (and from), the laugh label (§3b)
+      this.replays++
+      if ((this.seekT = this.seekT || []).length < 20) { this.seekT.push(Math.round(t)); (this.seekF = this.seekF || []).push(Math.round(this.lastT)) }
+    }
     if (d > 5) this.jumped = true
     this.lastT = t
     if (!this.durSent) { const dd = this.a ? this.a.duration : this.p?.getDuration?.(); if (Number.isFinite(dd) && dd > 0) { this.durSent = true; learnDur(this.clip, dd) } }
@@ -610,10 +613,28 @@ function signals() {
   out.leftWatchedSec = r1(L.watched || 0); out.rightWatchedSec = r1(R.watched || 0)
   try { out.rightFrac = Math.round(100 * Math.min(1, (R.watched || 0) / R.screened())) / 100 } catch {}
   out.replayed = (L.replays || 0) + (R.replays || 0) > 0
+  out.replays = (L.replays || 0) + (R.replays || 0)
   out.skippedAhead = !!(L.jumped || R.jumped)
   if (L.skipped) out.leftSkipped = true
   if (R.skipped) out.rightSkipped = true
+  for (const [k, S] of [['left', L], ['right', R]]) {
+    if (S.seekT?.length) { out[k + 'SeekTargets'] = [...S.seekT]; out[k + 'SeekFrom'] = [...(S.seekF || [])] }
+    if (Number.isFinite(S.skippedAt)) out[k + 'SkippedAt'] = S.skippedAt
+  }
   return out
+}
+// the watch signals as sent to the API and the AT Protocol record (lexicon `signals`): whole seconds, all optional
+const SIG_INT = ['leftWatchedSec', 'rightWatchedSec', 'replays', 'leftSkippedAt', 'rightSkippedAt']
+const SIG_ARR = ['leftSeekTargets', 'leftSeekFrom', 'rightSeekTargets', 'rightSeekFrom']
+const SIG_BOOL = ['skippedAhead', 'leftSkipped', 'rightSkipped']
+function sigPayload(v) {
+  if (!v || typeof v !== 'object') return undefined
+  const o = {}
+  for (const k of SIG_INT) if (Number.isFinite(v[k]) && v[k] >= 0) o[k] = Math.min(36000, Math.round(v[k]))
+  if (Number.isFinite(v.rightFrac)) o.rightPct = clamp(Math.round(100 * v.rightFrac), 0, 100)
+  for (const k of SIG_ARR) if (Array.isArray(v[k]) && v[k].length) o[k] = v[k].slice(0, 20).map((x) => Math.max(0, Math.min(36000, Math.round(Number(x) || 0))))
+  for (const k of SIG_BOOL) if (v[k]) o[k] = true
+  return Object.keys(o).length ? o : undefined
 }
 function chip(c) { return c.kind === 'ai' ? '<span class="chip ai">AI</span>' : '' }
 function crowdOf(comic) { const c = BOARD?.boards?.all?.comics?.find((x) => x.comic === comic && x.bouts); return c ? Math.round(c.elo) : null }
@@ -829,11 +850,11 @@ function pauseBallot(msg) {
 function skipClip() {
   if (!current || !cur || moving || (stage !== 'left' && stage !== 'right')) return false
   const side = stage === 'left' ? 'L' : 'R', sc = screens[side]; if (!sc) return false
-  sc.track(); sc.skipped = true; sc.fadePause()
+  sc.track(); sc.skipped = true; try { sc.skippedAt = Math.round(sc.t()) } catch {} sc.fadePause()
   const c = sc.clip, [a, b] = current
   const rec = { a: a.id, b: b.id, stage: side === 'L' ? 'left-skip' : 'right-skip', comics: [c.comic], comic: c.comic, clip: c.id, ...(current.daily ? { daily: current.daily } : {}),
-    style: Array.isArray(c.style) ? c.style : [], watchedSec: Math.round(10 * (sc.watched || 0)) / 10, at: new Date().toISOString() }
-  LS.set('skips', [...LS.get('skips', []), rec].slice(-500))
+    style: Array.isArray(c.style) ? c.style : [], watchedSec: Math.round(10 * (sc.watched || 0)) / 10, ...signals(), at: new Date().toISOString() }
+  LS.set('skips', [...LS.get('skips', []), rec].slice(-500)); queueEvents()
   try { MODEL = fitLocal(); TRAITS = fitTraits() } catch {}
   if (side === 'L') { toast('Skipped to #2. Noted against that clip.'); startClip('R') } else startVote()
   return true
@@ -884,7 +905,7 @@ function pass() {
   if (!current) return
   const [a, b] = current
   armed = false
-  LS.set('passes', [...LS.get('passes', []), { a: a.id, b: b.id, ...signals(), ...(current.daily ? { daily: current.daily } : {}), at: new Date().toISOString() }].slice(-300))
+  LS.set('passes', [...LS.get('passes', []), { a: a.id, b: b.id, ...signals(), ...(current.daily ? { daily: current.daily } : {}), at: new Date().toISOString() }].slice(-300)); queueEvents()
   LS.set('skipped', [...LS.get('skipped', []), pairKey(a.id, b.id)].slice(-500)); bumpSeen(a.id, b.id)
   toast('No pick, so it\u2019s a pass. Neither comic loses anything.')
   goNext(null); paintHistory()
@@ -893,13 +914,15 @@ function pass() {
 // swipe up / wheel / ArrowUp / PageDown / S / the rail's Skip: leave this screening at any stage
 function skipClash() {
   if (!current || moving || stage === 'done' || stage === 'idle') return goNext(null)
-  const [a, b] = current, sg = signals()
+  const [a, b] = current
   const on = stage === 'left' ? [a] : stage === 'right' ? [b] : stage === 'vote' ? [a, b] : []
   const sc = stage === 'left' ? screens.L : stage === 'right' ? screens.R : null
+  if (sc) { try { sc.track(); sc.skippedAt = Math.round(sc.t()) } catch {} }
+  const sg = signals()
   const rec = { a: a.id, b: b.id, stage, comics: on.map((c) => c.comic), clip: sc ? sc.clip.id : null,
     watchedSec: sc ? Math.round(10 * (sc.watched || 0)) / 10 : 0, ...sg, ...(current.daily ? { daily: current.daily } : {}), at: new Date().toISOString() }
   if (stage === 'vote' && armedAt) rec.decisionMs = Math.round(now() - armedAt)
-  LS.set('skips', [...LS.get('skips', []), rec].slice(-500))
+  LS.set('skips', [...LS.get('skips', []), rec].slice(-500)); queueEvents()
   LS.set('skipped', [...LS.get('skipped', []), pairKey(a.id, b.id)].slice(-500)); bumpSeen(a.id, b.id)
   if (sc) { MODEL = fitLocal(); TRAITS = fitTraits(); paintYou() }
   goNext(null); paintHistory()
@@ -1865,7 +1888,28 @@ async function api(path, { method = 'GET', body } = {}) {
   if (r.status === 401 && t && !path.startsWith('/auth/')) { LS.set('session', null); USER = null; paintUser() }
   return { ok: !!r.ok, status: r.status, j }
 }
-const apiVote = (v) => ({ a: v.a, b: v.b, winner: v.winner, ...(v.why ? { why: v.why } : {}), ...(Number.isInteger(v.decisionMs) ? { ms: v.decisionMs } : {}), ...(v.daily ? { daily: v.daily } : {}), createdAt: v.createdAt })
+const apiVote = (v) => ({ a: v.a, b: v.b, winner: v.winner, ...(v.why ? { why: v.why } : {}), ...(Number.isInteger(v.decisionMs) ? { ms: v.decisionMs } : {}), ...(v.daily ? { daily: v.daily } : {}), ...(sigPayload(v) ? { signals: sigPayload(v) } : {}), createdAt: v.createdAt })
+// skips ("Not funny", swipe away) and passes (no pick) are watch events: synced so the swipe labels reach the humour model
+const apiEvent = (k, e) => ({ kind: k, a: e.a, b: e.b, stage: e.stage || null, clip: e.clip || null, ...(Number.isFinite(e.watchedSec) ? { watchedSec: Math.round(e.watchedSec) } : {}),
+  ...(Number.isInteger(e.decisionMs) ? { ms: e.decisionMs } : {}), ...(e.daily ? { daily: e.daily } : {}), ...(sigPayload(e) ? { signals: sigPayload(e) } : {}), createdAt: e.at })
+let syncingEv = null, evT = null
+function syncEvents() {
+  if (!signedIn()) return Promise.resolve()
+  if (syncingEv) return syncingEv
+  syncingEv = (async () => {
+    const key = 'u:' + USER.id, since = LS.get('evSyncedUser', '') === key ? LS.get('evSyncedAt', '') : ''
+    const ok = (e) => e && typeof e.a === 'string' && typeof e.b === 'string' && typeof e.at === 'string' && e.at > since
+    const all = [...LS.get('skips', []).filter(ok).map((e) => apiEvent('skip', e)), ...LS.get('passes', []).filter(ok).map((e) => apiEvent('pass', e))]
+      .sort((x, y) => (x.createdAt < y.createdAt ? -1 : 1))
+    for (let i = 0; i < all.length; i += 200) {
+      const chunk = all.slice(i, i + 200), r = await api('/events', { method: 'POST', body: { events: chunk } })
+      if (!r.ok) return
+      LS.set('evSyncedAt', chunk[chunk.length - 1].createdAt); LS.set('evSyncedUser', key)
+    }
+  })().catch(() => {}).finally(() => (syncingEv = null))
+  return syncingEv
+}
+function queueEvents() { if (!signedIn()) return; clearTimeout(evT); evT = setTimeout(() => syncEvents(), 1500) }
 let syncing = null
 function syncVotes() {
   if (!signedIn()) return Promise.resolve()
@@ -1888,7 +1932,7 @@ async function initAccount() {
 }
 async function afterSignIn(needs, fresh) {
   paintUser(); paintProfilePage()
-  syncVotes().catch(() => {})
+  syncVotes().catch(() => {}); syncEvents()
   const pa = LS.get('pendingAccept', null)
   if (pa?.code) {
     try { const r = await api(`/invites/${encodeURIComponent(pa.code)}/accept`, { method: 'POST', body: { open_id: pa.open_id } }); if (r.ok) toast(`You and ${r.j.friend?.username || pa.username} are now friends.`) } catch {}

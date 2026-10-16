@@ -39,6 +39,17 @@ function dailyFor(date) {
   const p = TOPIC_PAIRS[hashStr(date) % TOPIC_PAIRS.length]
   return { date, a: p.a, b: p.b, topic: p.topic, title: 'Daily Clash', editorial: false }
 }
+// watch signals (lexicon #signals, optional): whole seconds; MUST match cleanSignals in api/src/index.js
+const SIG_INT = { leftWatchedSec: 36000, rightWatchedSec: 36000, rightPct: 100, replays: 1000, leftSkippedAt: 36000, rightSkippedAt: 36000 }
+const SIG_ARR = ['leftSeekTargets', 'leftSeekFrom', 'rightSeekTargets', 'rightSeekFrom'], SIG_BOOL = ['skippedAhead', 'leftSkipped', 'rightSkipped']
+function cleanSignals(x) {
+  if (!x || typeof x !== 'object' || Array.isArray(x)) return undefined
+  const o = {}
+  for (const [k, mx] of Object.entries(SIG_INT)) { const n = Number(x[k]); if (x[k] != null && Number.isFinite(n) && n >= 0) o[k] = Math.min(mx, Math.round(n)) }
+  for (const k of SIG_ARR) if (Array.isArray(x[k])) { const a = x[k].slice(0, 20).map(Number).filter((n) => Number.isFinite(n) && n >= 0).map((n) => Math.min(36000, Math.round(n))); if (a.length) o[k] = a }
+  for (const k of SIG_BOOL) if (x[k] === true) o[k] = true
+  return Object.keys(o).length ? o : undefined
+}
 const statePath = path.join(DATA, 'state.json')
 const state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : { cursor: null, dids: [] }
 const dids = new Set(state.dids)
@@ -113,7 +124,7 @@ for (const did of dids) {
       if (!t || t > Date.now() + 5 * 60e3) continue
       const k = [v.a, v.b].sort().join('|')
       const prev = latest.get(k)
-      if (!prev || t > Date.parse(prev.createdAt)) latest.set(k, { uri: r.uri, did, a: v.a, b: v.b, winner: v.winner, createdAt: v.createdAt, voter: v.voter === 'agent' ? 'agent' : 'human', model: typeof v.model === 'string' ? v.model.slice(0, 80) : undefined, why: typeof v.why === 'string' ? v.why.slice(0, 40) : undefined, ms: Number.isInteger(v.ms) && v.ms >= 0 && v.ms <= 3600000 ? v.ms : undefined, daily: typeof v.daily === 'string' && DAY_RE.test(v.daily) ? v.daily : undefined, cc: typeof v.cc === 'string' && /^[A-Z]{2}$/.test(v.cc) ? v.cc : undefined })
+      if (!prev || t > Date.parse(prev.createdAt)) latest.set(k, { uri: r.uri, did, a: v.a, b: v.b, winner: v.winner, createdAt: v.createdAt, voter: v.voter === 'agent' ? 'agent' : 'human', model: typeof v.model === 'string' ? v.model.slice(0, 80) : undefined, why: typeof v.why === 'string' ? v.why.slice(0, 40) : undefined, ms: Number.isInteger(v.ms) && v.ms >= 0 && v.ms <= 3600000 ? v.ms : undefined, daily: typeof v.daily === 'string' && DAY_RE.test(v.daily) ? v.daily : undefined, cc: typeof v.cc === 'string' && /^[A-Z]{2}$/.test(v.cc) ? v.cc : undefined, signals: cleanSignals(v.signals) })
     }
     if (latest.size) {
       const vs = [...latest.values()]

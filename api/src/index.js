@@ -18,6 +18,18 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/
 const USERNAME = /^[A-Za-z0-9_]{3,20}$/ // shown as typed, unique case-insensitively
 const SHARE_BASES = ['https://www.funnier.si/', 'https://prx0r.github.io/characters/']
 const WHY_MAX = 40
+// watch signals (lexicon #signals): whole seconds, all optional; anything else is dropped
+const SIG_INT = { leftWatchedSec: 36000, rightWatchedSec: 36000, rightPct: 100, replays: 1000, leftSkippedAt: 36000, rightSkippedAt: 36000 }
+const SIG_ARR = ['leftSeekTargets', 'leftSeekFrom', 'rightSeekTargets', 'rightSeekFrom']
+const SIG_BOOL = ['skippedAhead', 'leftSkipped', 'rightSkipped']
+export function cleanSignals(x) {
+  if (!x || typeof x !== 'object' || Array.isArray(x)) return null
+  const o = {}
+  for (const [k, mx] of Object.entries(SIG_INT)) { const v = Number(x[k]); if (x[k] != null && Number.isFinite(v) && v >= 0) o[k] = Math.min(mx, Math.round(v)) }
+  for (const k of SIG_ARR) if (Array.isArray(x[k])) { const a = x[k].slice(0, 20).map(Number).filter((v) => Number.isFinite(v) && v >= 0).map((v) => Math.min(36000, Math.round(v))); if (a.length) o[k] = a }
+  for (const k of SIG_BOOL) if (x[k] === true) o[k] = true
+  return Object.keys(o).length ? JSON.stringify(o) : null
+}
 
 const app = new Hono()
 app.use('*', cors({
@@ -141,6 +153,8 @@ app.delete('/me', auth, async (c) => {
   const id = c.get('user').id, DB = c.env.DB
   await DB.batch([
     DB.prepare('DELETE FROM votes WHERE user_id = ?').bind(id),
+    DB.prepare('DELETE FROM watch_events WHERE user_id = ?').bind(id),
+    DB.prepare('DELETE FROM humour_profiles WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM friends WHERE user_id = ? OR friend_id = ?').bind(id, id),
     DB.prepare('DELETE FROM invite_opens WHERE code IN (SELECT code FROM invites WHERE inviter_id = ?)').bind(id),
     DB.prepare('UPDATE invite_opens SET opener_user_id = NULL WHERE opener_user_id = ?').bind(id),
@@ -167,9 +181,12 @@ app.post('/votes', auth, async (c) => {
     const ms = Number.isInteger(v.ms ?? v.decisionMs) && (v.ms ?? v.decisionMs) >= 0 && (v.ms ?? v.decisionMs) < 3600e3 ? v.ms ?? v.decisionMs : null
     const why = typeof v.why === 'string' ? v.why.slice(0, WHY_MAX) : null
     const daily = typeof v.daily === 'string' && DAY.test(v.daily) ? v.daily : null
-    stmts.push(DB.prepare(`INSERT INTO votes (user_id, a, b, winner, why, ms, daily, cc, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (user_id, a, b) DO UPDATE SET winner = excluded.winner, why = excluded.why, ms = excluded.ms, daily = excluded.daily, cc = excluded.cc, created_at = excluded.created_at
-      WHERE excluded.created_at >= votes.created_at`).bind(u.id, a, bb, v.winner, why, ms, daily, u.country || null, t))
+    // signals keep the clash's on-screen order (left = v.a), so they are stored with the as-shown order
+    const sg = cleanSignals(v.signals), sig = sg ? JSON.stringify({ shown: [v.a, v.b], ...JSON.parse(sg) }) : null
+    stmts.push(DB.prepare(`INSERT INTO votes (user_id, a, b, winner, why, ms, daily, cc, signals, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (user_id, a, b) DO UPDATE SET winner = excluded.winner, why = excluded.why, ms = excluded.ms, daily = excluded.daily, cc = excluded.cc,
+        signals = COALESCE(excluded.signals, votes.signals), created_at = excluded.created_at
+      WHERE excluded.created_at >= votes.created_at`).bind(u.id, a, bb, v.winner, why, ms, daily, u.country || null, sig, t))
     const k = a + '|' + bb
     if (!seen.has(k)) { seen.add(k); pairs.push([a, bb]) }
   }
@@ -177,6 +194,34 @@ app.post('/votes', auth, async (c) => {
       (SELECT code FROM invites WHERE (clash_a = ? AND clash_b = ?) OR (clash_a = ? AND clash_b = ?))`).bind(u.id, a, bb, bb, a))
   if (stmts.length) await DB.batch(stmts)
   return c.json({ ok: true, saved: list.length - skipped, skipped })
+})
+
+// ---------- watch events: skips ("Not funny", swipe away) and passes, with their signals (the swipe labels, §4c) ----------
+const STAGES = ['intro', 'left', 'right', 'vote', 'done', 'left-skip', 'right-skip']
+app.post('/events', auth, async (c) => {
+  const u = c.get('user'), b = await body(c), list = Array.isArray(b?.events) ? b.events : []
+  if (!list.length) return c.json({ error: 'no_events' }, 400)
+  if (list.length > 200) return c.json({ error: 'too_many', max: 200 }, 400)
+  const DB = c.env.DB, stmts = []
+  let skipped = 0
+  for (const e of list) {
+    if (!e || !['skip', 'pass'].includes(e.kind) || !CLIP.test(e.a || '') || !CLIP.test(e.b || '') || e.a === e.b || (e.clip != null && !CLIP.test(e.clip)) ||
+      typeof e.createdAt !== 'string' || isNaN(Date.parse(e.createdAt))) { skipped++; continue }
+    const t = new Date(Math.min(Date.parse(e.createdAt), Date.now())).toISOString()
+    const ws = Number(e.watchedSec), ms = Number(e.ms)
+    stmts.push(DB.prepare(`INSERT OR IGNORE INTO watch_events (user_id, kind, a, b, stage, clip, watched_sec, ms, daily, signals, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(u.id, e.kind, e.a, e.b, STAGES.includes(e.stage) ? e.stage : null, e.clip || null, Number.isFinite(ws) && ws >= 0 ? Math.min(36000, Math.round(ws)) : null,
+        Number.isInteger(ms) && ms >= 0 && ms < 3600e3 ? ms : null, typeof e.daily === 'string' && DAY.test(e.daily) ? e.daily : null, cleanSignals(e.signals), t))
+  }
+  if (stmts.length) await DB.batch(stmts)
+  return c.json({ ok: true, saved: list.length - skipped, skipped })
+})
+
+// the interpretable humour profile, fitted offline from bit theory features (tools/humour.mjs); null until there is enough data
+app.get('/me/humour', auth, async (c) => {
+  const r = await c.env.DB.prepare('SELECT profile, updated_at FROM humour_profiles WHERE user_id = ?').bind(c.get('user').id).first()
+  let p = null; try { p = r ? JSON.parse(r.profile) : null } catch {}
+  return c.json({ humour: p, updated: r?.updated_at || null })
 })
 
 app.get('/clash/:a/:b/friends', auth, async (c) => {

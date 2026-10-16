@@ -49,7 +49,9 @@ const idToken = (sub, extra = {}, aud = CID) => new SignJWT({ email: sub + '@exa
 execSync('npx wrangler d1 execute funnier --local --file schema.sql', { stdio: 'ignore' })
 try { execSync('npx wrangler d1 execute funnier --local --file migrations/0002_avatar_seed.sql', { stdio: 'ignore' }) } catch {} // already applied -> duplicate column
 execSync('npx wrangler d1 execute funnier --local --file migrations/0003_laughs_durations_audio.sql', { stdio: 'ignore' }) // idempotent
-execSync(`npx wrangler d1 execute funnier --local --command "DELETE FROM votes; DELETE FROM friends; DELETE FROM invites; DELETE FROM invite_opens; DELETE FROM users; DELETE FROM laughs; DELETE FROM clip_durations; DELETE FROM clip_audio;"`, { stdio: 'ignore' })
+execSync('npx wrangler d1 execute funnier --local --file migrations/0004_watch_signals.sql', { stdio: 'ignore' }) // idempotent
+try { execSync('npx wrangler d1 execute funnier --local --file migrations/0005_votes_signals.sql', { stdio: 'ignore' }) } catch {} // already applied -> duplicate column
+execSync(`npx wrangler d1 execute funnier --local --command "DELETE FROM votes; DELETE FROM friends; DELETE FROM invites; DELETE FROM invite_opens; DELETE FROM users; DELETE FROM laughs; DELETE FROM clip_durations; DELETE FROM clip_audio; DELETE FROM watch_events; DELETE FROM humour_profiles;"`, { stdio: 'ignore' })
 const PORT = 8797, BASE = `http://127.0.0.1:${PORT}`
 const dev = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT), '--ip', '127.0.0.1',
   '--var', `GOOGLE_CLIENT_ID:${CID}`, '--var', 'ALLOW_TEST_JWKS:1', '--var', 'TEST_JWKS_URL:http://127.0.0.1:8798/jwks', '--var', 'SESSION_SECRET:local-test-secret-not-for-prod'], { stdio: ['ignore', 'pipe', 'pipe'], detached: true })
@@ -140,6 +142,31 @@ try {
   r = await J('GET', `/stats/clash/${A}/${B}`)
   ok(r.s === 200 && r.j.total === 7 && r.j.countries.length === 1 && r.j.countries[0].cc === 'DE' && r.j.countries[0].pctA === 60, `global split + per-country only at >=5 (total ${r.j.total}, ${JSON.stringify(r.j.countries)})`)
   r = await J('POST', '/votes', t1, { votes: [{ a: A, b: A, winner: A }] }); ok(r.j.skipped === 1, 'invalid vote rows are skipped')
+
+  // ---- watch signals (§3a/§3b): optional, sanitised, stored as JSON with the on-screen order; skips/passes as events ----
+  const sql = (q) => JSON.parse(execSync(`npx wrangler d1 execute funnier --local --json --command "${q}"`, { encoding: 'utf8' }))[0].results
+  const SA = 'sigAAAAAAAA', SB = 'sigBBBBBBBB'
+  r = await J('POST', '/votes', t1, { votes: [{ a: SB, b: SA, winner: SA, createdAt: new Date().toISOString(),
+    signals: { leftWatchedSec: 41.6, rightWatchedSec: 33, rightPct: 0.9 * 100, replays: 2, rightSeekTargets: [72, 'x', -5, 118.4], rightSeekFrom: [80, 125], skippedAhead: true, evil: 'drop me', leftSkipped: 'yes' } }] })
+  ok(r.s === 200 && r.j.saved === 1, 'vote with signals accepted')
+  let row = sql(`SELECT signals FROM votes WHERE a = '${SA}' AND b = '${SB}'`)[0]; let sg = JSON.parse(row?.signals || 'null')
+  ok(sg && sg.shown[0] === SB && sg.leftWatchedSec === 42 && sg.rightPct === 90 && sg.replays === 2 && JSON.stringify(sg.rightSeekTargets) === '[72,118]' && sg.skippedAhead === true && !('evil' in sg) && !('leftSkipped' in sg), `signals sanitised + stored in shown order (${row?.signals})`)
+  r = await J('POST', '/votes', t1, { votes: [{ a: SB, b: SA, winner: SB, createdAt: new Date(Date.now() + 1000).toISOString() }] })
+  row = sql(`SELECT winner, signals FROM votes WHERE a = '${SA}' AND b = '${SB}'`)[0]
+  ok(row.winner === SB && JSON.parse(row.signals || 'null')?.replays === 2, 'a later vote without signals keeps the earlier signals (backward compatible)')
+  r = await J('POST', '/votes', t2, { votes: [{ a: SA, b: SB, winner: SA }] }); ok(r.s === 200 && r.j.saved === 1, 'old-style vote without signals still saves')
+  const at = new Date().toISOString()
+  const evs = [{ kind: 'skip', a: SA, b: SB, stage: 'right-skip', clip: SB, watchedSec: 12.4, signals: { rightSkippedAt: 95, rightSkipped: true }, createdAt: at },
+    { kind: 'pass', a: SA, b: SB, stage: 'vote', ms: 3100, signals: { leftSeekTargets: [10] }, createdAt: at }, { kind: 'laugh', a: SA, b: SB, createdAt: at }, { kind: 'skip', a: SA, b: SA, createdAt: at }]
+  r = await J('POST', '/events', t1, { events: evs }); ok(r.s === 200 && r.j.saved === 2 && r.j.skipped === 2, `POST /events saves skips + passes, drops bad rows (${JSON.stringify(r.j)})`)
+  r = await J('POST', '/events', t1, { events: evs.slice(0, 2) }); const nev = sql(`SELECT COUNT(*) AS n FROM watch_events WHERE a = '${SA}'`)[0].n
+  ok(nev === 2, `re-syncing the same events does not duplicate them (${nev})`)
+  row = sql(`SELECT stage, clip, watched_sec, signals FROM watch_events WHERE kind = 'skip' AND a = '${SA}'`)[0]
+  ok(row.stage === 'right-skip' && row.clip === SB && row.watched_sec === 12 && JSON.parse(row.signals).rightSkippedAt === 95, 'skip event stores clip, stage, skippedAt')
+  r = await J('POST', '/events', null, { events: evs }); ok(r.s === 401, 'POST /events needs a session')
+  r = await J('GET', '/me/humour', t1); ok(r.s === 200 && r.j.humour === null, 'GET /me/humour -> null before the offline fit has run')
+  execSync(`npx wrangler d1 execute funnier --local --command "INSERT OR REPLACE INTO humour_profiles (user_id, profile, updated_at) SELECT id, '{\\"n\\":12,\\"line\\":\\"You laugh hardest at split knowledge.\\"}', '2026-10-16' FROM users WHERE email = 'g1@example.com'"`, { stdio: 'ignore' })
+  r = await J('GET', '/me/humour', t1); ok(r.s === 200 && r.j.humour?.n === 12 && /split knowledge/.test(r.j.humour.line), `GET /me/humour returns the offline profile (${JSON.stringify(r.j)})`)
 
   // ---- laughs: anonymous with a device id, 1 per 0.7s per user/device, 1-second histogram ----
   const LC = 'laughClip01', dev = 'devAAAA1111', dev2 = 'devBBBB2222'

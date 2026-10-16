@@ -82,7 +82,106 @@
             "type": "string",
             "maxLength": 2,
             "description": "Optional, opt-in only: the voter's self-chosen country as an ISO 3166-1 alpha-2 code (e.g. GB). The web client only sends it with daily-clash picks, never detects it."
+          },
+          "signals": {
+            "type": "ref",
+            "ref": "#signals",
+            "description": "Optional watch signals from the screening (backward compatible: older records have none)."
           }
+        }
+      }
+    },
+    "signals": {
+      "type": "object",
+      "description": "What the screening said without asking. All fields optional; times are whole seconds into the YouTube video (not into the screened window).",
+      "properties": {
+        "leftWatchedSec": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 36000,
+          "description": "Seconds of clip a actually played."
+        },
+        "rightWatchedSec": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 36000,
+          "description": "Seconds of clip b actually played."
+        },
+        "rightPct": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Percent of clip b's screened window that played."
+        },
+        "replays": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "Jumps back of more than 2s across both clips."
+        },
+        "skippedAhead": {
+          "type": "boolean",
+          "description": "The viewer jumped forward in either clip."
+        },
+        "leftSkipped": {
+          "type": "boolean",
+          "description": "Clip a was ended early with Not funny."
+        },
+        "rightSkipped": {
+          "type": "boolean",
+          "description": "Clip b was ended early with Not funny."
+        },
+        "leftSeekTargets": {
+          "type": "array",
+          "maxLength": 20,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 36000
+          },
+          "description": "Times in clip a the viewer jumped back TO (a rewatch; the laugh label)."
+        },
+        "leftSeekFrom": {
+          "type": "array",
+          "maxLength": 20,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 36000
+          },
+          "description": "Times in clip a the viewer jumped back FROM, index-aligned with leftSeekTargets."
+        },
+        "rightSeekTargets": {
+          "type": "array",
+          "maxLength": 20,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 36000
+          },
+          "description": "Times in clip b the viewer jumped back TO."
+        },
+        "rightSeekFrom": {
+          "type": "array",
+          "maxLength": 20,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 36000
+          },
+          "description": "Times in clip b the viewer jumped back FROM."
+        },
+        "leftSkippedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 36000,
+          "description": "Where clip a was when the viewer skipped it."
+        },
+        "rightSkippedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 36000,
+          "description": "Where clip b was when the viewer skipped it."
         }
       }
     }
