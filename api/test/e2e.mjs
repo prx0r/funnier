@@ -79,6 +79,22 @@ try {
   r = await J('PUT', '/me/profile', t1, { username: 'DeadpanDuck42', avatar_seed: 'k3j9x0q2ab', birth_year: 1990, country: 'gb', sex_at_birth: 'skip' })
   ok(r.s === 200 && r.j.needsProfile === false && r.j.user.country === 'GB', 'full profile saved')
 
+  // ---- onboarding save exactly as the sheet sends it (default fields only, then everything), over a www.funnier.si origin ----
+  {
+    const W = async (method, p, tok, b) => { const x = await fetch(BASE + p, { method, headers: { origin: 'https://www.funnier.si', 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); let j = null; try { j = await x.json() } catch {} return { s: x.status, j, h: x.headers } }
+    let o = await W('POST', '/auth/google', null, { credential: await idToken('onb1') }); const to = o.j?.token
+    ok(o.s === 200 && to && o.j.needsProfile === true, 'onboarding: fresh sign-in needs a profile')
+    o = await W('PUT', '/me/profile', to, { username: 'Prior Trades', avatar_seed: 'hmbm7a3jvv', country: 'KH' })
+    ok(o.s === 400 && o.j.fields?.username && !o.j.fields.country && o.h.get('access-control-allow-origin') === 'https://www.funnier.si', 'onboarding: a username with a space -> 400 with a username field error (CORS ok)')
+    o = await W('PUT', '/me/profile', to, { username: 'SnarkyMoose20', avatar_seed: 'hmbm7a3jvv', country: 'KH' })
+    ok(o.s === 200 && o.j.user.username === 'SnarkyMoose20' && o.j.user.avatar_seed === 'hmbm7a3jvv' && o.j.needsProfile === false, 'onboarding: defaults only (name + device mascot + country) saves and completes the profile')
+    o = await W('GET', '/me', to); ok(o.s === 200 && o.j.user.username === 'SnarkyMoose20' && o.j.needsProfile === false, 'onboarding: GET /me shows the saved profile')
+    o = await W('PUT', '/me/profile', to, { username: 'SnarkyMoose20', avatar_seed: 'qcrktb7wyk', country: 'GB', birth_year: 1994, sex_at_birth: 'female' })
+    ok(o.s === 200 && o.j.user.birth_year === 1994 && o.j.user.country === 'GB' && o.j.user.sex_at_birth === 'female' && o.j.user.avatar_seed === 'qcrktb7wyk', 'onboarding: optional year/country/sex save too')
+    o = await W('POST', '/auth/google', null, { credential: await idToken('onb1') }); ok(o.s === 200 && o.j.needsProfile === false && o.j.user.username === 'SnarkyMoose20', 'onboarding: signing in again keeps the profile (no second onboarding)')
+    o = await W('PUT', '/me/profile', 'not-a-token', { username: 'Whatever_1' }); ok(o.s === 401 && o.h.get('access-control-allow-origin') === 'https://www.funnier.si', 'onboarding: a stale session -> 401 the client can explain')
+  }
+
   r = await J('POST', '/auth/google', null, { credential: await idToken('g2') }); const t2 = r.j.token
   r = await J('PUT', '/me/profile', t2, { username: 'deadpanduck42' }); ok(r.s === 409, 'username unique (case-insensitive) -> 409')
   r = await J('PUT', '/me/profile', t2, { username: 'PunchyPanda7', avatar_id: 'grin', birth_year: 1985, country: 'US', sex_at_birth: 'female' }); ok(r.s === 200, 'second profile saved')

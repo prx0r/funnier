@@ -651,8 +651,10 @@ body.fs footer{display:none}
 body.fs #v-arena:not([hidden]) #stage{position:fixed;inset:0;z-index:14;margin:0;border-radius:0;min-height:0;height:100vh;height:100dvh;background:var(--bg)}
 body.fs-pseudo #v-arena:not([hidden]) #stage{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 body.fs-pseudo .theatre .screen{width:min(calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right)),calc((100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom)) * 16 / 9))}
-.brand{transition:opacity .4s ease,color .2s,background .2s}
-body.fs.chrome-hidden:not(.in-theatre) .brand{opacity:.4}
+/* fullscreen: while the chrome is hidden the logo stays pinned top-left, dimmed into the background; mouse move (chrome back) or hover restores it */
+body.fs.chrome-hidden .brand,body.fs.in-theatre.chrome-hidden .brand{opacity:.3;filter:saturate(.55) blur(.3px);pointer-events:auto}
+body.fs.chrome-hidden .brand:hover,body.fs.chrome-hidden .brand:focus-visible{opacity:1;filter:none}
+.brand{transition:opacity .4s ease,filter .4s ease,color .2s,background .2s}
 @media (prefers-reduced-motion:reduce){
   .gest,.pullnext,.peek,.brand,.gbtn .gl{transition:none!important}
   .gest.pulse .gskip svg,.gest.pulse .gopp svg{animation:none}

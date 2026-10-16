@@ -2057,37 +2057,70 @@ function openOnboarding() {
     </form></div>`
   sh.hidden = false
   const close = () => { sh.hidden = true; sh.innerHTML = '' }
-  sh.onclick = (e) => { if (e.target === sh) close() }
-  sh.querySelectorAll('[data-ob="close"]').forEach((b) => (b.onclick = close))
-  sh.querySelector('[data-ob="dice"]').onclick = () => { sh.querySelector('#obuser').value = funnyName() }
-  const roller = avatarRoller(sh.querySelector('.avroll'), seedOf(u) || deviceSeed())
-  sh.querySelector('#obform').onsubmit = async (e) => {
-    e.preventDefault()
-    sh.querySelectorAll('.oberr').forEach((x) => (x.textContent = ''))
+  const form = sh.querySelector('#obform')
+  let roller = null
+  // bind submit FIRST: if anything below throws, the form must never fall back to a native GET submit (a silent page reload)
+  form.onsubmit = (e) => { e.preventDefault(); saveProfile().catch((err) => { console.error('profile save', err); obFail('Something went wrong on this page. Please reload and try again.') }) }
+  const errEl = (k) => sh.querySelector(`[data-err="${k}"]`)
+  const LABEL = { username: 'Username', avatar_seed: 'Avatar', country: 'Country', birth_year: 'Year of birth', sex_at_birth: 'Sex at birth' }
+  const FIELD = { username: '#obuser', country: '#obcc', birth_year: '#obyear' }
+  // every failure says so next to the Save button (where the click happened), and the first bad field scrolls into view
+  function obFail(msg, fields = {}) {
+    let first = null
+    for (const [k, m] of Object.entries(fields)) { const el = errEl(k); if (el) el.textContent = m; if (!first) first = k }
+    const sum = Object.entries(fields).map(([k, m]) => `${LABEL[k] || k}: ${m}`).join(' ')
+    const f = errEl('form'); if (f) { f.textContent = msg || sum || 'Couldn\u2019t save. Please try again.'; f.setAttribute('role', 'alert') }
+    const inp = first && FIELD[first] ? sh.querySelector(FIELD[first]) : null
+    if (inp) { try { inp.scrollIntoView({ block: 'center', behavior: 'smooth' }) } catch {} try { inp.focus({ preventScroll: true }) } catch {} }
+    else { try { f?.scrollIntoView({ block: 'nearest' }) } catch {} }
+  }
+  const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/
+  const nameHint = (v) => USERNAME_RE.test(v) ? '' : v.length < 3 ? 'At least 3 characters.' : v.length > 20 ? 'At most 20 characters.' : 'Only letters, numbers and _ (no spaces or symbols).'
+  async function saveProfile() {
+    sh.querySelectorAll('.oberr').forEach((x) => { x.textContent = ''; x.removeAttribute('role') })
     const val = (q) => sh.querySelector(q)?.value?.trim() || ''
-    const body = { username: val('#obuser'), avatar_seed: roller.seed }
+    const errs = {}
+    const name = val('#obuser'), nh = nameHint(name); if (nh) errs.username = nh
+    const seed = roller?.seed || seedOf(u) || deviceSeed()
+    const body = { username: name, avatar_seed: seed }
     const cc = val('#obcc'), yr = val('#obyear'), sx = sh.querySelector('input[name=obsex]:checked')?.value
     if (cc) body.country = cc
-    if (yr) { const y = Number(yr); if (!Number.isInteger(y) || y < 1900 || y > new Date().getFullYear()) { sh.querySelector('[data-err=birth_year]').textContent = 'Enter a four-digit year.'; return } body.birth_year = y }
+    if (yr) { const y = Number(yr); if (!/^\d{4}$/.test(yr) || y < 1900 || y > new Date().getFullYear()) errs.birth_year = 'Enter a four-digit year, like 1994.'; else body.birth_year = y }
     if (sx) body.sex_at_birth = sx
-    const btn = sh.querySelector('button[type=submit]'); btn.disabled = true
-    const r = await api('/me/profile', { method: 'PUT', body }).catch(() => null); btn.disabled = false
-    if (r?.j?.error === 'too_young') {
+    if (Object.keys(errs).length) return obFail('', errs)
+    const btn = sh.querySelector('button[type=submit]'), label = btn.textContent; btn.disabled = true; btn.textContent = 'Saving\u2026'
+    let r = null
+    try { r = await api('/me/profile', { method: 'PUT', body }) } catch (err) { console.warn('profile save', err) }
+    if (!sh.contains(btn)) return // sheet closed meanwhile
+    btn.disabled = false; btn.textContent = label
+    if (!r) return obFail('Couldn\u2019t reach Funnier. Check your connection and press Save again.')
+    if (r.j?.error === 'too_young') {
       await api('/me', { method: 'DELETE' }).catch(() => {})
       LS.set('session', null); USER = null; paintUser()
       sh.querySelector('.sheetcard').innerHTML = `<h2>Sorry</h2><p>Funnier accounts are for people aged 13 and over, so we didn\u2019t keep this sign-in. You can keep watching and voting on this device without an account.</p><div class="obact"><button type="button" class="dhbtn" data-ob="close">OK</button></div>`
       sh.querySelector('[data-ob="close"]').onclick = close
       return
     }
-    if (!r?.ok) {
-      const f = r?.j?.fields || {}
-      for (const [k, m] of Object.entries(f)) { const el = sh.querySelector(`[data-err="${k}"]`); if (el) el.textContent = k === 'username' && /taken/.test(m) ? 'That name\u2019s taken. Reroll or try another.' : m }
-      if (!Object.keys(f).length) sh.querySelector('[data-err=form]').textContent = 'Couldn\u2019t save right now. Please try again.'
+    if (r.status === 401) { // session gone (signed out elsewhere, cleared storage, or a different site address): say so and offer sign-in
+      obFail('Your sign-in has expired, so this couldn\u2019t be saved. Sign in with Google again, then press Save.')
+      const f = errEl('form'); if (f && !f.querySelector('button')) { const b = document.createElement('button'); b.type = 'button'; b.className = 'dhghost obsignin'; b.textContent = 'Sign in again'; b.onclick = () => { close(); setMenu(true) }; f.append(' ', b) }
       return
     }
+    if (!r.ok) {
+      const f = { ...(r.j?.fields || {}) }
+      if (f.username && /taken/.test(f.username)) f.username = 'That name\u2019s taken. Reroll or try another.'
+      return obFail(Object.keys(f).length ? '' : `Couldn\u2019t save right now${r.status ? ' (error ' + r.status + ')' : ''}. Please try again in a moment.`, f)
+    }
+    if (!r.j?.user) return obFail('Couldn\u2019t save right now. Please try again in a moment.')
     if (seedOf(r.j.user)) LS.set('avatarSeed', seedOf(r.j.user)) // this device keeps the mascot they chose
     USER = r.j.user; close(); paintUser(); paintProfilePage(); toast(first ? `Welcome, ${USER.username}.` : 'Profile saved.')
   }
+  sh.onclick = (e) => { if (e.target === sh) close() }
+  sh.querySelectorAll('[data-ob="close"]').forEach((b) => (b.onclick = close))
+  const userIn = sh.querySelector('#obuser')
+  sh.querySelector('[data-ob="dice"]').onclick = () => { userIn.value = funnyName(); errEl('username').textContent = '' }
+  userIn.addEventListener('input', () => { const v = userIn.value.trim(); errEl('username').textContent = v ? nameHint(v) : '' })
+  try { roller = avatarRoller(sh.querySelector('.avroll'), seedOf(u) || deviceSeed()) } catch (err) { console.error('avatar roller', err) }
 }
 
 // ---------- change avatar: the same reroller on its own ----------
@@ -2106,7 +2139,7 @@ function openAvatarSheet() {
   sh.querySelector('[data-ob="save"]').onclick = async (e) => {
     const btn = e.currentTarget; btn.disabled = true
     const r = await api('/me/profile', { method: 'PUT', body: { avatar_seed: roller.seed } }).catch(() => null); btn.disabled = false
-    if (!r?.ok) { sh.querySelector('[data-err=form]').textContent = 'Couldn\u2019t save right now. Please try again.'; return }
+    if (!r?.ok) { sh.querySelector('[data-err=form]').textContent = !r ? 'Couldn\u2019t reach Funnier. Check your connection and try again.' : r.status === 401 ? 'Your sign-in has expired. Sign in with Google again from the account menu.' : `Couldn\u2019t save right now (error ${r.status}). Please try again.`; return }
     if (seedOf(r.j.user)) LS.set('avatarSeed', seedOf(r.j.user)) // this device keeps the mascot they chose
     USER = r.j.user; close(); paintUser(); paintProfilePage(); toast('New look saved.')
   }

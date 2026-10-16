@@ -2,6 +2,11 @@ name = "funnier-api"
 main = "src/index.js"
 compatibility_date = "2025-09-01"
 workers_dev = true
+
+# Workers Logs: keeps console output (no request bodies) so a failed save can be diagnosed afterwards
+[observability]
+enabled = true
+head_sampling_rate = 1
 # api.funnier.si is attached as a Worker custom domain (zone funnier.si); see README "Accounts API".
 
 [vars]

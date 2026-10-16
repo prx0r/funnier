@@ -54,7 +54,7 @@ async function currentUser(c) {
 }
 const auth = async (c, next) => {
   const u = await currentUser(c)
-  if (!u) return c.json({ error: 'unauthorized' }, 401)
+  if (!u) { if (c.req.method !== 'GET') console.log('401', c.req.method, c.req.path, c.req.header('authorization') ? 'bearer' : getCookie(c, COOKIE) ? 'cookie' : 'none'); return c.json({ error: 'unauthorized' }, 401) }
   c.set('user', u); await next()
 }
 const pub = (u) => u && ({ username: u.username || null, avatar_seed: seedOf(u), google_avatar: seedOf(u) ? null : u.google_avatar || null })
@@ -62,7 +62,8 @@ const self = (u) => ({
   id: u.id, email: u.email, name: u.name, google_avatar: u.google_avatar, username: u.username, avatar_seed: seedOf(u),
   birth_year: u.birth_year, country: u.country, sex_at_birth: u.sex_at_birth, created_at: u.created_at,
 })
-const needsProfile = (u) => !u.username || !seedOf(u) || !u.birth_year || !u.country || !u.sex_at_birth
+// only the public part is required; year of birth, country and sex at birth are optional (the sheet says so)
+const needsProfile = (u) => !u.username || !seedOf(u)
 const sorted = (a, b) => (a < b ? [a, b] : [b, a])
 const now = () => new Date().toISOString()
 function code(n = 8) {
@@ -119,11 +120,11 @@ app.put('/me/profile', auth, async (c) => {
   }
   if ('country' in b) { const v = String(b.country ?? '').toUpperCase(); if (!/^[A-Z]{2}$/.test(v)) errs.country = 'two-letter ISO country code'; else set.country = v }
   if ('sex_at_birth' in b) { if (!['male', 'female', 'skip'].includes(b.sex_at_birth)) errs.sex_at_birth = 'male, female or skip'; else set.sex_at_birth = b.sex_at_birth }
-  if (Object.keys(errs).length) return c.json({ error: 'invalid', fields: errs }, 400)
+  if (Object.keys(errs).length) { console.log('profile 400', JSON.stringify({ fields: Object.keys(errs) })); return c.json({ error: 'invalid', fields: errs }, 400) }
   if (!Object.keys(set).length) return c.json({ user: self(u), needsProfile: needsProfile(u) })
   if (set.username) {
     const taken = await c.env.DB.prepare('SELECT id FROM users WHERE username = ? COLLATE NOCASE AND id != ?').bind(set.username, u.id).first()
-    if (taken) return c.json({ error: 'username_taken', fields: { username: 'already taken' } }, 409)
+    if (taken) { console.log('profile 409 username_taken'); return c.json({ error: 'username_taken', fields: { username: 'already taken' } }, 409) }
   }
   const keys = Object.keys(set)
   try {

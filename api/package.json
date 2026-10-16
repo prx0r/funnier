@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node test/e2e.mjs"
+    "test": "node test/e2e.mjs",
+    "test:browser": "node test/onboard-browser.mjs"
   },
   "dependencies": { "hono": "^4.6.0", "jose": "^5.9.0" },
   "devDependencies": { "wrangler": "^4.0.0" }
