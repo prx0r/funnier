@@ -896,3 +896,11 @@ button.up-fav.empty:hover{border-color:var(--gold);color:var(--gold)}
 .tl-d{color:var(--text)}
 .tl-why{color:var(--muted)}
 .tl-list time{font-size:10.5px;color:rgba(141,139,147,.7);font-family:var(--mono)}
+/* port my humour */
+.portsheet .pt-acts{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 10px}
+.portsheet .pt-imp{cursor:pointer;display:inline-flex;align-items:center}
+.portsheet .pt-opt{display:flex;gap:8px;align-items:center;font-size:13px;color:rgba(255,255,255,.78);margin:4px 0 8px}
+.portsheet code{font-family:var(--mono);font-size:12px;color:var(--gold)}
+.portsheet .pt-peek summary{cursor:pointer;font-size:12.5px;color:var(--muted)}
+.portsheet .pt-peek pre{white-space:pre-wrap;font-size:12px;line-height:1.45;background:rgba(255,255,255,.04);border-radius:10px;padding:12px;max-height:240px;overflow:auto;color:rgba(255,255,255,.85)}
+.linkbtn{background:none;border:0;padding:0;color:var(--gold);text-decoration:underline;cursor:pointer;font:inherit}

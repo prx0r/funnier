@@ -1,6 +1,7 @@
 // funnier-api: Google sign-in + accounts, public profiles (favourites, humour chart, diary), votes, friends, invites, taste match, clash stats, laughs, learned clip durations and crowd loudness on Cloudflare Workers + D1.
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { cleanPassport } from '../../src/passport.js' // Humour Passport schema (shared with the client)
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose'
 
@@ -349,12 +350,12 @@ export function cleanChart(c) {
   return o
 }
 const jparse = (s, d) => { try { const x = JSON.parse(s); return x ?? d } catch { return d } }
-async function profileRow(DB, uid) { return DB.prepare('SELECT user_id, favs, pins, chart, vis_profile, vis_diary, og_at, updated_at FROM profiles WHERE user_id = ?').bind(uid).first() }
+async function profileRow(DB, uid) { return DB.prepare('SELECT user_id, favs, pins, chart, humour, vis_profile, vis_diary, og_at, updated_at FROM profiles WHERE user_id = ?').bind(uid).first() }
 async function specialsOf(DB, uid) {
   const r = await DB.prepare('SELECT special_id, seen, stars, note, at FROM specials_log WHERE user_id = ? ORDER BY at DESC LIMIT 500').bind(uid).all()
   return Object.fromEntries((r.results || []).map((x) => [x.special_id, { seen: !!x.seen, stars: x.stars || 0, note: x.note || '', at: x.at }]))
 }
-const profOut = (p) => ({ favs: jparse(p?.favs, []), pins: jparse(p?.pins, []), chart: jparse(p?.chart, null), vis_profile: p?.vis_profile || 'public', vis_diary: p?.vis_diary || 'friends', og_at: p?.og_at || null, updated_at: p?.updated_at || null })
+const profOut = (p) => ({ favs: jparse(p?.favs, []), pins: jparse(p?.pins, []), chart: jparse(p?.chart, null), humour: jparse(p?.humour, null), vis_profile: p?.vis_profile || 'public', vis_diary: p?.vis_diary || 'friends', og_at: p?.og_at || null, updated_at: p?.updated_at || null })
 
 app.get('/me/profile-data', auth, async (c) => {
   const u = c.get('user'), DB = c.env.DB
@@ -373,6 +374,7 @@ app.put('/me/profile-data', auth, async (c) => {
   }
   if ('chart' in b) { if (b.chart === null) set.chart = null; else { const ch = cleanChart(b.chart); if (!ch) errs.chart = 'a chart with at least 3 dimensions'; else set.chart = JSON.stringify(ch) } }
   for (const k of ['vis_profile', 'vis_diary']) if (k in b) { if (!VIS.includes(b[k])) errs[k] = 'public, friends or private'; else set[k] = b[k] }
+  if ('humour' in b) { if (b.humour === null) set.humour = null; else { const h = cleanPassport(b.humour); const s = h && JSON.stringify(h); if (!h || s.length > 96000) errs.humour = 'a funnier.humour/v1 passport'; else set.humour = s } }
   if (Object.keys(errs).length) return c.json({ error: 'invalid', fields: errs }, 400)
   const DB = c.env.DB, t = now()
   if (Object.keys(set).length) {
@@ -421,6 +423,20 @@ async function viewer(c, owner) {
   return { me, self: false, friend: !!f }
 }
 const canSee = (vis, v) => v.self || vis === 'public' || (vis === 'friends' && v.friend)
+// the public Humour Passport: GET /u/<name>/humour.json (any origin may read it; only when the profile is public)
+app.get('/u/:username/humour.json', async (c) => {
+  c.header('access-control-allow-origin', '*'); c.header('vary', 'origin')
+  const name = c.req.param('username')
+  if (!USERNAME.test(name)) return c.json({ error: 'not_found' }, 404)
+  const DB = c.env.DB, owner = await DB.prepare('SELECT id, username FROM users WHERE username = ? COLLATE NOCASE').bind(name).first()
+  if (!owner) return c.json({ error: 'not_found' }, 404)
+  const p = await DB.prepare('SELECT humour, vis_profile FROM profiles WHERE user_id = ?').bind(owner.id).first()
+  if (!p?.humour) return c.json({ error: 'no_passport' }, 404)
+  if ((p.vis_profile || 'public') !== 'public') return c.json({ error: 'not_public' }, 403)
+  const h = jparse(p.humour, null); if (!h) return c.json({ error: 'no_passport' }, 404)
+  c.header('cache-control', 'public, max-age=60')
+  return c.json({ ...h, user: owner.username })
+})
 app.get('/u/:username', async (c) => {
   const name = c.req.param('username')
   if (!USERNAME.test(name)) return c.json({ error: 'not_found' }, 404)
@@ -428,7 +444,7 @@ app.get('/u/:username', async (c) => {
   if (!owner) return c.json({ error: 'not_found' }, 404)
   const [p, v] = await Promise.all([profileRow(DB, owner.id), viewer(c, owner)])
   const P = profOut(p), out = { user: { ...pub(owner), since: owner.created_at }, self: v.self, friend: v.friend, vis_profile: P.vis_profile, vis_diary: P.vis_diary }
-  if (canSee(P.vis_profile, v)) Object.assign(out, { favs: P.favs, pins: P.pins, chart: P.chart, og: !!p?.og_at })
+  if (canSee(P.vis_profile, v)) Object.assign(out, { favs: P.favs, pins: P.pins, chart: P.chart, og: !!p?.og_at, humour: P.humour ? { ...P.humour, votes: undefined } : null })
   else out.hidden = true
   if (canSee(P.vis_diary, v)) out.specials = await specialsOf(DB, owner.id)
   if (canSee(P.vis_profile, v)) out.sets = (await DB.prepare(`SELECT id, kind, title, created_at FROM sets WHERE user_id = ? AND visibility IN (${v.self ? "'public','friends','private'" : v.friend ? "'public','friends'" : "'public'"}) ORDER BY created_at DESC LIMIT 50`).bind(owner.id).all()).results || []

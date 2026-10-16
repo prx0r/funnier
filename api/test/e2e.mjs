@@ -52,6 +52,7 @@ execSync('npx wrangler d1 execute funnier --local --file migrations/0003_laughs_
 execSync('npx wrangler d1 execute funnier --local --file migrations/0004_watch_signals.sql', { stdio: 'ignore' }) // idempotent
 try { execSync('npx wrangler d1 execute funnier --local --file migrations/0005_votes_signals.sql', { stdio: 'ignore' }) } catch {} // already applied -> duplicate column
 execSync('npx wrangler d1 execute funnier --local --file migrations/0006_profiles.sql', { stdio: 'ignore' }) // idempotent
+try { execSync('npx wrangler d1 execute funnier --local --file migrations/0007_humour_passport.sql', { stdio: 'ignore' }) } catch {} // already applied -> duplicate column
 execSync(`npx wrangler d1 execute funnier --local --command "DELETE FROM votes; DELETE FROM friends; DELETE FROM invites; DELETE FROM invite_opens; DELETE FROM users; DELETE FROM laughs; DELETE FROM clip_durations; DELETE FROM clip_audio; DELETE FROM watch_events; DELETE FROM humour_profiles; DELETE FROM profiles; DELETE FROM specials_log; DELETE FROM sets;"`, { stdio: 'ignore' })
 const PORT = 8797, BASE = `http://127.0.0.1:${PORT}`
 const dev = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT), '--ip', '127.0.0.1',
@@ -224,6 +225,18 @@ try {
     p = await J('GET', '/u/DeadpanDuck42', null); ok(p.s === 200 && p.j.hidden === true && !p.j.chart && p.j.user.username === 'DeadpanDuck42', 'friends-only profile: strangers get the name + mascot only')
     p = await J('GET', '/u/DeadpanDuck42', t2); ok(p.j.chart?.dims && !p.j.hidden, 'friends-only profile: a friend sees the chart')
     await J('PUT', '/me/profile-data', t1, { vis_profile: 'public' })
+    // Humour Passport (funnier.humour/v1): stored cleaned, public JSON at /u/<name>/humour.json, any origin, only when public
+    { const feats = { ax_deadpan: { w: 1.2, sd: 0.4, n: 6, label: 'deadpan', group: 'axis' }, ax_rant: { w: -0.5, sd: 0.5, n: 3, label: 'rants', group: 'axis' }, energy: { w: -0.4, sd: 0.5, n: 4, label: 'high energy', group: 'sty' }, 'BAD KEY': { w: 1 }, op_unmask: { w: 99, sd: 1, n: 1, group: 'op' } }
+      const pass = { schema: 'funnier.humour/v1', model: 'funnier-engine/2.0', created: new Date().toISOString(), n: { votes: 12, skips: 2, favs: 1 }, features: feats, axes: { deadpan: { v: 83, lo: 70, hi: 91, conf: 'medium', n: 6 }, rant: { v: 27, lo: 10, hi: 50, conf: 'low', n: 3 } }, favs: ['Norm Macdonald'], topClips: [{ id: 'n3LMSflEN54', title: 'Moth', comic: 'Norm Macdonald' }], votes: [{ a: 'n3LMSflEN54', b: 'clipAAAAAAA', winner: 'n3LMSflEN54' }], html: '<script>' }
+      let r = await J('PUT', '/me/profile-data', t1, { humour: { ...pass, schema: 'nope' } }); ok(r.s === 400 && r.j.fields?.humour, 'PUT humour: a non-passport is rejected')
+      r = await J('PUT', '/me/profile-data', t1, { humour: pass })
+      ok(r.s === 200 && r.j.humour?.features?.ax_deadpan?.w === 1.2 && !r.j.humour.features['BAD KEY'] && r.j.humour.features.op_unmask.w === 4 && !('html' in r.j.humour) && /^[0-9a-f]{8}$/.test(r.j.humour.hash) && r.j.humour.type.k === 'deadpan', `PUT humour: passport cleaned (type ${r.j.humour?.type?.full}, hash ${r.j.humour?.hash})`)
+      let hj = await fetch(BASE + '/u/deadpanduck42/humour.json', { headers: { origin: 'https://chat.example' } }), hb = await hj.json()
+      ok(hj.status === 200 && hj.headers.get('access-control-allow-origin') === '*' && hb.schema === 'funnier.humour/v1' && hb.user === 'DeadpanDuck42' && hb.votes?.length === 1, 'GET /u/<name>/humour.json: public passport, any origin (opted-in history included)')
+      await J('PUT', '/me/profile-data', t1, { vis_profile: 'friends' })
+      hj = await fetch(BASE + '/u/DeadpanDuck42/humour.json'); ok(hj.status === 403, 'humour.json only when the profile is public (friends-only -> 403)')
+      await J('PUT', '/me/profile-data', t1, { vis_profile: 'public' })
+      hj = await fetch(BASE + '/u/nobody_here/humour.json'); ok(hj.status === 404, 'humour.json: unknown user -> 404') }
     // OG image
     const png = new Uint8Array(400); png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
     let og = await fetch(BASE + '/og/u/DeadpanDuck42.png'); ok(og.status === 404, 'no OG image yet -> 404')

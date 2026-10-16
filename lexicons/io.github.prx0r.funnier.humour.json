@@ -1,0 +1,56 @@
+{
+  "lexicon": 1,
+  "id": "io.github.prx0r.funnier.humour",
+  "description": "A Humour Passport (funnier.humour/v1): one person's interpretable humour model from Funnier, published to their own repo. One record per account (rkey self); a newer one replaces it.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": ["schema", "model", "hash", "createdAt", "features"],
+        "properties": {
+          "schema": { "type": "string", "const": "funnier.humour/v1" },
+          "model": { "type": "string", "maxLength": 40, "description": "Model version, e.g. funnier-engine/2.0." },
+          "hash": { "type": "string", "maxLength": 16, "description": "Version hash of the model id + weights (cite a snapshot with it)." },
+          "createdAt": { "type": "string", "format": "datetime" },
+          "votes": { "type": "integer", "minimum": 0, "description": "Head-to-head votes the model rests on." },
+          "typeCode": { "type": "string", "maxLength": 8, "description": "Humour type and wing on the nine-point circle, e.g. 2w1; 0 = not settled." },
+          "typeName": { "type": "string", "maxLength": 80 },
+          "features": { "type": "array", "maxLength": 64, "items": { "type": "ref", "ref": "#feature" } },
+          "axes": { "type": "array", "maxLength": 12, "items": { "type": "ref", "ref": "#axis" } },
+          "favs": { "type": "array", "maxLength": 4, "items": { "type": "string", "maxLength": 60 } },
+          "topClips": { "type": "array", "maxLength": 6, "items": { "type": "string", "maxLength": 64 } },
+          "history": { "type": "array", "maxLength": 500, "description": "Only when the owner opted in: their raw picks.", "items": { "type": "ref", "ref": "#pick" } }
+        }
+      }
+    },
+    "feature": {
+      "type": "object",
+      "required": ["k", "w1000"],
+      "description": "One named feature's taste weight (x1000, since lexicons have no floats), its posterior sd (x1000) and evidence (x10).",
+      "properties": {
+        "k": { "type": "string", "maxLength": 40 },
+        "w1000": { "type": "integer", "minimum": -4000, "maximum": 4000 },
+        "sd1000": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "n10": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "axis": {
+      "type": "object",
+      "required": ["k", "v"],
+      "properties": {
+        "k": { "type": "string", "maxLength": 20 },
+        "v": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "lo": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "hi": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "conf": { "type": "string", "knownValues": ["low", "medium", "high"] }
+      }
+    },
+    "pick": {
+      "type": "object",
+      "required": ["a", "b", "winner"],
+      "properties": { "a": { "type": "string", "maxLength": 64 }, "b": { "type": "string", "maxLength": 64 }, "winner": { "type": "string", "maxLength": 64 } }
+    }
+  }
+}

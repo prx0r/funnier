@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.funnier.si/schema/funnier.humour.v1.json",
+  "title": "Funnier Humour Passport v1",
+  "description": "One person's interpretable humour model (Funnier humour engine). Weights are per named feature (logit scale, 0 = neutral); axes are 0..100 with a +-1 sd band. Raw vote history only when the owner opted in.",
+  "type": "object",
+  "required": ["schema", "model", "created", "n", "features", "axes", "hash"],
+  "properties": {
+    "schema": { "const": "funnier.humour/v1" },
+    "model": { "type": "string", "maxLength": 40 },
+    "created": { "type": "string", "format": "date-time" },
+    "source": { "type": "string" },
+    "user": { "type": "string", "pattern": "^[A-Za-z0-9_]{3,20}$" },
+    "n": { "type": "object", "properties": { "votes": { "type": "integer" }, "skips": { "type": "integer" }, "favs": { "type": "integer" } } },
+    "type": { "type": "object", "properties": { "k": { "type": "string" }, "code": { "type": "string" }, "name": { "type": "string" }, "wing": { "type": "string" }, "full": { "type": "string" } } },
+    "axes": { "type": "object", "additionalProperties": { "type": "object", "required": ["v"], "properties": { "v": { "type": "integer", "minimum": 0, "maximum": 100 }, "lo": { "type": "integer" }, "hi": { "type": "integer" }, "conf": { "enum": ["low", "medium", "high"] }, "n": { "type": "number" } } } },
+    "features": { "type": "object", "maxProperties": 64, "additionalProperties": { "type": "object", "required": ["w"], "properties": { "w": { "type": "number", "minimum": -4, "maximum": 4 }, "sd": { "type": "number" }, "n": { "type": "number" }, "label": { "type": "string" }, "group": { "enum": ["axis", "op", "sty", "meta"] } } } },
+    "heads": { "type": "object", "additionalProperties": { "type": "number" } },
+    "favs": { "type": "array", "maxItems": 4, "items": { "type": "string" } },
+    "topComics": { "type": "array", "maxItems": 5, "items": { "type": "object", "properties": { "comic": { "type": "string" }, "score": { "type": "integer" } } } },
+    "topClips": { "type": "array", "maxItems": 6, "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" }, "comic": { "type": "string" } } } },
+    "line": { "type": "string", "maxLength": 200 },
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{8}$" },
+    "votes": { "type": "array", "maxItems": 500, "description": "Opt-in raw picks.", "items": { "type": "object", "required": ["a", "b", "winner"] } }
+  }
+}

@@ -3,6 +3,7 @@ import { renderAvatar, PALETTES } from 'mascot-avatars' // MIT, (c) 2026 s1dashu
 import { structSim } from './structsim.js' // shared with tally/tally.mjs (characters2 §4a)
 import { computeChart, chartSVG, tasteMatch, STY, dimLabel, dimShort, dimPhrase, shortName, CHART_COLORS } from './humour.js' // the humour chart
 import { drawCard, toBlob, TEMPLATES } from './cards.js' // share cards (PNG)
+import { makePassport, passportPrompt, cleanPassport, passportPrior, passportRecord, SCHEMA as PASSPORT_SCHEMA } from './passport.js' // Humour Passport (funnier.humour/v1)
 import { createEngine, basePrior, mergePrior, readout, deltas, deltaText, FEATURES, ENGINE_MODEL } from './engine.js' // humour engine v2 (handwired)
 
 // www.funnier.si/u/<username> (served by funnier-web with <base href="/">) -> the in-app route #u/<username>
@@ -1636,6 +1637,68 @@ function paintYou() {
   }).catch(() => {})
 }
 
+// ---------- Humour Passport: port your sense of humour (src/passport.js) ----------
+function myPassport({ votes: withVotes = LS.get('passportVotes', false) === true } = {}) {
+  const ro = engineReadout(); if (!ro) return null
+  MODEL = MODEL || fitLocal()
+  const vs = LS.get('votes', []).filter((v) => v && BYID[v.a] && BYID[v.b])
+  const topComics = Object.entries(MODEL.r || {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([comic, x]) => ({ comic, score: Math.round(1500 + SCALE * x) }))
+  const seen = [...new Set(vs.map((v) => v.winner))].filter((id) => BYID[id]).sort((a, b) => MODEL.score(b) - MODEL.score(a)).slice(0, 3).map((id) => BYID[id])
+  let line = null; try { line = myChart().line } catch {}
+  return makePassport({ readout: ro, features: FEATURES, model: ENGINE_MODEL, n: vs.length, skips: clipSkips().length, favs: favsLocal(), topComics, topClips: seen, user: signedIn() ? USER?.username || null : null, line, votes: withVotes ? vs : null })
+}
+const passportURL = (name) => (CFG.apiBase ? CFG.apiBase.replace(/\/$/, '') + '/u/' + encodeURIComponent(name) + '/humour.json' : '')
+function downloadJSON(obj, name) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' })
+  try { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove() }, 1500) } catch { toast('Download blocked by the browser.') }
+}
+async function publishPassportBsky(p) {
+  if (!agent || !me) throw new Error('not signed in to Bluesky')
+  const res = await agent.fetchHandler('/xrpc/com.atproto.repo.putRecord', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ repo: me.did, collection: 'io.github.prx0r.funnier.humour', rkey: 'self', record: passportRecord(p) }) })
+  if (!res.ok) throw new Error('putRecord ' + res.status)
+}
+function importPassport(text) {
+  let j = null; try { j = JSON.parse(text) } catch {}
+  const p = cleanPassport(j)
+  if (!p) { toast('That isn\u2019t a Funnier Humour Passport (' + PASSPORT_SCHEMA + ').'); return false }
+  LS.set('enginePrior', passportPrior(p))
+  try { engineFit(8) } catch {} chartChanged()
+  const log = LS.get('engineLog', []); log.push({ at: new Date().toISOString(), kind: 'import', d: [], why: `imported a passport (${p.n.votes} votes, ${p.type.full}) as your starting point` }); LS.set('engineLog', log.slice(-200))
+  toast(`Imported. Your model now starts from that passport (${p.n.votes} votes); new votes keep moving it.`)
+  return true
+}
+function openPortSheet() {
+  const sh = $('#sheet'); if (!sh) return
+  const paint = () => {
+    const p = myPassport(), named = signedIn() && USER?.username, pub = visLocal().profile === 'public', imp = LS.get('enginePrior', null)
+    sh.innerHTML = `<div class="sheetcard portsheet" role="dialog" aria-modal="true" aria-labelledby="pth"><button type="button" class="sheetx" data-ob="close" aria-label="Close">×</button>
+      <h2 id="pth">Port my humour</h2>
+      <p class="muted">Your Humour Passport: the weights of your model (${esc(PASSPORT_SCHEMA)}), what they mean, and how sure it is. ${p ? `${p.n.votes} vote${p.n.votes === 1 ? '' : 's'} · ${esc(p.type.full)} · version <code>${esc(p.hash)}</code>` : ''}</p>
+      <div class="pt-acts"><button type="button" class="dhbtn" data-pt="json">Download JSON</button><button type="button" class="dhghost" data-pt="prompt">Copy for ChatGPT / Claude</button>
+        ${agent && me ? '<button type="button" class="dhghost" data-pt="bsky">Publish to my Bluesky repo</button>' : ''}<label class="dhghost pt-imp">Import a passport<input type="file" accept="application/json,.json" data-pt="file" hidden></label></div>
+      <label class="pt-opt"><input type="checkbox" data-pt="votes"${LS.get('passportVotes', false) === true ? ' checked' : ''}> Include my raw vote history (off by default)</label>
+      ${named ? `<p class="small muted">${pub ? `Public at <a href="${esc(passportURL(USER.username))}" target="_blank" rel="noopener">${esc(PROFILE_HOST + USER.username)}/humour.json</a>` : 'Your profile isn\u2019t public, so there is no public humour.json.'}</p>` : '<p class="small muted">Sign in to get a public link (funnier.si/u/<i>you</i>/humour.json).</p>'}
+      ${imp ? `<p class="small muted">Starting point: an imported passport (${imp.from?.votes ?? '?'} votes, <code>${esc(imp.from?.hash || '')}</code>). <button type="button" class="linkbtn" data-pt="unimport">Remove it</button></p>` : ''}
+      <details class="pt-peek"><summary>What an assistant reads</summary><pre>${esc(p ? passportPrompt(p) : '')}</pre></details>
+      <p class="small muted">Coming: an MCP server so assistants can read this with your consent.</p></div>`
+  }
+  paint(); sh.hidden = false
+  sh.onclick = async (e) => {
+    const t = e.target.closest('[data-pt]')?.dataset.pt, ob = e.target.closest('[data-ob]')?.dataset.ob
+    if (e.target === sh || ob === 'close') { sh.hidden = true; sh.innerHTML = ''; return }
+    const p = myPassport(); if (!p) return
+    if (t === 'json') downloadJSON(p, `funnier-humour-${USER?.username || 'me'}-${p.hash}.json`)
+    else if (t === 'prompt') copyText(passportPrompt(p)).then((ok) => toast(ok ? 'Copied. Paste it into ChatGPT or Claude.' : 'Copy blocked. Open \u201cWhat an assistant reads\u201d and copy it there.'))
+    else if (t === 'bsky') { try { await publishPassportBsky(p); toast('Published to your Bluesky repo (io.github.prx0r.funnier.humour/self).') } catch { toast('Bluesky didn\u2019t take it. Try again in a moment.') } }
+    else if (t === 'unimport') { LS.set('enginePrior', null); try { engineFit(8) } catch {} chartChanged(); paint() }
+  }
+  sh.onchange = (e) => {
+    const t = e.target.dataset?.pt
+    if (t === 'votes') { LS.set('passportVotes', !!e.target.checked); chartChanged() }
+    if (t === 'file' && e.target.files?.[0]) { const f = e.target.files[0]; if (f.size > 200000) return toast('That file is too big for a passport.'); f.text().then((x) => { if (importPassport(x)) paint() }) }
+  }
+}
 // Your model: the engine's strongest leans (both directions), each with its confidence, then the per-vote timeline
 function engineYouHTML() {
   let ro = null; try { ro = engineReadout() } catch {}
@@ -2478,13 +2541,17 @@ async function flushProfilePush() {
   const b = pushBody; pushBody = {}
   if (!Object.keys(b).length || !signedIn()) return
   const r = await api('/me/profile-data', { method: 'PUT', body: b }).catch(() => null)
-  if (r?.ok) { if (b.chart) LS.set('chartPushed', chartKey(b.chart)); LS.set('vis', { profile: r.j.vis_profile, diary: r.j.vis_diary }) }
+  if (r?.ok) { if (b.humour && passPending) LS.set('passPushed', passPending); if (b.chart) LS.set('chartPushed', chartKey(b.chart)); LS.set('vis', { profile: r.j.vis_profile, diary: r.j.vis_diary }) }
 }
 function queueChartPush() {
   if (!signedIn()) return
   const c = myChart(); if (!c.n && !c.favs.length) return
   if (LS.get('chartPushed', '') !== chartKey(c)) queueProfilePush({ chart: chartSnap(c) })
+  let p = null; try { p = myPassport() } catch {}
+  const pk = p ? p.hash + (p.votes ? '+v' + p.votes.length : '') : ''
+  if (p && LS.get('passPushed', '') !== pk) { queueProfilePush({ humour: p }); passPending = pk }
 }
+let passPending = null
 let spQ = {}, spT = null
 function queueSpecialPush(id, e) {
   if (!signedIn()) return
@@ -2589,9 +2656,9 @@ function heroHTML(P) {
   const own = P.own, u = P.user || {}, name = u.username || null, c = P.chart
   const av = own ? (signedIn() ? `<button type="button" class="pfav up-avbtn" data-act="avatar" aria-label="Change avatar" title="Change avatar">${meHTML()}<span class="pfavdice">${DICE}</span></button>` : `<span class="up-avbtn">${meHTML()}</span>`) : avatarHTML(u)
   const acts = own
-    ? (signedIn() && name ? `<button type="button" class="dhbtn" data-act="share" data-kind="chart">Share my taste ↗</button><button type="button" class="dhghost" data-act="copy">Copy profile link</button><button type="button" class="dhghost" data-act="edit">Edit profile</button>`
-      : signedIn() ? `<button type="button" class="dhbtn" data-act="edit">Pick a username</button><button type="button" class="dhghost" data-act="share" data-kind="chart">Share my taste ↗</button>`
-        : `<button type="button" class="dhbtn" data-act="share" data-kind="chart">Share my taste ↗</button><button type="button" class="dhghost" data-act="signin">Sign in to publish it</button>`)
+    ? (signedIn() && name ? `<button type="button" class="dhbtn" data-act="share" data-kind="chart">Share my taste ↗</button><button type="button" class="dhghost" data-act="port">Export / Port my humour</button><button type="button" class="dhghost" data-act="copy">Copy profile link</button><button type="button" class="dhghost" data-act="edit">Edit profile</button>`
+      : signedIn() ? `<button type="button" class="dhbtn" data-act="edit">Pick a username</button><button type="button" class="dhghost" data-act="share" data-kind="chart">Share my taste ↗</button><button type="button" class="dhghost" data-act="port">Export / Port my humour</button>`
+        : `<button type="button" class="dhbtn" data-act="share" data-kind="chart">Share my taste ↗</button><button type="button" class="dhghost" data-act="port">Export / Port my humour</button><button type="button" class="dhghost" data-act="signin">Sign in to publish it</button>`)
     : `<button type="button" class="dhbtn" data-act="compare" data-name="${esc(name || '')}">Compare with me</button><button type="button" class="dhghost" data-act="copy" data-name="${esc(name || '')}">Copy link</button>`
   return `<section class="up-hero"><div class="up-av">${av}</div><div class="up-id">
     <span class="eyebrow">${own ? (signedIn() ? 'Your profile' : 'Your profile · on this device') : 'Sense of humour'}</span>
@@ -2612,6 +2679,7 @@ function bindProfile(el, P) {
     else if (k === 'pins') openPinsSheet()
     else if (k === 'share') openShareStudio(b.dataset.kind || 'chart')
     else if (k === 'copy') { const n = b.dataset.name || USER?.username; if (n) copyText(profileURL(n)).then((ok) => toast(ok ? 'Profile link copied.' : 'Copy this link: ' + profileURL(n))) }
+    else if (k === 'port') openPortSheet()
     else if (k === 'compare') location.hash = 'vs/' + encodeURIComponent(b.dataset.name)
     else if (k === 'signin') setMenu(true)
     else if (k === 'edit') openOnboarding()
