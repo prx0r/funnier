@@ -1,10 +1,12 @@
 // Serves www.funnier.si from GitHub Pages (prx0r.github.io/characters). Apex redirects to www.
+// /c/<id>: a character's page (same shell). /u/<username>/humour.json: the public Humour Passport.
 // /u/<username>: the app shell (index.html with <base href="/">, so its relative assets load) plus per-profile link-preview
 // tags; the app turns the path into its #u/<username> route. /u/<username>/og.png: the owner's card from the API
 // (api.funnier.si/og/u/<name>.png), falling back to the site card when there is none or the profile isn't public.
 const ORIGIN = 'https://prx0r.github.io/characters';
 const API = 'https://api.funnier.si';
 const USER = /^\/u\/([A-Za-z0-9_]{3,20})\/?$/, OG = /^\/u\/([A-Za-z0-9_]{3,20})\/og\.png$/;
+const HUMOUR = /^\/u\/([A-Za-z0-9_]{3,20})\/humour\.json$/, CHAR = /^\/c\/(c[a-z0-9]{8,16})\/?$/;
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const up = (path, req) => fetch(ORIGIN + path, { headers: { 'User-Agent': req.headers.get('User-Agent') || 'funnier-web' }, redirect: 'manual', cf: { cacheTtl: 60 } });
 
@@ -26,6 +28,24 @@ async function profileShell(req, name) {
   html = html.replace('<head>', '<head>' + meta).replace(/<title>[^<]*<\/title>/, `<title>${esc(title)}</title>`);
   return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60' } });
 }
+// /c/<id>: the app shell (the app turns the path into #c/<id>) with the character's name in the preview tags when public
+async function charShell(req, id) {
+  const res = await up('/', req);
+  if (!res.ok) return res;
+  let html = await res.text(), title = 'A Funnier character', desc = 'A comic with its own trained sense of humour, on Funnier.';
+  try { const r = await fetch(`${API}/c/${id}`, { signal: AbortSignal.timeout(1500) }); if (r.ok) { const j = await r.json(); if (j?.character?.name) { title = `${j.character.name} · Funnier character`; desc = (j.character.bio || desc) + (j.character.passport?.type?.full ? ` (${j.character.passport.type.full})` : ''); } } } catch {}
+  const url = `https://www.funnier.si/c/${id}`;
+  const meta = `<base href="/"><link rel="canonical" href="${esc(url)}"><meta property="og:type" content="profile"><meta property="og:site_name" content="Funnier"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}"><meta property="og:url" content="${esc(url)}"><meta name="twitter:card" content="summary">`;
+  html = html.replace(/<meta (property="og:[^"]*"|name="twitter:[^"]*")[^>]*>/g, '').replace('<head>', '<head>' + meta).replace(/<title>[^<]*<\/title>/, `<title>${esc(title)}</title>`);
+  return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60' } });
+}
+// /u/<name>/humour.json: the public Humour Passport, proxied from the API (any origin)
+async function humourJSON(name) {
+  try {
+    const r = await fetch(`${API}/u/${encodeURIComponent(name)}/humour.json`, { signal: AbortSignal.timeout(3000) });
+    return new Response(r.body, { status: r.status, headers: { 'content-type': 'application/json; charset=utf-8', 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=60' } });
+  } catch { return new Response('{"error":"unavailable"}', { status: 503, headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' } }); }
+}
 async function ogImage(req, name) {
   try {
     const r = await fetch(`${API}/og/u/${encodeURIComponent(name)}.png`, { signal: AbortSignal.timeout(3000) });
@@ -41,6 +61,8 @@ export default {
     if (url.hostname === 'funnier.si') { url.hostname = 'www.funnier.si'; return Response.redirect(url.toString(), 301); }
     let path = url.pathname, m;
     if ((m = path.match(OG))) return ogImage(req, m[1]);
+    if ((m = path.match(HUMOUR))) return humourJSON(m[1]);
+    if ((m = path.match(CHAR))) return charShell(req, m[1]);
     if ((m = path.match(USER))) return profileShell(req, m[1]);
     let res = await up(path + url.search, req);
     if (res.status >= 300 && res.status < 400) {
