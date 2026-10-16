@@ -1,4 +1,4 @@
-// funnier-api: Google sign-in + accounts, votes, friends, invites, taste match, clash stats, laughs, learned clip durations and crowd loudness on Cloudflare Workers + D1.
+// funnier-api: Google sign-in + accounts, public profiles (favourites, humour chart, diary), votes, friends, invites, taste match, clash stats, laughs, learned clip durations and crowd loudness on Cloudflare Workers + D1.
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
@@ -155,6 +155,9 @@ app.delete('/me', auth, async (c) => {
     DB.prepare('DELETE FROM votes WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM watch_events WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM humour_profiles WHERE user_id = ?').bind(id),
+    DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(id),
+    DB.prepare('DELETE FROM specials_log WHERE user_id = ?').bind(id),
+    DB.prepare('DELETE FROM sets WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM friends WHERE user_id = ? OR friend_id = ?').bind(id, id),
     DB.prepare('DELETE FROM invite_opens WHERE code IN (SELECT code FROM invites WHERE inviter_id = ?)').bind(id),
     DB.prepare('UPDATE invite_opens SET opener_user_id = NULL WHERE opener_user_id = ?').bind(id),
@@ -312,6 +315,127 @@ app.get('/me/taste', auth, async (c) => {
     WHERE f.user_id = ? GROUP BY f.friend_id ORDER BY shared DESC`).bind(u.id).all()
   const friends = (r.results || []).map((x) => ({ ...pub(x), since: x.since, shared: x.shared, agree: x.agree, match: x.shared >= 3 ? pct(x.agree, x.shared) : null }))
   return c.json({ friends, min_shared: 3 })
+})
+
+// ---------- profiles: Four Favourites, pinned clips, humour chart snapshot, specials diary, sets, link-preview image ----------
+const VIS = ['public', 'friends', 'private']
+const SPECIAL = /^[a-z0-9-]{1,64}$/
+const COMIC = /^[\p{L}\p{N} .,'&-]{1,60}$/u
+const OG_MAX = 1024 * 1024
+const DIM_KEYS = ['absurd', 'deadpan', 'observational', 'dark', 'story', 'wordplay', 'rant', 'selfdep', 'crowd']
+const OPS_KEYS = ['split_knowledge', 'repeat_variation', 'double_interpret', 'status_invert', 'rigidify', 'juxtapose', 'literalize', 'mistake_identity',
+  'literalize_or_other', 'expose_self_blindness', 'false_analogy', 'identity_contradict', 'unmask', 'role_reverse', 'character_violation']
+const str = (x, n) => (typeof x === 'string' ? x.replace(/[\u0000-\u001f]/g, ' ').slice(0, n) : null)
+const n100 = (x) => (Number.isFinite(Number(x)) ? Math.max(0, Math.min(100, Math.round(Number(x)))) : null)
+// the chart is computed on the owner's device; store only known keys, numbers clamped, strings capped
+export function cleanChart(c) {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return null
+  const o = { v: 1, n: Math.max(0, Math.min(1e6, Math.round(Number(c.n) || 0))), dims: {}, sty: {} }
+  for (const k of DIM_KEYS) { const v = n100(c.dims?.[k]); if (v != null) o.dims[k] = v }
+  if (Object.keys(o.dims).length < 3) return null
+  for (const k of ['energy', 'hold', 'pace']) { const v = n100(c.sty?.[k]); if (v != null) o.sty[k] = v }
+  o.ops = (Array.isArray(c.ops) ? c.ops : []).filter((x) => x && OPS_KEYS.includes(x.k)).slice(0, 6).map((x) => ({ k: x.k, label: str(x.label, 40) || x.k, v: n100(x.v) ?? 50 }))
+  o.top = (Array.isArray(c.top) ? c.top : []).filter((k) => DIM_KEYS.includes(k)).slice(0, 2)
+  for (const k of ['line', 'mml', 'serverLine']) { const s = str(c[k], 160); if (s) o[k] = s }
+  if (c.adjacent && COMIC.test(String(c.adjacent.comic || ''))) o.adjacent = { comic: c.adjacent.comic, short: str(c.adjacent.short, 30) || c.adjacent.comic, pct: n100(c.adjacent.pct) ?? 50 }
+  if (c.funniest && CLIP.test(String(c.funniest.id || ''))) o.funniest = { id: c.funniest.id, title: str(c.funniest.title, 120) || '', comic: str(c.funniest.comic, 60) || '' }
+  return o
+}
+const jparse = (s, d) => { try { const x = JSON.parse(s); return x ?? d } catch { return d } }
+async function profileRow(DB, uid) { return DB.prepare('SELECT user_id, favs, pins, chart, vis_profile, vis_diary, og_at, updated_at FROM profiles WHERE user_id = ?').bind(uid).first() }
+async function specialsOf(DB, uid) {
+  const r = await DB.prepare('SELECT special_id, seen, stars, note, at FROM specials_log WHERE user_id = ? ORDER BY at DESC LIMIT 500').bind(uid).all()
+  return Object.fromEntries((r.results || []).map((x) => [x.special_id, { seen: !!x.seen, stars: x.stars || 0, note: x.note || '', at: x.at }]))
+}
+const profOut = (p) => ({ favs: jparse(p?.favs, []), pins: jparse(p?.pins, []), chart: jparse(p?.chart, null), vis_profile: p?.vis_profile || 'public', vis_diary: p?.vis_diary || 'friends', og_at: p?.og_at || null, updated_at: p?.updated_at || null })
+
+app.get('/me/profile-data', auth, async (c) => {
+  const u = c.get('user'), DB = c.env.DB
+  const [p, sp, sets] = await Promise.all([profileRow(DB, u.id), specialsOf(DB, u.id), DB.prepare('SELECT id, kind, title, visibility, created_at FROM sets WHERE user_id = ? ORDER BY created_at DESC LIMIT 50').bind(u.id).all()])
+  return c.json({ ...profOut(p), specials: sp, sets: sets.results || [] })
+})
+app.put('/me/profile-data', auth, async (c) => {
+  const u = c.get('user'), b = (await body(c)) || {}, set = {}, errs = {}
+  if ('favs' in b) {
+    const a = Array.isArray(b.favs) ? [...new Set(b.favs.map((x) => String(x ?? '').trim()))] : null
+    if (!a || a.length > 4 || a.some((x) => !COMIC.test(x))) errs.favs = 'up to 4 comic names'; else set.favs = JSON.stringify(a)
+  }
+  if ('pins' in b) {
+    const a = Array.isArray(b.pins) ? [...new Set(b.pins.map(String))] : null
+    if (!a || a.length > 6 || a.some((x) => !CLIP.test(x))) errs.pins = 'up to 6 clip ids'; else set.pins = JSON.stringify(a)
+  }
+  if ('chart' in b) { if (b.chart === null) set.chart = null; else { const ch = cleanChart(b.chart); if (!ch) errs.chart = 'a chart with at least 3 dimensions'; else set.chart = JSON.stringify(ch) } }
+  for (const k of ['vis_profile', 'vis_diary']) if (k in b) { if (!VIS.includes(b[k])) errs[k] = 'public, friends or private'; else set[k] = b[k] }
+  if (Object.keys(errs).length) return c.json({ error: 'invalid', fields: errs }, 400)
+  const DB = c.env.DB, t = now()
+  if (Object.keys(set).length) {
+    const ks = Object.keys(set)
+    await DB.prepare(`INSERT INTO profiles (user_id, ${ks.join(', ')}, updated_at) VALUES (?, ${ks.map(() => '?').join(', ')}, ?)
+      ON CONFLICT (user_id) DO UPDATE SET ${ks.map((k) => `${k} = excluded.${k}`).join(', ')}, updated_at = excluded.updated_at`).bind(u.id, ...ks.map((k) => set[k]), t).run()
+  }
+  return c.json({ ok: true, ...profOut(await profileRow(DB, u.id)) })
+})
+// specials diary: batch upsert; the newest edit (at) wins; an entry with nothing left is removed
+app.put('/me/specials', auth, async (c) => {
+  const u = c.get('user'), b = (await body(c)) || {}, log = b.log && typeof b.log === 'object' && !Array.isArray(b.log) ? b.log : null
+  if (!log) return c.json({ error: 'no_log' }, 400)
+  const ents = Object.entries(log).slice(0, 500), DB = c.env.DB, stmts = []
+  let skipped = 0
+  for (const [id, e] of ents) {
+    if (!SPECIAL.test(id) || !e || typeof e !== 'object') { skipped++; continue }
+    const at = typeof e.at === 'string' && !isNaN(Date.parse(e.at)) ? new Date(Math.min(Date.parse(e.at), Date.now())).toISOString() : now()
+    const st = Number(e.stars), stars = Number.isFinite(st) && st > 0 ? Math.min(5, Math.max(0.5, Math.round(st * 2) / 2)) : null
+    const note = str(e.note, 280) || null, seen = e.seen || stars ? 1 : 0
+    if (!seen && !note) { stmts.push(DB.prepare('DELETE FROM specials_log WHERE user_id = ? AND special_id = ? AND at <= ?').bind(u.id, id, at)); continue }
+    stmts.push(DB.prepare(`INSERT INTO specials_log (user_id, special_id, seen, stars, note, at) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT (user_id, special_id) DO UPDATE SET seen = excluded.seen, stars = excluded.stars, note = excluded.note, at = excluded.at WHERE excluded.at >= specials_log.at`).bind(u.id, id, seen, stars, note, at))
+  }
+  if (stmts.length) await DB.batch(stmts)
+  return c.json({ ok: true, saved: ents.length - skipped, skipped, specials: await specialsOf(DB, u.id) })
+})
+// link-preview image (1200x630 PNG drawn by the owner's browser from their own chart; no third-party imagery)
+app.post('/me/og', auth, async (c) => {
+  const u = c.get('user'), ct = c.req.header('content-type') || ''
+  if (!/^image\/png\b/.test(ct)) return c.json({ error: 'png_only' }, 415)
+  const buf = new Uint8Array(await c.req.arrayBuffer())
+  if (buf.length < 100 || buf.length > OG_MAX) return c.json({ error: 'bad_size', max: OG_MAX }, 413)
+  if (buf[0] !== 0x89 || buf[1] !== 0x50 || buf[2] !== 0x4e || buf[3] !== 0x47) return c.json({ error: 'png_only' }, 415)
+  const t = now()
+  await c.env.DB.prepare(`INSERT INTO profiles (user_id, og, og_at, updated_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT (user_id) DO UPDATE SET og = excluded.og, og_at = excluded.og_at`).bind(u.id, buf, t, t).run()
+  return c.json({ ok: true, og_at: t, bytes: buf.length })
+})
+// who may see what: self sees all; friends see public + friends; everyone else sees public
+async function viewer(c, owner) {
+  const me = await currentUser(c)
+  if (!me) return { me: null, self: false, friend: false }
+  if (me.id === owner.id) return { me, self: true, friend: false }
+  const f = await c.env.DB.prepare('SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ?').bind(me.id, owner.id).first()
+  return { me, self: false, friend: !!f }
+}
+const canSee = (vis, v) => v.self || vis === 'public' || (vis === 'friends' && v.friend)
+app.get('/u/:username', async (c) => {
+  const name = c.req.param('username')
+  if (!USERNAME.test(name)) return c.json({ error: 'not_found' }, 404)
+  const DB = c.env.DB, owner = await DB.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE').bind(name).first()
+  if (!owner) return c.json({ error: 'not_found' }, 404)
+  const [p, v] = await Promise.all([profileRow(DB, owner.id), viewer(c, owner)])
+  const P = profOut(p), out = { user: { ...pub(owner), since: owner.created_at }, self: v.self, friend: v.friend, vis_profile: P.vis_profile, vis_diary: P.vis_diary }
+  if (canSee(P.vis_profile, v)) Object.assign(out, { favs: P.favs, pins: P.pins, chart: P.chart, og: !!p?.og_at })
+  else out.hidden = true
+  if (canSee(P.vis_diary, v)) out.specials = await specialsOf(DB, owner.id)
+  if (canSee(P.vis_profile, v)) out.sets = (await DB.prepare(`SELECT id, kind, title, created_at FROM sets WHERE user_id = ? AND visibility IN (${v.self ? "'public','friends','private'" : v.friend ? "'public','friends'" : "'public'"}) ORDER BY created_at DESC LIMIT 50`).bind(owner.id).all()).results || []
+  if (!v.self) c.header('cache-control', 'private, max-age=30')
+  return c.json(out)
+})
+// the public link-preview image; 404 when there is none or the profile isn't public (funnier-web falls back to the site card)
+app.get('/og/u/:file', async (c) => {
+  const m = c.req.param('file').match(/^([A-Za-z0-9_]{3,20})\.png$/)
+  if (!m) return c.json({ error: 'not_found' }, 404)
+  const r = await c.env.DB.prepare(`SELECT p.og, p.vis_profile FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.username = ? COLLATE NOCASE`).bind(m[1]).first()
+  if (!r?.og || r.vis_profile !== 'public') return c.json({ error: 'not_found' }, 404)
+  const bytes = r.og instanceof ArrayBuffer ? new Uint8Array(r.og) : Array.isArray(r.og) ? new Uint8Array(r.og) : r.og
+  return new Response(bytes, { headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=600', 'access-control-allow-origin': '*' } })
 })
 
 // ---------- clips: learned durations, crowd loudness, laughs (anonymous allowed: a random device id) ----------

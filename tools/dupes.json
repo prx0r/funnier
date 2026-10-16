@@ -1,0 +1,68 @@
+{
+ "_note": "Clips found to duplicate an active clip (same special bit by transcript offset, or same normalised title and duration). Excluded from clips.json so they never enter pairing; kept here with dup_of for audit.",
+ "dupes": [
+  {
+   "id": "fs6gz3qfk3c",
+   "comic": "Chris Rock",
+   "title": "Chris Rock – N***as vs Black People”  Bring the Pain (1996) #comedy #comedian #laughs",
+   "channel": "Culture Clip",
+   "kind": "human",
+   "media": "youtube",
+   "sec": 492,
+   "dur": 492,
+   "checked": "2026-10-16",
+   "style": [],
+   "topics": [],
+   "tagsSource": "draft-auto",
+   "draftTags": [
+    "chris rock",
+    "chris rock stand up",
+    "comedy",
+    "chris rock comedy"
+   ],
+   "special_id": "chris-rock-bring-pain-transcript",
+   "special_ref": "rock-bring-the-pain",
+   "setting": "stand-up",
+   "format": "horizontal",
+   "transcript_offset": {
+    "char_offset": 13841,
+    "phrase": "black people",
+    "frac_through": 0.3307
+   },
+   "needsCut": true,
+   "carrier": "unofficial",
+   "dup_of": "f3PJF0YE-x4",
+   "active": false,
+   "dup_reason": "same special_id, transcript_offset frac_through within 0.03"
+  },
+  {
+   "id": "abRlZDb3_0o",
+   "comic": "Chris Rock",
+   "title": "Chris Rock Kill the Messenger Half Hour Lunchbreak",
+   "channel": "Kyriakoscash",
+   "kind": "human",
+   "media": "youtube",
+   "sec": 61,
+   "dur": 61,
+   "checked": "2026-10-16",
+   "style": [],
+   "topics": [],
+   "tagsSource": "draft-auto",
+   "draftTags": [
+    "chris",
+    "rock",
+    "kill",
+    "the"
+   ],
+   "special_id": null,
+   "special_ref": null,
+   "setting": "stand-up",
+   "format": "horizontal",
+   "year": 2009,
+   "carrier": "unofficial",
+   "dup_of": "QLDtTcM1ZRM",
+   "active": false,
+   "dup_reason": "normalised title + duration within 5s"
+  }
+ ]
+}

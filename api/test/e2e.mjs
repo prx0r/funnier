@@ -51,7 +51,8 @@ try { execSync('npx wrangler d1 execute funnier --local --file migrations/0002_a
 execSync('npx wrangler d1 execute funnier --local --file migrations/0003_laughs_durations_audio.sql', { stdio: 'ignore' }) // idempotent
 execSync('npx wrangler d1 execute funnier --local --file migrations/0004_watch_signals.sql', { stdio: 'ignore' }) // idempotent
 try { execSync('npx wrangler d1 execute funnier --local --file migrations/0005_votes_signals.sql', { stdio: 'ignore' }) } catch {} // already applied -> duplicate column
-execSync(`npx wrangler d1 execute funnier --local --command "DELETE FROM votes; DELETE FROM friends; DELETE FROM invites; DELETE FROM invite_opens; DELETE FROM users; DELETE FROM laughs; DELETE FROM clip_durations; DELETE FROM clip_audio; DELETE FROM watch_events; DELETE FROM humour_profiles;"`, { stdio: 'ignore' })
+execSync('npx wrangler d1 execute funnier --local --file migrations/0006_profiles.sql', { stdio: 'ignore' }) // idempotent
+execSync(`npx wrangler d1 execute funnier --local --command "DELETE FROM votes; DELETE FROM friends; DELETE FROM invites; DELETE FROM invite_opens; DELETE FROM users; DELETE FROM laughs; DELETE FROM clip_durations; DELETE FROM clip_audio; DELETE FROM watch_events; DELETE FROM humour_profiles; DELETE FROM profiles; DELETE FROM specials_log; DELETE FROM sets;"`, { stdio: 'ignore' })
 const PORT = 8797, BASE = `http://127.0.0.1:${PORT}`
 const dev = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT), '--ip', '127.0.0.1',
   '--var', `GOOGLE_CLIENT_ID:${CID}`, '--var', 'ALLOW_TEST_JWKS:1', '--var', 'TEST_JWKS_URL:http://127.0.0.1:8798/jwks', '--var', 'SESSION_SECRET:local-test-secret-not-for-prod'], { stdio: ['ignore', 'pipe', 'pipe'], detached: true })
@@ -193,6 +194,44 @@ try {
   for (const d of ['dev00000005', 'dev00000006', 'dev00000007']) await J('POST', '/clips/audio', null, { clip: 'audQuiet001', dir: 'quiet', device: d })
   r = await J('GET', '/clips/audio')
   ok(r.j.ref_db === -6 && r.j.clips.audQuiet001.offset === 0 && r.j.default_offset === -40 && r.j.clips.audLoud0001.offset === -40, `"too quiet" lowers everything else instead (ref ${r.j.ref_db}dB, others ${r.j.default_offset}, quiet clip ${r.j.clips.audQuiet001?.offset})`)
+  // ---- profiles (v5): favourites, pins, chart snapshot, visibility, specials diary, OG image ----
+  {
+    let p = await J('GET', '/me/profile-data', t1)
+    ok(p.s === 200 && Array.isArray(p.j.favs) && p.j.favs.length === 0 && p.j.vis_profile === 'public' && p.j.vis_diary === 'friends' && p.j.chart === null, `GET /me/profile-data defaults (public profile, friends-only diary) ${JSON.stringify(p.j)}`)
+    p = await J('PUT', '/me/profile-data', t1, { favs: ['A', 'B', 'C', 'D', 'E'] }); ok(p.s === 400 && p.j.fields?.favs, 'more than 4 favourites -> 400')
+    p = await J('PUT', '/me/profile-data', t1, { pins: ['bad id!'] }); ok(p.s === 400 && p.j.fields?.pins, 'bad pinned clip id -> 400')
+    p = await J('PUT', '/me/profile-data', t1, { vis_profile: 'everyone' }); ok(p.s === 400, 'bad visibility -> 400')
+    const chart = { n: 12, dims: { absurd: 81, deadpan: 93, observational: 25, dark: 140, story: 45, wordplay: 49, rant: 11, selfdep: 20, evil: 5 }, ops: [{ k: 'split_knowledge', label: 'dramatic irony', v: 79 }, { k: 'nope', v: 1 }],
+      sty: { energy: 28, hold: 83 }, top: ['deadpan', 'absurd'], line: 'You like long holds and anti-jokes: 91% Norm-adjacent.', mml: 'doing a 40-second pause before the punchline',
+      adjacent: { comic: 'Norm Macdonald', short: 'Norm', pct: 91 }, funniest: { id: 'n3LMSflEN54', title: 'The Most Convoluted Joke Ever', comic: 'Norm Macdonald' }, html: '<script>' }
+    p = await J('PUT', '/me/profile-data', t1, { favs: ['Norm Macdonald', 'Louis C.K.', 'Norm Macdonald'], pins: ['n3LMSflEN54', 'clipAAAAAAA'], chart })
+    ok(p.s === 200 && p.j.favs.length === 2 && p.j.pins.length === 2 && p.j.chart.dims.dark === 100 && !('evil' in p.j.chart.dims) && p.j.chart.ops.length === 1 && !('html' in p.j.chart), `PUT /me/profile-data: favourites deduped, chart sanitised (${JSON.stringify(p.j.chart?.dims)})`)
+    p = await J('PUT', '/me/specials', t1, { log: { 'norm-nothing-special': { seen: true, stars: 4.3, note: 'The moth joke.', at: new Date(Date.now() - 60000).toISOString() }, 'BAD ID': { seen: true } } })
+    ok(p.s === 200 && p.j.saved === 1 && p.j.specials['norm-nothing-special'].stars === 4.5, 'PUT /me/specials: stars rounded to halves, bad ids skipped')
+    p = await J('PUT', '/me/specials', t1, { log: { 'norm-nothing-special': { seen: false, stars: 0, note: '', at: new Date(Date.now() - 3600e3).toISOString() } } })
+    ok(p.j.specials['norm-nothing-special']?.stars === 4.5, 'an older diary edit does not overwrite a newer one')
+    // public view: anonymous sees chart + favourites but not the friends-only diary
+    p = await J('GET', '/u/deadpanduck42', null)
+    ok(p.s === 200 && p.j.user.username === 'DeadpanDuck42' && p.j.chart?.dims?.deadpan === 93 && p.j.favs[0] === 'Norm Macdonald' && !p.j.specials && p.j.self === false && !('email' in p.j.user), 'GET /u/:username (case-insensitive): public chart + favourites, diary hidden from strangers, no email')
+    p = await J('GET', '/u/DeadpanDuck42', t2); ok(p.s === 200 && p.j.friend === true && p.j.specials?.['norm-nothing-special']?.note === 'The moth joke.', 'a friend sees the friends-only diary')
+    p = await J('GET', '/u/DeadpanDuck42', t1); ok(p.j.self === true && p.j.specials, 'the owner sees everything')
+    p = await J('GET', '/u/nobody_here', null); ok(p.s === 404, 'unknown username -> 404')
+    await J('PUT', '/me/profile-data', t1, { vis_profile: 'friends' })
+    p = await J('GET', '/u/DeadpanDuck42', null); ok(p.s === 200 && p.j.hidden === true && !p.j.chart && p.j.user.username === 'DeadpanDuck42', 'friends-only profile: strangers get the name + mascot only')
+    p = await J('GET', '/u/DeadpanDuck42', t2); ok(p.j.chart?.dims && !p.j.hidden, 'friends-only profile: a friend sees the chart')
+    await J('PUT', '/me/profile-data', t1, { vis_profile: 'public' })
+    // OG image
+    const png = new Uint8Array(400); png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    let og = await fetch(BASE + '/og/u/DeadpanDuck42.png'); ok(og.status === 404, 'no OG image yet -> 404')
+    og = await fetch(BASE + '/me/og', { method: 'POST', headers: { origin: ORIGIN, 'content-type': 'image/png', authorization: 'Bearer ' + t1 }, body: png }); ok(og.status === 200, `POST /me/og stores a PNG (${og.status})`)
+    og = await fetch(BASE + '/me/og', { method: 'POST', headers: { origin: ORIGIN, 'content-type': 'image/png', authorization: 'Bearer ' + t1 }, body: new Uint8Array(400) }); ok(og.status === 415, 'non-PNG bytes -> 415')
+    og = await fetch(BASE + '/og/u/deadpanduck42.png'); const ob = new Uint8Array(await og.arrayBuffer())
+    ok(og.status === 200 && og.headers.get('content-type') === 'image/png' && ob.length === 400 && ob[1] === 0x50, `GET /og/u/:name.png serves it (${og.status}, ${ob.length} bytes)`)
+    await J('PUT', '/me/profile-data', t1, { vis_profile: 'private' })
+    og = await fetch(BASE + '/og/u/DeadpanDuck42.png'); ok(og.status === 404, 'private profile -> no OG image')
+    p = await J('GET', '/u/DeadpanDuck42', t2); ok(p.j.hidden === true, 'private profile hidden even from friends')
+    await J('PUT', '/me/profile-data', t1, { vis_profile: 'public' })
+  }
   r = await J('POST', '/auth/logout', t1); ok(r.s === 200 && /funnier_session=;/.test(r.h.get('set-cookie') || ''), 'logout clears the cookie')
 } catch (e) { fails.push(String(e)); console.log('ERROR', e, log.slice(-2000)) } finally { stop() }
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASS')

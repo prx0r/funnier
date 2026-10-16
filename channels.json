@@ -1,5 +1,5 @@
 {
- "_note": "Allowlist of official / rights-holder channels. Only these are ingested. Feeds give the latest 15 uploads; older classics are added by hand to clips.json after checking with oEmbed.",
+ "_note": "Allowlist of official / rights-holder channels whose RSS feeds tally/ingest.mjs reads for new candidates. Other embeddable uploads (carrier: unofficial) are added to clips.json by hand after an oEmbed check (policy 2026-10-16); the daily oEmbed recheck marks dead or non-embeddable clips status: removed.",
  "comics": {
   "Norm Macdonald": [
    "norm macdonald",
@@ -19,6 +19,9 @@
   "Mark Normand": [
    "mark normand",
    "normand"
+  ],
+  "Casey Rocket": [
+   "casey rocket"
   ]
  },
  "channels": [
@@ -59,6 +62,41 @@
    "id": "UCGmMFJB36GBXTgaLtfGd6Jg",
    "owner": "Mark Normand",
    "assume": "Mark Normand"
+  },
+  {
+   "name": "Casey Rocket",
+   "id": "UCe4B7qdCr1POcqrng3Tdcsw",
+   "owner": "Casey Rocket",
+   "assume": "Casey Rocket"
+  },
+  {
+   "name": "Kill Tony",
+   "id": "UCwzCMiicL-hBUzyjWiJaseg",
+   "owner": "Kill Tony"
   }
- ]
+ ],
+ "licensedCarriers": {
+  "_note": "Channel names treated as carrier: licensed in clips.json (besides the comic's own channel and '<Comic> - Topic', which are carrier: own).",
+  "names": [
+   "Netflix",
+   "Netflix Is A Joke",
+   "Comedy Central",
+   "Comedy Central Stand-Up",
+   "Just For Laughs",
+   "JFL",
+   "HBO",
+   "Team Coco",
+   "The Tonight Show Starring Jimmy Fallon",
+   "The Tonight Show",
+   "Late Show with Stephen Colbert",
+   "The Late Show",
+   "Late Night with Seth Meyers",
+   "Jimmy Kimmel Live",
+   "The Late Late Show with James Corden",
+   "Letterman",
+   "Saturday Night Live",
+   "SNL",
+   "Kill Tony"
+  ]
+ }
 }

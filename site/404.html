@@ -1,0 +1,7 @@
+<!doctype html><meta charset="utf-8"><title>Funnier</title><meta name="robots" content="noindex">
+<script>
+// GitHub Pages fallback for /u/<username> (www.funnier.si serves it via funnier-web): send it to the app's #u/<username> route
+var m = location.pathname.match(/^(.*?\/)u\/([A-Za-z0-9_]{3,20})\/?$/);
+location.replace(m ? m[1] + '#u/' + m[2] : (location.pathname.indexOf('/characters/') === 0 ? '/characters/' : '/'));
+</script>
+<p><a href="./">Funnier</a></p>

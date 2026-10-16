@@ -1,6 +1,11 @@
 import { BrowserOAuthClient } from '@atproto/oauth-client-browser'
 import { renderAvatar, PALETTES } from 'mascot-avatars' // MIT, (c) 2026 s1dashu / Ato Augustine — see site/credits.html
 import { structSim } from './structsim.js' // shared with tally/tally.mjs (characters2 §4a)
+import { computeChart, chartSVG, tasteMatch, STY, dimLabel, dimShort, dimPhrase, shortName, CHART_COLORS } from './humour.js' // the humour chart
+import { drawCard, toBlob, TEMPLATES } from './cards.js' // share cards (PNG)
+
+// www.funnier.si/u/<username> (served by funnier-web with <base href="/">) -> the in-app route #u/<username>
+if (typeof location !== 'undefined' && typeof history !== 'undefined') { const m = location.pathname.match(/^(.*\/)u\/([A-Za-z0-9_]{3,20})\/?$/); if (m) history.replaceState(null, '', m[1] + '#u/' + m[2] + location.search) }
 
 // Laugh button, crowd-laugh particles and the "Crowd laughs" toggle are switched OFF for now. The code (and the
 // /laughs API + the laugh terms in the taste model) stays in place; nothing laugh-related renders or calls the API
@@ -1100,7 +1105,7 @@ async function vote(side) {
     try { await publish(v) }
     catch { LS.set('queue', [...LS.get('queue', []), v]); toast('Saved. It\u2019ll publish when Bluesky responds.') }
   } else LS.set('queue', [...LS.get('queue', []), v].slice(-300))
-  MODEL = fitLocal(); TRAITS = fitTraits()
+  MODEL = fitLocal(); TRAITS = fitTraits(); chartChanged()
   paintBanner(); paintYou(); paintDaily(); paintHistory()
 }
 const arenaOn = () => !$('#v-arena')?.hidden
@@ -1401,6 +1406,7 @@ function spSet(id, patch) {
   const all = spGet(), cur = { ...(all[id] || {}), ...patch, at: new Date().toISOString() }
   if (!cur.seen && !cur.stars && !cur.note) delete all[id]; else all[id] = cur
   LS.set(SPK, all)
+  queueSpecialPush(id, cur) // signed in: the diary publishes (newest edit wins)
 }
 function allSpecials() { return Object.entries(COMICS).flatMap(([comic, p]) => (Array.isArray(p?.specials) ? p.specials : []).map((s) => ({ ...s, comic }))) }
 function specialsSeen() { const ids = new Set(allSpecials().map((s) => s.id)), m = spGet(); return Object.keys(m).filter((id) => ids.has(id) && m[id].seen).length }
@@ -1511,6 +1517,7 @@ function paintYou() {
       ${LAUGHS_ENABLED ? `<div class="kpi laughs"><b>${laughsAll().length}</b><span>your laughs</span></div>` : ''}
     </div>
     ${sureLine(votes)}
+    <p class="sure"><a class="tolink" href="#profile">Your humour chart, Four Favourites and share cards →</a></p>
     ${(() => { const h = humourType(); return h ? `<div class="type"><span class="eyebrow">Your humour type</span><b>${h.name}</b><p>${h.line}${h.also ? ` With a streak of <i>${h.also}</i>.` : ''}</p></div>` : `<div class="type"><span class="eyebrow">Your humour type</span><b>Still reading you…</b><p>A few more picks across different styles and it will name your type.</p></div>` })()}
     <h3>Styles you laugh at</h3><div class="bars">${STYLES.map((t) => { const x = TRAITS.w[t] || 0, wd = Math.min(50, Math.abs(x) * 40); return `<div class="barrow"><span>${t}</span><div class="track center"><i style="left:${x >= 0 ? 50 : 50 - wd}%;width:${wd}%"></i></div><span class="v">${(TRAITS.n[t] || 0) < 2 ? 'learning' : (x > 0 ? '+' : '') + x.toFixed(2)}</span></div>` }).join('')}</div>
     ${skipLists()}
@@ -1821,7 +1828,8 @@ function askWhy(v, shareOnly, fl, guess) {
     <div class="rcfriends" hidden></div>
     <div class="rcshare"><button type="button" class="rcsend" data-sh="native">Share ↗</button><a class="rcalt" data-sh="wa" href="${esc(waURL(text, clashURL(A, B, pick)))}" target="_blank" rel="noopener">WhatsApp</a><button type="button" class="rcalt" data-sh="copy">Copy link</button></div>
     ${inv && !inv.self && !inv.friends && inv.inviter?.username ? `<button type="button" class="rcadd" data-sh="add">${avatarHTML(inv.inviter)}Add ${esc(inv.inviter.username)} as a friend</button>` : ''}
-    ${shareOnly ? '' : `<div class="rcwhy"><span>Why was it funnier?</span>${WHY.map((w) => `<button type="button" data-why>${w}</button>`).join('')}</div>`}`
+    ${shareOnly ? '' : `<div class="rcwhy"><span>Why was it funnier?</span>${WHY.map((w) => `<button type="button" data-why>${w}</button>`).join('')}</div>`}
+    ${!shareOnly && LS.get('votes', []).length >= 5 ? '<button type="button" class="rctaste" data-sh="taste">Share your taste ↗</button>' : ''}`
   let sharing = false
   const hideIn = (ms) => { clearTimeout(whyT); whyT = setTimeout(() => { if (!sharing) box.classList.remove('on') }, ms) }
   box.classList.add('on'); hideIn(signedIn() ? 7000 : 5000)
@@ -1836,6 +1844,8 @@ function askWhy(v, shareOnly, fl, guess) {
   if (wa) wa.onclick = (e) => { e.stopPropagation(); clearTimeout(advT); advT = null }
   const add = box.querySelector('[data-sh="add"]')
   if (add) add.onclick = (e) => { e.stopPropagation(); clearTimeout(advT); advT = null; addFriend(inv, add) }
+  const tst = box.querySelector('[data-sh="taste"]')
+  if (tst) tst.onclick = (e) => { e.stopPropagation(); hold(() => openShareStudio('chart')) }
   box.querySelectorAll('button[data-why]').forEach((b) => (b.onclick = (e) => {
     e.stopPropagation()
     const votes = LS.get('votes', []); const last = votes.find((x) => x.createdAt === v.createdAt)
@@ -2059,7 +2069,7 @@ async function initAccount() {
 }
 async function afterSignIn(needs, fresh) {
   paintUser(); paintProfilePage()
-  syncVotes().catch(() => {}); syncEvents()
+  syncVotes().catch(() => {}); syncEvents(); syncProfile().catch(() => {})
   const pa = LS.get('pendingAccept', null)
   if (pa?.code) {
     try { const r = await api(`/invites/${encodeURIComponent(pa.code)}/accept`, { method: 'POST', body: { open_id: pa.open_id } }); if (r.ok) toast(`You and ${r.j.friend?.username || pa.username} are now friends.`) } catch {}
@@ -2095,8 +2105,8 @@ function renderGoogleButton(host) {
 async function signOut() {
   try { await api('/auth/logout', { method: 'POST' }) } catch {}
   try { window.google?.accounts?.id?.disableAutoSelect() } catch {}
-  LS.set('session', null); USER = null; setMenu(false); paintUser(); toast('Signed out. Your picks stay on this device.')
-  if (!$('#v-profile')?.hidden) showTab('arena')
+  LS.set('session', null); USER = null; SERVER_HUMOUR = null; CHART = null; setMenu(false); paintUser(); toast('Signed out. Your picks stay on this device.')
+  if (!$('#v-profile')?.hidden) paintProfilePage()
 }
 async function deleteAccount() {
   let ok = false
@@ -2214,8 +2224,9 @@ function openOnboarding() {
   sh.innerHTML = `<div class="sheetcard" role="dialog" aria-modal="true" aria-labelledby="obh">
     <button type="button" class="sheetx" data-ob="close" aria-label="Close">×</button>
     <h2 id="obh">${first ? 'Make it yours' : 'Your profile'}</h2>
-    <p class="muted">${first ? 'Pick a name and roll a mascot. That\u2019s what friends see.' : 'Your name and mascot are what friends see.'}</p>
+    <p class="muted">${first ? 'Your Four Favourites, a name and a mascot. That\u2019s what friends see.' : 'Your name and mascot are what friends see.'}</p>
     <form id="obform" novalidate>
+      <fieldset class="obl obfavset"><legend>Four favourite comics</legend><div class="obfavs"></div><small class="muted">Pick up to four, in order. They lead your profile; change them any time.</small></fieldset>
       <label class="obl">Username<span class="obrow"><input id="obuser" maxlength="20" autocomplete="off" spellcheck="false" value="${esc(u.username || funnyName())}"><button type="button" class="obdice" data-ob="dice" aria-label="Reroll name" title="Reroll name">${DICE}</button></span><small class="oberr" data-err="username"></small></label>
       <fieldset class="obl"><legend>Avatar</legend>${rollerHTML()}<small class="oberr" data-err="avatar_seed"></small></fieldset>
       <div class="obstats"><p class="obwhy"><b>Unlock your stats.</b> These power country and age splits (“58% of 25–34s in the UK picked Seinfeld”). They are never shown on your profile or to anyone else.</p>
@@ -2227,7 +2238,15 @@ function openOnboarding() {
       <p class="muted small">See our <a href="privacy.html" target="_blank" rel="noopener">privacy policy</a>. You can delete your account any time from the account menu.</p>
     </form></div>`
   sh.hidden = false
-  const close = () => { sh.hidden = true; sh.innerHTML = '' }
+  // Four Favourites first: chips in tap order (kept on this device, published with the profile)
+  let obFavs = favsLocal().slice()
+  const favBox = sh.querySelector('.obfavs')
+  const paintObFavs = () => { favBox.innerHTML = comicNames().map((n) => { const i = obFavs.indexOf(n), p = comicPic(n)
+    return `<button type="button" class="obfav${i >= 0 ? ' on' : ''}" data-obfav="${esc(n)}" aria-pressed="${i >= 0}">${p.photo ? `<img src="${esc(p.photo)}" alt="" loading="lazy">` : `<span class="obfi">${esc(n.slice(0, 1))}</span>`}<span>${esc(n)}</span>${i >= 0 ? `<i>${i + 1}</i>` : ''}</button>` }).join('') }
+  paintObFavs()
+  favBox.onclick = (e) => { const b = e.target.closest('[data-obfav]'); if (!b) return; const n = b.dataset.obfav, i = obFavs.indexOf(n); if (i >= 0) obFavs.splice(i, 1); else if (obFavs.length < 4) obFavs.push(n); else return toast('Four is the limit. Tap one to take it out first.'); paintObFavs() }
+  const keepFavs = () => { if (JSON.stringify(obFavs) !== JSON.stringify(favsLocal())) saveFavs(obFavs) }
+  const close = () => { keepFavs(); sh.hidden = true; sh.innerHTML = '' }
   const form = sh.querySelector('#obform')
   let roller = null
   // bind submit FIRST: if anything below throws, the form must never fall back to a native GET submit (a silent page reload)
@@ -2316,30 +2335,419 @@ function openAvatarSheet() {
   }
 }
 
-// ---------- your profile page: invites, taste match ----------
+// ---------- profiles: the "Letterboxd for comedy" identity layer ----------
+// Four Favourites, pinned clips, the humour chart, the specials diary and (later) AI sets. Everything lives on this device
+// first (funnier.favs / funnier.pins / funnier.specials) and publishes to the API once signed in
+// (PUT /me/profile-data, PUT /me/specials); public at www.funnier.si/u/<username> (#u/<username>).
+const PROFILE_HOST = 'funnier.si/u/'
+const favsLocal = () => arr(LS.get('favs', [])).filter((n) => typeof n === 'string').slice(0, 4)
+const pinsLocal = () => arr(LS.get('pins', [])).filter((id) => typeof id === 'string').slice(0, 6)
+const visLocal = () => ({ profile: 'public', diary: 'friends', ...(LS.get('vis', null) || {}) })
+const profileURL = (name) => (CFG.shareBase || SHARE_BASE).replace(/#.*$/, '').replace(/\/?$/, '/') + 'u/' + encodeURIComponent(name)
+let CHART = null, SERVER_HUMOUR = null
+function comicNames() { return [...new Set([...Object.keys(COMICS), ...CLIPS.map((c) => c.comic)])].filter((n) => CLIPS.some((c) => c.comic === n) || COMICS[n]) }
+function comicPic(name) { // { name, photo, credit, license } for cards and tiles (Commons portraits only)
+  const P = COMICS[name] || {}, ph = photoOf(P)
+  return { name, photo: ph || '', credit: ph ? P.photoCredit || '' : '', license: ph ? P.photoLicense || '' : '' }
+}
+function myChart() {
+  if (CHART) return CHART
+  MODEL = MODEL || fitLocal()
+  const votes = LS.get('votes', []).filter((v) => v && BYID[v.a] && BYID[v.b]).map((v) => ({ a: v.a, b: v.b, winner: v.winner, w: Number.isFinite(v.weight) ? v.weight : voteWeight(v) }))
+  const skips = clipSkips().map((s) => ({ clip: s.clip, w: skipW(s) }))
+  CHART = computeChart({ votes, skips, favs: favsLocal(), clips: BYID, theory: THEORY, comics: COMICS, score: (id) => MODEL.score(id), server: SERVER_HUMOUR })
+  return CHART
+}
+const chartSnap = (c) => ({ n: c.n, dims: c.dims, ops: c.ops, sty: c.sty, top: c.top, line: c.line, mml: c.mml, serverLine: c.serverLine || undefined, adjacent: c.adjacent || undefined, funniest: c.funniest || undefined })
+const chartKey = (c) => JSON.stringify([c.dims, c.line, c.mml, c.funniest?.id || ''])
+function chartChanged() { CHART = null; queueChartPush() }
+function saveFavs(a) { LS.set('favs', a.slice(0, 4)); LS.set('profAt', new Date().toISOString()); queueProfilePush({ favs: a.slice(0, 4) }); chartChanged() }
+function savePins(a) { LS.set('pins', a.slice(0, 6)); LS.set('profAt', new Date().toISOString()); queueProfilePush({ pins: a.slice(0, 6) }) }
+
+// ---- sync ----
+let pushT = null, pushBody = {}
+function queueProfilePush(patch) { if (!signedIn()) return; Object.assign(pushBody, patch); clearTimeout(pushT); pushT = setTimeout(flushProfilePush, 700) }
+async function flushProfilePush() {
+  const b = pushBody; pushBody = {}
+  if (!Object.keys(b).length || !signedIn()) return
+  const r = await api('/me/profile-data', { method: 'PUT', body: b }).catch(() => null)
+  if (r?.ok) { if (b.chart) LS.set('chartPushed', chartKey(b.chart)); LS.set('vis', { profile: r.j.vis_profile, diary: r.j.vis_diary }) }
+}
+function queueChartPush() {
+  if (!signedIn()) return
+  const c = myChart(); if (!c.n && !c.favs.length) return
+  if (LS.get('chartPushed', '') !== chartKey(c)) queueProfilePush({ chart: chartSnap(c) })
+}
+let spQ = {}, spT = null
+function queueSpecialPush(id, e) {
+  if (!signedIn()) return
+  spQ[id] = { seen: !!e.seen, stars: e.stars || 0, note: e.note || '', at: e.at || new Date().toISOString() }
+  clearTimeout(spT); spT = setTimeout(() => { const log = spQ; spQ = {}; api('/me/specials', { method: 'PUT', body: { log } }).catch(() => {}) }, 800)
+}
+async function syncProfile() {
+  if (!signedIn()) return
+  const r = await api('/me/profile-data').catch(() => null)
+  if (!r?.ok || !r.j) return
+  const S = r.j, localAt = LS.get('profAt', ''), srvAt = S.updated_at || '', lf = favsLocal(), lp = pinsLocal(), patch = {}
+  const srvEmpty = !arr(S.favs).length && !arr(S.pins).length
+  if ((lf.length || lp.length) && (srvEmpty || !srvAt || localAt > srvAt)) { if (lf.length) patch.favs = lf; if (lp.length) patch.pins = lp }
+  else { if (arr(S.favs).length) LS.set('favs', S.favs); if (arr(S.pins).length) LS.set('pins', S.pins) }
+  LS.set('vis', { profile: S.vis_profile || 'public', diary: S.vis_diary || 'friends' })
+  // specials diary: the newest edit wins, both ways
+  const loc = spGet(), srv = S.specials || {}, up = {}
+  let changed = false
+  for (const [id, e] of Object.entries(loc)) if (e && (!srv[id] || String(e.at || '') > String(srv[id].at || ''))) up[id] = { seen: !!e.seen, stars: e.stars || 0, note: e.note || '', at: e.at || new Date().toISOString() }
+  for (const [id, e] of Object.entries(srv)) if (!up[id] && (!loc[id] || String(e.at) > String(loc[id].at || ''))) { loc[id] = { seen: !!e.seen, stars: e.stars || 0, note: e.note || '', at: e.at }; changed = true }
+  if (changed) LS.set(SPK, loc)
+  if (Object.keys(up).length) api('/me/specials', { method: 'PUT', body: { log: up } }).catch(() => {})
+  if (Object.keys(patch).length) queueProfilePush(patch)
+  try { const h = await api('/me/humour'); SERVER_HUMOUR = h.ok ? h.j?.humour || null : null } catch {}
+  chartChanged()
+  if (!$('#v-profile')?.hidden) paintProfilePage()
+}
+// the link preview (og:image) for funnier.si/u/<name>: drawn here from the owner's chart, uploaded when it changes
+let ogBusy = false
+async function maybeUploadOG() {
+  if (ogBusy || !signedIn() || !USER?.username || visLocal().profile !== 'public' || typeof document === 'undefined') return
+  const c = myChart(); if (!c.n && !c.favs.length) return
+  const key = chartKey(c) + '|' + USER.username + '|' + mySeed()
+  if (LS.get('ogPushed', '') === key) return
+  ogBusy = true
+  try {
+    const cv = document.createElement('canvas')
+    if (!(await drawCard(cv, 'og', cardData(), 'og'))) return
+    const blob = await toBlob(cv); if (!blob) return
+    const t = LS.get('session', null)
+    const r = await fetch(CFG.apiBase + '/me/og', { method: 'POST', credentials: 'include', headers: { 'content-type': 'image/png', ...(t ? { authorization: 'Bearer ' + t } : {}) }, body: blob })
+    if (r.ok) LS.set('ogPushed', key)
+  } catch {} finally { ogBusy = false }
+}
+
+// ---- rendering ----
+const DIM_HINT = 'Each number is how often that kind of comedy wins your pick when it\u2019s on screen (50 = neutral; it starts at 50 and moves with every vote).'
+function favTile(name, i, own) {
+  if (!name) return own ? `<button type="button" class="up-fav empty" data-act="favs" aria-label="Pick a favourite comic"><span>+</span></button>` : '<div class="up-fav empty"></div>'
+  const p = comicPic(name), first = CLIPS.find((k) => k.comic === name && k.media === 'youtube'), src = p.photo || (first ? thumb(first.id) : '')
+  return `<a class="up-fav" href="#comic/${esc(slugOf(name))}">${src ? `<img src="${esc(src)}" alt="" loading="lazy" decoding="async"${p.photo ? '' : ' class="yt"'}>` : ''}<i>${i + 1}</i><b>${esc(name)}</b></a>`
+}
+function fourHTML(favs, own) {
+  if (!own && !favs.length) return ''
+  return `<section class="up-sec"><div class="up-sh"><h3>Four favourites</h3>${own ? `<button type="button" class="up-edit" data-act="favs">${favs.length ? 'Edit' : 'Pick'}</button>` : ''}</div>
+    <div class="up-four">${[0, 1, 2, 3].map((i) => favTile(favs[i], i, own)).join('')}</div></section>`
+}
+function dimRows(c) {
+  return Object.keys(c.dims).sort((x, y) => c.dims[y] - c.dims[x]).map((k) => { const v = c.dims[k], d = v - 50
+    return `<div class="up-dim"><span>${esc(dimLabel(k))}</span><i class="up-bar"><b style="${d >= 0 ? `left:50%;width:${d}%` : `left:${50 + d}%;width:${-d}%`}" class="${d >= 0 ? 'pos' : 'neg'}"></b></i><em>${v}</em></div>` }).join('')
+}
+function chartHTML(c, own, who) {
+  if (!c?.dims) return `<section class="up-sec"><div class="up-sh"><h3>Sense of humour</h3></div><p class="muted">${own ? 'Vote on a few clashes (or pick your Four Favourites) and your chart draws itself.' : 'No chart yet.'}</p></section>`
+  const sty = STY.filter((s) => c.sty?.[s.k] != null)
+  return `<section class="up-sec"><div class="up-sh"><h3>Sense of humour</h3>${own ? '<button type="button" class="up-edit" data-act="share" data-kind="chart">Share chart ↗</button>' : ''}</div>
+    <div class="up-chart"><div class="up-radar">${chartSVG([{ dims: c.dims, color: CHART_COLORS[0] }], { size: 400, title: (who || 'Your') + ' humour chart' })}</div>
+    <div class="up-legend">${c.adjacent ? `<p class="up-adj"><b>${c.adjacent.pct}%</b> ${esc(c.adjacent.short)}-adjacent</p>` : ''}
+      <div class="up-dims">${dimRows(c)}</div>
+      ${c.funniest ? `<p class="up-fun"><span class="eyebrow">Funniest to ${own ? 'you' : 'them'}</span><a href="https://www.youtube.com/watch?v=${esc(c.funniest.id)}" target="_blank" rel="noopener">\u201c${esc(c.funniest.title)}\u201d</a> <span class="muted">${esc(c.funniest.comic)}</span></p>` : ''}
+      ${arr(c.ops).length ? `<div class="up-ops"><span class="eyebrow">Favourite moves</span>${c.ops.slice(0, 4).map((o) => `<span class="chip">${esc(o.label)} <b>${o.v}</b></span>`).join('')}</div>` : ''}
+      ${sty.length ? `<div class="up-stys">${sty.map((s) => `<div class="up-sty"><span>${s.lo}</span><i><b style="left:${c.sty[s.k]}%"></b></i><span>${s.hi}</span></div>`).join('')}</div>` : ''}
+      ${c.serverLine ? `<p class="muted small">From ${own ? 'your' : 'their'} rewinds: ${esc(c.serverLine)}</p>` : ''}
+      <p class="muted small up-hint">${DIM_HINT}${c.n ? ` Built from ${c.n} pick${c.n === 1 ? '' : 's'}.` : ''}</p></div></div></section>`
+}
+function pinsHTML(pins, own) {
+  const ok = pins.filter((id) => BYID[id])
+  if (!own && !ok.length) return ''
+  return `<section class="up-sec"><div class="up-sh"><h3>Pinned clips</h3>${own ? `<button type="button" class="up-edit" data-act="pins">${ok.length ? 'Edit' : 'Pin clips'}</button>` : ''}</div>
+    ${ok.length ? `<div class="rail up-pins">${ok.map((id) => clipTile({ id })).join('')}</div>` : '<p class="muted">Pin up to six clips you\u2019d show a friend first.</p>'}</section>`
+}
+function diaryHTML(specials, own, hiddenNote) {
+  const specs = allSpecials()
+  const rows = Object.entries(specials || {}).map(([id, m]) => ({ s: specs.find((x) => x.id === id), m })).filter((x) => x.s && x.m && (x.m.seen || x.m.stars || x.m.note))
+    .sort((x, y) => String(y.m.at || '').localeCompare(String(x.m.at || '')))
+  const head = `<div class="up-sh"><h3>Specials diary</h3>${own ? '<a class="up-edit" href="#comics">Log a special</a>' : ''}</div>`
+  if (hiddenNote) return `<section class="up-sec">${head}<p class="muted">${hiddenNote}</p></section>`
+  if (!rows.length) return own ? `<section class="up-sec">${head}<p class="muted">Mark specials seen, rate them and add a line in Comics. They land here, newest first.</p></section>` : ''
+  const date = (t) => { try { const d = new Date(t); return `<b>${d.getDate()}</b>${d.toLocaleDateString(undefined, { month: 'short' })}` } catch { return '' } }
+  return `<section class="up-sec">${head}<ol class="up-diary">${rows.slice(0, 30).map(({ s, m }) => `<li><span class="up-dd">${m.at ? date(m.at) : ''}</span>
+    <span class="up-dt"><a href="#comic/${esc(slugOf(s.comic))}"><b>${esc(s.title)}</b></a><small>${esc(s.comic)} · ${esc(String(s.year || ''))}</small>${m.note ? `<em>\u201c${esc(String(m.note))}\u201d</em>` : ''}</span>
+    <span class="up-st">${m.stars ? '★'.repeat(Math.floor(m.stars)) + (m.stars % 1 ? '½' : '') : m.seen ? '<small>seen</small>' : ''}</span></li>`).join('')}</ol></section>`
+}
+function setsHTML(sets, own) {
+  return `<section class="up-sec"><div class="up-sh"><h3>${own ? 'My sets' : 'Sets'}</h3></div>
+    ${arr(sets).length ? `<div class="up-sets">${sets.map((s) => `<div class="up-set"><b>${esc(s.title || 'Untitled set')}</b><span>${s.kind === 'ai' ? 'AI set' : ''}</span></div>`).join('')}</div>`
+      : `<div class="up-sets"><div class="up-set soon"><span class="eyebrow">AI sets coming soon</span><b>Write a set with an AI comic, tuned to this chart.</b><span class="muted small">Premieres here first.</span></div></div>`}</section>`
+}
+function heroHTML(P) {
+  const own = P.own, u = P.user || {}, name = u.username || null, c = P.chart
+  const av = own ? (signedIn() ? `<button type="button" class="pfav up-avbtn" data-act="avatar" aria-label="Change avatar" title="Change avatar">${meHTML()}<span class="pfavdice">${DICE}</span></button>` : `<span class="up-avbtn">${meHTML()}</span>`) : avatarHTML(u)
+  const acts = own
+    ? (signedIn() && name ? `<button type="button" class="dhbtn" data-act="share" data-kind="chart">Share my taste ↗</button><button type="button" class="dhghost" data-act="copy">Copy profile link</button><button type="button" class="dhghost" data-act="edit">Edit profile</button>`
+      : signedIn() ? `<button type="button" class="dhbtn" data-act="edit">Pick a username</button><button type="button" class="dhghost" data-act="share" data-kind="chart">Share my taste ↗</button>`
+        : `<button type="button" class="dhbtn" data-act="share" data-kind="chart">Share my taste ↗</button><button type="button" class="dhghost" data-act="signin">Sign in to publish it</button>`)
+    : `<button type="button" class="dhbtn" data-act="compare" data-name="${esc(name || '')}">Compare with me</button><button type="button" class="dhghost" data-act="copy" data-name="${esc(name || '')}">Copy link</button>`
+  return `<section class="up-hero"><div class="up-av">${av}</div><div class="up-id">
+    <span class="eyebrow">${own ? (signedIn() ? 'Your profile' : 'Your profile · on this device') : 'Sense of humour'}</span>
+    <h1>${esc(name || (own ? 'You' : ''))}</h1>${name ? `<p class="up-url">${esc(PROFILE_HOST + name)}</p>` : ''}
+    ${c?.line ? `<p class="up-line">${esc(c.line)}</p>` : ''}${c?.mml ? `<p class="up-mml"><span>Make me laugh by\u2026</span> ${esc(c.mml)}</p>` : ''}
+    <div class="up-acts">${acts}</div></div></section>`
+}
+function profileHTML(P) {
+  if (P.hidden) return `${heroHTML({ ...P, chart: null })}<p class="muted up-private">${P.vis_profile === 'friends' ? 'This profile is for friends only.' : 'This profile is private.'}</p>`
+  return heroHTML(P) + fourHTML(arr(P.favs), P.own) + chartHTML(P.chart, P.own, P.own ? 'Your' : (P.user?.username || 'Their') + '\u2019s') + pinsHTML(arr(P.pins), P.own)
+    + diaryHTML(P.specials, P.own, P.diaryNote) + setsHTML(P.sets, P.own)
+}
+function bindProfile(el, P) {
+  el.onclick = (e) => {
+    const b = e.target.closest('[data-act]'); if (!b || !el.contains(b)) return
+    const k = b.dataset.act
+    if (k === 'favs') openFavsSheet()
+    else if (k === 'pins') openPinsSheet()
+    else if (k === 'share') openShareStudio(b.dataset.kind || 'chart')
+    else if (k === 'copy') { const n = b.dataset.name || USER?.username; if (n) copyText(profileURL(n)).then((ok) => toast(ok ? 'Profile link copied.' : 'Copy this link: ' + profileURL(n))) }
+    else if (k === 'compare') location.hash = 'vs/' + encodeURIComponent(b.dataset.name)
+    else if (k === 'signin') setMenu(true)
+    else if (k === 'edit') openOnboarding()
+    else if (k === 'avatar') openAvatarSheet()
+    else if (k === 'delete') deleteAccount()
+  }
+}
+const profRoute = () => {
+  const h = location.hash, m = h.match(/^#u\/([A-Za-z0-9_]{3,20})/), v = h.match(/^#vs\/([A-Za-z0-9_,]+)/)
+  if (v) return { kind: 'vs', names: v[1].split(',').filter((x) => /^[A-Za-z0-9_]{3,20}$/.test(x)).slice(0, 3) }
+  if (m && m[1].toLowerCase() !== 'me' && !(signedIn() && USER?.username && USER.username.toLowerCase() === m[1].toLowerCase())) return { kind: 'public', name: m[1] }
+  return { kind: 'me' }
+}
+function goProfile(h = 'profile') { if (location.hash === '#' + h) { showTab('profile'); paintProfilePage() } else location.hash = h }
 async function paintProfilePage() {
   const el = $('#profileview'); if (!el || $('#v-profile')?.hidden) return
-  if (!signedIn()) { el.innerHTML = `<div class="pf"><h2>Your profile</h2><p class="empty">Sign in with Google from the account menu to add friends and compare your taste.</p></div>`; return }
-  const u = USER
-  el.innerHTML = `<div class="pf"><div class="pfhead"><button type="button" class="pfav" id="pfav" aria-label="Change avatar" title="Change avatar">${meHTML()}<span class="pfavdice">${DICE}</span></button><div><h2>${esc(u.username || 'New comic fan')}</h2><p class="muted small">${esc(u.email || '')}</p></div><span class="pfbtns"><button type="button" class="dhghost" id="pfavbtn">Change avatar</button><button type="button" class="dhghost" id="pfedit">Edit profile</button></span></div>
-    <div class="kpis pfk"><div class="kpi"><b id="pk-sent">–</b><span>clashes shared</span></div><div class="kpi"><b id="pk-open">–</b><span>opened by friends</span></div><div class="kpi"><b id="pk-voted">–</b><span>friends voted</span></div><div class="kpi"><b id="pk-fr">–</b><span>friends</span></div></div>
-    <h3>Taste match</h3><div id="pftaste" class="pflist"><p class="muted">Loading…</p></div>
-    <h3>Invites you sent</h3><div id="pfinv" class="pflist"><p class="muted">Loading…</p></div>
-    <div class="pfpriv"><h3>Only you see this</h3><p class="muted small">${[u.birth_year ? 'Born ' + u.birth_year : null, u.country ? ccName(u.country) : null, { male: 'Male', female: 'Female', skip: 'Prefer not to say' }[u.sex_at_birth] || null].filter(Boolean).map(esc).join(' · ') || 'No stats details yet. Add them in Edit profile to unlock country and age splits.'}</p>
-      <p class="hdata"><a class="btn ghost" href="privacy.html" target="_blank" rel="noopener">Privacy</a><button type="button" class="btn danger" id="pfdel">Delete my account</button></p></div></div>`
-  el.querySelector('#pfedit').onclick = openOnboarding
-  el.querySelector('#pfav').onclick = el.querySelector('#pfavbtn').onclick = openAvatarSheet
-  el.querySelector('#pfdel').onclick = deleteAccount
+  const r = profRoute()
+  if (r.kind === 'vs') return paintVs(el, r.names)
+  if (r.kind === 'public') return paintPublic(el, r.name)
+  return paintMine(el)
+}
+async function paintMine(el) {
+  const P = { own: true, user: signedIn() ? USER : null, favs: favsLocal(), pins: pinsLocal(), chart: myChart(), specials: spGet(), sets: [] }
+  const vis = visLocal(), VIS = [['public', 'Everyone'], ['friends', 'Friends'], ['private', 'Only me']]
+  const sel = (id, v) => `<select id="${id}">${VIS.map(([k, l]) => `<option value="${k}"${v === k ? ' selected' : ''}>${l}</option>`).join('')}</select>`
+  const extra = signedIn() ? `<section class="up-sec"><div class="up-sh"><h3>Friends</h3></div>
+      <div class="kpis pfk"><div class="kpi"><b id="pk-sent">–</b><span>clashes shared</span></div><div class="kpi"><b id="pk-open">–</b><span>opened by friends</span></div><div class="kpi"><b id="pk-voted">–</b><span>friends voted</span></div><div class="kpi"><b id="pk-fr">–</b><span>friends</span></div></div>
+      <h3 class="up-h4">Taste match</h3><div id="pftaste" class="pflist"><p class="muted">Loading…</p></div>
+      <h3 class="up-h4">Invites you sent</h3><div id="pfinv" class="pflist"><p class="muted">Loading…</p></div></section>
+    <section class="up-sec pfpriv"><div class="up-sh"><h3>Privacy</h3></div>
+      <div class="up-vis"><label>Profile, Four Favourites, pins and chart ${sel('visprof', vis.profile)}</label><label>Specials diary and notes ${sel('visdiary', vis.diary)}</label></div>
+      <p class="muted small">Only you see this: ${[USER.birth_year ? 'born ' + USER.birth_year : null, USER.country ? ccName(USER.country) : null, { male: 'male', female: 'female', skip: 'prefer not to say' }[USER.sex_at_birth] || null].filter(Boolean).map(esc).join(' · ') || 'no stats details yet (Edit profile to add them).'} ${esc(USER.email || '')}</p>
+      <p class="hdata"><a class="btn ghost" href="privacy.html" target="_blank" rel="noopener">Privacy</a><button type="button" class="btn danger" data-act="delete">Delete my account</button></p></section>`
+    : `<section class="up-sec"><p class="muted">This profile lives on this device. Sign in with Google from the account menu to publish it at ${esc(PROFILE_HOST)}<i>you</i>, add friends and overlay your charts.</p></section>`
+  el.innerHTML = `<div class="up">${profileHTML(P)}${extra}</div>`
+  bindProfile(el, P)
+  if (!signedIn()) return
+  const vp = el.querySelector('#visprof'), vd = el.querySelector('#visdiary')
+  vp.onchange = () => { LS.set('vis', { ...visLocal(), profile: vp.value }); queueProfilePush({ vis_profile: vp.value }); toast(vp.value === 'public' ? 'Your profile is public.' : vp.value === 'friends' ? 'Only friends see your profile now.' : 'Your profile is private now.') }
+  vd.onchange = () => { LS.set('vis', { ...visLocal(), diary: vd.value }); queueProfilePush({ vis_diary: vd.value }); toast('Diary visibility saved.') }
+  setTimeout(() => maybeUploadOG(), 1200)
   const [inv, taste] = await Promise.all([api('/me/invites').catch(() => null), api('/me/taste').catch(() => null)])
-  if (!document.body.contains(el)) return
+  if (!document.body.contains(el) || !el.querySelector('#pftaste')) return
   const t = inv?.j?.totals, fr = taste?.j?.friends || []
   if (t) { $('#pk-sent').textContent = t.sent; $('#pk-open').textContent = t.opened; $('#pk-voted').textContent = t.voted }
   $('#pk-fr').textContent = fr.length
-  $('#pftaste').innerHTML = fr.length ? fr.map((f) => `<div class="pfrow">${avatarHTML(f)}<b>${esc(f.username || 'Friend')}</b><span class="pfm">${f.match == null ? `<small class="muted">${f.shared}/3 shared picks</small>` : `<i style="--p:${f.match}%"></i>${f.match}% match`}</span></div>`).join('')
-    : '<p class="muted">No friends yet. Share a clash after you vote; when a friend opens it and taps “Add as a friend”, you\u2019ll see how often you agree.</p>'
+  $('#pftaste').innerHTML = fr.length ? fr.map((f) => `<div class="pfrow">${avatarHTML(f)}<b>${f.username ? `<a href="#u/${esc(f.username)}">${esc(f.username)}</a>` : 'Friend'}</b><span class="pfm">${f.match == null ? `<small class="muted">${f.shared}/3 shared picks</small>` : `<i style="--p:${f.match}%"></i>${f.match}% match`}</span>${f.username ? `<a class="dhghost up-cmp" href="#vs/${esc(f.username)}">Overlay charts</a>` : ''}</div>`).join('')
+    : '<p class="muted">No friends yet. Share a clash after you vote; when a friend opens it and taps \u201cAdd as a friend\u201d, you\u2019ll see how often you agree.</p>'
   const list = inv?.j?.invites || []
   $('#pfinv').innerHTML = list.length ? list.slice(0, 20).map((x) => `<div class="pfrow"><span class="pfclash">${esc(BYID[x.a]?.comic || 'Retired clip')} <i>vs</i> ${esc(BYID[x.b]?.comic || 'Retired clip')}</span><span class="pfppl">${(x.people || []).slice(0, 6).map((p) => `<span class="fa" title="${esc(p.username || '')}${p.voted ? ' voted' : ' opened'}">${avatarHTML(p)}</span>`).join('')}</span><small class="muted">${x.opens} open${x.opens === 1 ? '' : 's'} · ${x.voted} voted</small></div>`).join('')
     : '<p class="muted">Nothing shared yet.</p>'
+}
+const PUBCACHE = new Map()
+async function fetchPublic(name) {
+  const k = name.toLowerCase(), hit = PUBCACHE.get(k)
+  if (hit && Date.now() - hit.t < 60e3) return hit.v
+  let v = null
+  if (CFG.apiBase) { const r = await api('/u/' + encodeURIComponent(name)).catch(() => null); v = r ? { status: r.status, j: r.j } : null }
+  if (v && v.status === 200) PUBCACHE.set(k, { t: Date.now(), v })
+  return v
+}
+async function paintPublic(el, name) {
+  el.innerHTML = `<div class="up"><p class="muted up-loading">Loading ${esc(name)}\u2026</p></div>`
+  const r = await fetchPublic(name)
+  if (profRoute().name !== name) return
+  if (!r || r.status !== 200 || !r.j?.user) { el.innerHTML = `<div class="up"><section class="up-hero"><div class="up-id"><span class="eyebrow">Profile</span><h1>${esc(name)}</h1><p class="muted">${r?.status === 404 ? 'Nobody goes by that name on Funnier (yet).' : 'Couldn\u2019t load this profile. Check your connection.'}</p><div class="up-acts"><a class="dhbtn" href="#">Watch tonight\u2019s screening</a></div></div></section></div>`; return }
+  const j = r.j
+  const P = { own: false, user: j.user, favs: j.favs, pins: j.pins, chart: j.chart, specials: j.specials, sets: j.sets, hidden: j.hidden, vis_profile: j.vis_profile,
+    diaryNote: j.specials ? null : j.vis_diary === 'friends' ? 'Their diary is for friends only.' : j.vis_diary === 'private' ? 'Their diary is private.' : null }
+  el.innerHTML = `<div class="up">${profileHTML(P)}<section class="up-sec up-cta"><p>What\u2019s <i>your</i> sense of humour? Every pick in tonight\u2019s screening draws your own chart.</p><a class="dhbtn" href="#">Start watching</a></section></div>`
+  bindProfile(el, P)
+}
+
+// ---- friends overlay: your chart over one to three friends' charts ----
+const VS_FRIENDS = { t: 0, list: [] }
+async function friendList() {
+  if (!signedIn()) return []
+  if (Date.now() - VS_FRIENDS.t < 60e3) return VS_FRIENDS.list
+  const r = await api('/me/taste').catch(() => null)
+  VS_FRIENDS.list = (r?.ok && r.j?.friends) || []; VS_FRIENDS.t = Date.now()
+  return VS_FRIENDS.list
+}
+function vsLines(mine, them, name, theirFavs, agree) {
+  const tm = tasteMatch(mine, them)
+  const pct = tm.pct == null ? agree : agree != null ? Math.round((tm.pct + agree) / 2) : tm.pct
+  const both = tm.both.slice(0, 2).map(dimPhrase)
+  const sharedFavs = favsLocal().filter((f) => arr(theirFavs).includes(f))
+  const bothLine = both.length ? `You both love ${both.join(' and ')}.` : sharedFavs.length ? `You both put ${sharedFavs.slice(0, 2).map((f) => shortName(f, COMICS)).join(' and ')} in your Four.` : 'No shared obsession yet.'
+  const dis = tm.disagree.slice(0, 2).map((k) => `${dimShort(k).toLowerCase()} (you ${mine.dims[k]}, ${name} ${them.dims[k]})`)
+  const disLine = dis.length ? `You disagree on ${dis.join(' and ')}.` : 'You barely disagree on anything.'
+  return { pct, bothLine, disLine, sharedFavs }
+}
+async function paintVs(el, names) {
+  const mine = myChart()
+  el.innerHTML = `<div class="up"><p class="muted up-loading">Lining up the charts\u2026</p></div>`
+  const [friends, ...pubs] = await Promise.all([friendList(), ...names.map((n) => fetchPublic(n))])
+  if (profRoute().kind !== 'vs') return
+  const others = names.map((n, i) => ({ name: pubs[i]?.j?.user?.username || n, r: pubs[i] })).filter((o) => o.r?.status === 200 && o.r.j?.chart?.dims)
+  const series = [{ dims: mine.dims, color: CHART_COLORS[0] }, ...others.map((o, i) => ({ dims: o.r.j.chart.dims, color: CHART_COLORS[i + 1] }))]
+  const fmap = Object.fromEntries(friends.map((f) => [String(f.username || '').toLowerCase(), f]))
+  const cards = others.map((o, i) => {
+    const f = fmap[o.name.toLowerCase()], L = vsLines(mine, o.r.j.chart, o.name, o.r.j.favs, f?.match ?? null)
+    o.L = L
+    return `<div class="vs-card" style="--c:${CHART_COLORS[i + 1]}"><div class="vs-who">${avatarHTML(o.r.j.user)}<b><a href="#u/${esc(o.name)}">${esc(o.name)}</a></b><span class="vs-pct">${L.pct ?? '–'}%<small>taste match</small></span></div>
+      <p>${esc(L.bothLine)}</p><p class="muted">${esc(L.disLine)}</p>${f?.match != null ? `<p class="muted small">You picked the same clip in ${f.agree} of ${f.shared} shared clashes.</p>` : ''}
+      <button type="button" class="dhghost" data-vsshare="${i}">Share me vs ${esc(o.name)} ↗</button></div>`
+  }).join('')
+  const missing = names.filter((n) => !others.some((o) => o.name.toLowerCase() === n.toLowerCase()))
+  const chips = friends.filter((f) => f.username).map((f) => { const on = names.some((n) => n.toLowerCase() === f.username.toLowerCase())
+    const next = on ? names.filter((n) => n.toLowerCase() !== f.username.toLowerCase()) : [...names, f.username].slice(-3)
+    return `<a class="vs-chip${on ? ' on' : ''}" href="#vs/${esc(next.join(',') || f.username)}">${avatarHTML(f)}${esc(f.username)}</a>` }).join('')
+  el.innerHTML = `<div class="up vs"><a class="back" href="#profile">← Your profile</a>
+    <section class="up-sec"><span class="eyebrow">Overlay</span><h1 class="vs-h">You${others.map((o, i) => ` <i>vs</i> <span style="color:${CHART_COLORS[i + 1]}">${esc(o.name)}</span>`).join('')}</h1>
+      ${chips ? `<div class="vs-chips">${chips}</div>` : signedIn() ? '<p class="muted small">Add friends by sharing a clash after you vote; they show up here.</p>' : '<p class="muted small">Sign in to overlay your friends\u2019 charts.</p>'}
+      ${missing.length ? `<p class="muted small">${missing.map(esc).join(', ')}: no public chart to overlay yet.</p>` : ''}</section>
+    <div class="up-chart vs-chart"><div class="up-radar">${chartSVG(series, { size: 420, values: others.length === 0, title: 'Humour charts overlaid' })}
+      <div class="vs-legend"><span style="--c:${CHART_COLORS[0]}">You</span>${others.map((o, i) => `<span style="--c:${CHART_COLORS[i + 1]}">${esc(o.name)}</span>`).join('')}</div></div>
+      <div class="up-legend">${cards || '<p class="muted">Pick a friend above to overlay their chart on yours.</p>'}</div></div></div>`
+  el.querySelectorAll('[data-vsshare]').forEach((b) => (b.onclick = () => {
+    const o = others[+b.dataset.vsshare]
+    openShareStudio('vs', { friend: { username: o.name, avatarSVG: seedSVG(o.r.j.user.avatar_seed) , chart: o.r.j.chart, match: o.L.pct, both: o.L.bothLine, disagree: o.L.disLine } })
+  }))
+}
+
+// ---- pickers ----
+function openFavsSheet(after) {
+  const sh = $('#sheet'); if (!sh) return
+  let sel = favsLocal().slice()
+  const names = comicNames()
+  const paint = () => {
+    sh.querySelector('.fv-grid').innerHTML = names.map((n) => { const i = sel.indexOf(n), p = comicPic(n), first = CLIPS.find((k) => k.comic === n && k.media === 'youtube'), src = p.photo || (first ? thumb(first.id) : '')
+      return `<button type="button" class="fv${i >= 0 ? ' on' : ''}" data-fv="${esc(n)}" aria-pressed="${i >= 0}">${src ? `<img src="${esc(src)}" alt="" loading="lazy">` : ''}${i >= 0 ? `<i>${i + 1}</i>` : ''}<b>${esc(n)}</b></button>` }).join('')
+    sh.querySelector('.fv-n').textContent = `${sel.length}/4`
+  }
+  sh.innerHTML = `<div class="sheetcard fvsheet" role="dialog" aria-modal="true" aria-labelledby="fvh"><button type="button" class="sheetx" data-ob="close" aria-label="Close">×</button>
+    <h2 id="fvh">Four favourites</h2><p class="muted">The four comics that say the most about your sense of humour. Tap in order. <span class="fv-n"></span></p>
+    <div class="fv-grid"></div><div class="obact"><button type="button" class="dhbtn" data-ob="save">Save</button><button type="button" class="dhghost" data-ob="close">Cancel</button></div></div>`
+  sh.hidden = false; paint()
+  const close = () => { sh.hidden = true; sh.innerHTML = '' }
+  sh.onclick = (e) => {
+    if (e.target === sh) return close()
+    const b = e.target.closest('[data-fv]'); if (!b) return
+    const n = b.dataset.fv, i = sel.indexOf(n)
+    if (i >= 0) sel.splice(i, 1); else if (sel.length < 4) sel.push(n); else return toast('Four is the limit. Tap one to take it out first.')
+    paint()
+  }
+  sh.querySelectorAll('[data-ob="close"]').forEach((b) => (b.onclick = close))
+  sh.querySelector('[data-ob="save"]').onclick = () => { saveFavs(sel); close(); paintProfilePage(); toast(sel.length ? 'Four Favourites saved.' : 'Favourites cleared.'); after?.() }
+}
+function openPinsSheet() {
+  const sh = $('#sheet'); if (!sh) return
+  let sel = pinsLocal().filter((id) => BYID[id])
+  const seenSet = new Set([...LS.get('votes', []).flatMap((v) => [v?.a, v?.b]), ...Object.keys(LS.get('seen', {}) || {})].filter((id) => BYID[id]))
+  const seen = [...seenSet].map((id) => BYID[id]), rest = CLIPS.filter((c) => !seenSet.has(c.id) && c.media === 'youtube').slice(0, 60)
+  const row = (c) => { const i = sel.indexOf(c.id); return `<button type="button" class="pn${i >= 0 ? ' on' : ''}" data-pn="${esc(c.id)}" aria-pressed="${i >= 0}"><img src="${thumb(esc(c.id))}" alt="" loading="lazy"><span><b>${esc(c.title)}</b><small>${esc(c.comic)}</small></span>${i >= 0 ? `<i>${i + 1}</i>` : ''}</button>` }
+  const paint = () => {
+    sh.querySelector('.pn-list').innerHTML = (seen.length ? `<p class="eyebrow">Clips you\u2019ve seen</p>${seen.map(row).join('')}` : '') + (rest.length ? `<p class="eyebrow">${seen.length ? 'More clips' : 'Clips'}</p>${rest.map(row).join('')}` : '')
+    sh.querySelector('.fv-n').textContent = `${sel.length}/6`
+  }
+  sh.innerHTML = `<div class="sheetcard pnsheet" role="dialog" aria-modal="true" aria-labelledby="pnh"><button type="button" class="sheetx" data-ob="close" aria-label="Close">×</button>
+    <h2 id="pnh">Pinned clips</h2><p class="muted">Up to six clips you\u2019d show someone first. <span class="fv-n"></span></p>
+    <div class="pn-list"></div><div class="obact"><button type="button" class="dhbtn" data-ob="save">Save</button><button type="button" class="dhghost" data-ob="close">Cancel</button></div></div>`
+  sh.hidden = false; paint()
+  const close = () => { sh.hidden = true; sh.innerHTML = '' }
+  sh.onclick = (e) => {
+    if (e.target === sh) return close()
+    const b = e.target.closest('[data-pn]'); if (!b) return
+    const id = b.dataset.pn, i = sel.indexOf(id)
+    if (i >= 0) sel.splice(i, 1); else if (sel.length < 6) sel.push(id); else return toast('Six pins max. Unpin one first.')
+    paint()
+  }
+  sh.querySelectorAll('[data-ob="close"]').forEach((b) => (b.onclick = close))
+  sh.querySelector('[data-ob="save"]').onclick = () => { savePins(sel); close(); paintProfilePage(); toast(sel.length ? 'Pins saved.' : 'Pins cleared.') }
+}
+
+// ---- share studio: PNG cards (Web Share on phones, download on desktop) ----
+function memeOptions() {
+  MODEL = MODEL || fitLocal()
+  const c = myChart(), n = MODEL.n
+  const comics = comicNames(), favs = favsLocal()
+  const rank = n ? [...comics].sort((a, b) => (MODEL.r[b] || 0) - (MODEL.r[a] || 0)) : [...favs, ...comics.filter((x) => !favs.includes(x))]
+  const asComic = (name) => ({ ...comicPic(name), sub: COMICS[name]?.tagline || '' })
+  const funny = [], notFunny = []
+  if (c.funniest) funny.push({ ...comicPic(c.funniest.comic), name: `\u201c${c.funniest.title}\u201d`, sub: c.funniest.comic, comic: c.funniest.comic })
+  for (const x of rank) funny.push({ ...asComic(x), comic: x })
+  for (const x of [...rank].reverse()) if (!favs.includes(x) || !n) notFunny.push({ ...asComic(x), comic: x })
+  return { funny, notFunny }
+}
+function cardData(extra = {}) {
+  const c = myChart(), name = signedIn() ? USER?.username : null
+  return { username: name || 'me', avatarSVG: seedSVG(mySeed()), chart: c, mml: c.mml, url: name ? PROFILE_HOST + name : 'funnier.si', favs: favsLocal().map(comicPic), ...extra }
+}
+function openShareStudio(kind = 'chart', opts = {}) {
+  const sh = $('#sheet'); if (!sh) return Promise.resolve()
+  return new Promise((done) => {
+    let size = 'feed', mi = 0
+    const M = memeOptions()
+    const tpls = TEMPLATES.filter((t) => t.needs !== 'friend' || opts.friend)
+    if (!tpls.some((t) => t.k === kind)) kind = 'chart'
+    sh.innerHTML = `<div class="sheetcard ss" role="dialog" aria-modal="true" aria-labelledby="ssh"><button type="button" class="sheetx" data-ob="close" aria-label="Close">×</button>
+      <h2 id="ssh">Share your taste</h2>
+      <div class="ss-tabs" role="tablist">${tpls.map((t) => `<button type="button" role="tab" data-tpl="${t.k}">${esc(t.label)}</button>`).join('')}</div>
+      <div class="ss-stage"><canvas class="ss-cv" aria-label="Card preview"></canvas><p class="muted ss-none" hidden>This browser can\u2019t draw the card. Try a recent Chrome, Safari or Firefox.</p></div>
+      <div class="ss-row"><div class="ss-size"><button type="button" data-size="feed">Feed 4:5</button><button type="button" data-size="story">Story 9:16</button></div><button type="button" class="dhghost ss-shuffle" data-ob="shuffle" hidden>Shuffle</button></div>
+      <div class="obact"><button type="button" class="dhbtn" data-ob="share">${isMobile() ? 'Share ↗' : 'Download PNG'}</button>${isMobile() ? '<button type="button" class="dhghost" data-ob="dl">Save image</button>' : ''}<button type="button" class="dhghost" data-ob="link">Copy profile link</button></div>
+      <p class="muted small">Cards use our mascots, type and Commons photos (credited on the card), never clips or meme images.</p></div>`
+    sh.hidden = false
+    const cv = sh.querySelector('.ss-cv')
+    const close = () => { sh.hidden = true; sh.innerHTML = ''; done() }
+    const data = () => {
+      const f = M.funny[mi % Math.max(1, M.funny.length)] || null
+      const nf = M.notFunny.filter((x) => x.comic !== f?.comic)[mi % Math.max(1, M.notFunny.length - 1)] || null
+      return cardData({ funny: f, notFunny: nf, friend: opts.friend || null })
+    }
+    let seq = 0
+    const render = async () => {
+      sh.querySelectorAll('[data-tpl]').forEach((b) => b.classList.toggle('on', b.dataset.tpl === kind))
+      sh.querySelectorAll('[data-size]').forEach((b) => b.classList.toggle('on', b.dataset.size === size))
+      sh.querySelector('.ss-shuffle').hidden = kind !== 'funny'
+      cv.classList.toggle('story', size === 'story')
+      const my = ++seq
+      let okc = null
+      try { okc = await drawCard(cv, kind, data(), size, () => my === seq) } catch (err) { console.warn('card', err) }
+      if (my !== seq) return
+      sh.querySelector('.ss-none').hidden = !!okc; cv.hidden = !okc
+    }
+    const file = async () => { const b = await toBlob(cv); return b ? new File([b], `funnier-${kind}-${size}${USER?.username ? '-' + USER.username : ''}.png`, { type: 'image/png' }) : null }
+    const download = (f) => { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove() }, 1500) }
+    sh.onclick = async (e) => {
+      if (e.target === sh) return close()
+      const t = e.target.closest('[data-tpl]'), s = e.target.closest('[data-size]'), ob = e.target.closest('[data-ob]')?.dataset.ob
+      if (t) { kind = t.dataset.tpl; return render() }
+      if (s) { size = s.dataset.size; return render() }
+      if (ob === 'close') return close()
+      if (ob === 'shuffle') { mi++; return render() }
+      if (ob === 'link') { const n = signedIn() && USER?.username; if (!n) return toast('Sign in and pick a username to get your own profile link.'); return toast((await copyText(profileURL(n))) ? 'Profile link copied.' : 'Copy this link: ' + profileURL(n)) }
+      if (ob === 'share' || ob === 'dl') {
+        const f = await file(); if (!f) return toast('Couldn\u2019t make the image on this browser.')
+        const n = signedIn() && USER?.username, url = n ? profileURL(n) : CFG.shareBase || SHARE_BASE
+        if (ob === 'share' && isMobile() && navigator.canShare?.({ files: [f] })) {
+          try { await navigator.share({ files: [f], text: `${myChart().line} ${url}` }) } catch (err) { if (err?.name !== 'AbortError') download(f) }
+        } else { download(f); toast('Saved. Post it anywhere.') }
+      }
+    }
+    render()
+  })
 }
 
 // ---------- account menu: one round icon top-right ----------
@@ -2364,21 +2772,21 @@ function paintMenu() {
   const legal = `<p class="um-legal"><a href="privacy.html" target="_blank" rel="noopener">Privacy</a> · <a href="terms.html" target="_blank" rel="noopener">Terms</a> · <a href="credits.html" target="_blank" rel="noopener">Credits</a></p>`
   if (signedIn()) {
     m.innerHTML = `<div class="um-sec um-me">${meHTML()}<div><b>${esc(USER.username || USER.name || 'You')}</b><small>${esc(USER.email || '')}</small></div></div>
-      <div class="um-sec"><button type="button" class="um-item" data-um="profile">Your profile</button><button type="button" class="um-item" data-um="history">History</button><button type="button" class="um-item" data-um="avatar">Change avatar</button>${USER.username ? '' : '<button type="button" class="um-item gold" data-um="edit">Finish your profile</button>'}</div>
+      <div class="um-sec"><button type="button" class="um-item" data-um="profile">My profile</button><button type="button" class="um-item" data-um="history">History</button><button type="button" class="um-item" data-um="avatar">Change avatar</button>${USER.username ? '' : '<button type="button" class="um-item gold" data-um="edit">Finish your profile</button>'}</div>
       ${lane}<div class="um-sec"><button type="button" class="um-item" data-um="signout">Sign out</button></div>${adv}
       <div class="um-sec"><button type="button" class="um-del" data-um="delete">Delete my account</button>${legal}</div>`
   } else {
     const can = CFG.googleClientId && CFG.apiBase
     m.innerHTML = `<div class="um-sec">${can ? '<div id="gsibtn" class="gsibtn"><button type="button" class="um-google" disabled>Sign in with Google</button></div>' : '<button type="button" class="um-google" disabled>Sign in with Google <small>coming soon</small></button>'}
       <p class="um-note">Sync your picks, add friends and see how your taste matches theirs.</p></div>
-      ${lane}<div class="um-sec"><button type="button" class="um-item" data-um="history">History</button></div>${adv}<div class="um-sec">${legal}</div>`
+      ${lane}<div class="um-sec"><button type="button" class="um-item" data-um="profile">My profile</button><button type="button" class="um-item" data-um="history">History</button></div>${adv}<div class="um-sec">${legal}</div>`
     if (can) renderGoogleButton(m.querySelector('#gsibtn'))
   }
   laneSelect(); bindBsky(m)
   m.querySelectorAll('[data-um]').forEach((x) => (x.onclick = () => {
     const k = x.dataset.um; setMenu(false)
     if (k === 'history') { showTab('you'); youSub('history') }
-    else if (k === 'profile') { showTab('profile'); paintProfilePage() }
+    else if (k === 'profile') goProfile('profile')
     else if (k === 'edit') openOnboarding()
     else if (k === 'avatar') openAvatarSheet()
     else if (k === 'signout') signOut()
@@ -2420,7 +2828,7 @@ function tabs() {
   const route = () => {
     const ic = parseInvite(location.hash)
     if (ic) { history.replaceState(null, '', location.pathname + location.search); show('arena'); openInvite(ic).then((ok) => { if (ok && CLIPS.length) { moving = false; goNext(null) } }); return }
-    if (/^#profile/.test(location.hash)) { show('profile'); paintProfilePage(); return }
+    if (/^#(profile|u\/|vs\/)/.test(location.hash)) { show('profile'); paintProfilePage(); return }
     const sh = parseClash(location.hash)
     if (sh) { pendingClash = sh; if (sh.rewatch) userStarted = true; history.replaceState(null, '', location.pathname + location.search); show('arena'); if (CLIPS.length) { moving = false; goNext(null) } return }
     if (/^#comic/.test(location.hash)) { show('comics'); paintComics() }

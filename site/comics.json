@@ -5,7 +5,7 @@
    "slug": "norm-macdonald",
    "tagline": "The long way round to the punchline.",
    "facts": [
-    "1959\u20132021",
+    "1959–2021",
     "Canada",
     "Weekend Update anchor on SNL"
    ],
@@ -576,6 +576,22 @@
    "photoLicenseUrl": "https://creativecommons.org/licenses/by-sa/2.0/",
    "photoSource": "https://commons.wikimedia.org/wiki/File:Mark_Normand,_March_2018.jpg",
    "photoNote": "resized"
+  },
+  "Casey Rocket": {
+   "slug": "casey-rocket",
+   "tagline": "High-speed riffing and gleeful nonsense.",
+   "facts": [
+    "Kill Tony regular",
+    "Won the inaugural Austin Comedy Competition",
+    "Deadline: 15 Comedians Ready to Break Out in 2025"
+   ],
+   "bio": "A riff-first stand-up whose career started in South Georgia and the Atlanta scene before he moved to Texas in 2021 and became a Kill Tony regular.",
+   "photo": "",
+   "links": {
+    "YouTube": "https://www.youtube.com/@CaseyRocket",
+    "Website": "https://www.caseyrocketcomedy.com/"
+   },
+   "specials": []
   }
  },
  "ai": [

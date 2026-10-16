@@ -1,0 +1,24 @@
+// Unit checks for src/humour.js (the humour chart): node tools/test-humour-chart.mjs
+import fs from 'node:fs'
+import { computeChart, chartSVG, tasteMatch, clipFeatures } from '../src/humour.js'
+const fails = [], ok = (c, m) => { if (!c) fails.push(m); console.log((c ? 'PASS ' : 'FAIL ') + m) }
+const clips = Object.fromEntries(JSON.parse(fs.readFileSync(new URL('../clips.json', import.meta.url))).filter((c) => c.status !== 'removed').map((c) => [c.id, c]))
+const theory = JSON.parse(fs.readFileSync(new URL('../site/theory.json', import.meta.url)))
+const ids = Object.keys(clips), norm = ids.filter((i) => clips[i].comic === 'Norm Macdonald'), oth = ids.filter((i) => clips[i].comic !== 'Norm Macdonald')
+const z = computeChart({ clips, theory })
+ok(z.n === 0 && Object.values(z.dims).every((v) => v === 50) && Object.keys(z.dims).length >= 8 && /Still reading you/.test(z.line), 'no signals: flat 50s, every dimension present, "still reading you"')
+const f = computeChart({ clips, theory, favs: ['Norm Macdonald'] })
+ok(f.dims.deadpan > 50 && f.adjacent?.comic === 'Norm Macdonald', `Four Favourites alone shape the chart (deadpan ${f.dims.deadpan}, ${f.adjacent?.short}-adjacent)`)
+const votes = norm.flatMap((a, j) => oth.slice(j * 3, j * 3 + 3).map((b) => ({ a, b, winner: a, w: 1 })))
+const c = computeChart({ clips, theory, votes, score: (id) => (clips[id].comic === 'Norm Macdonald' ? 1 : 0) })
+ok(c.dims.deadpan >= 70 && c.top[0] === 'deadpan' && /Norm-adjacent/.test(c.line) && c.funniest?.comic === 'Norm Macdonald', `Norm wins -> deadpan leads (${c.line})`)
+ok(c.sty.hold > 55 && c.ops.length > 0, `stylometry + operator mix from theory.json (hold ${c.sty.hold}, top move ${c.ops[0]?.label})`)
+const r = computeChart({ clips, theory, votes: votes.map((v) => ({ ...v, winner: v.b })) })
+const tm = tasteMatch(c, r), self = tasteMatch(c, c)
+ok(self.pct === 100 && tm.pct < 50 && tm.disagree.includes('deadpan'), `taste match: self 100, opposite ${tm.pct}, disagree on ${tm.disagree.slice(0, 3)}`)
+const svg = chartSVG([{ dims: c.dims }, { dims: r.dims }])
+ok(/^<svg/.test(svg) && (svg.match(/class="hcs"/g) || []).length === 2 && !/NaN/.test(svg), 'SVG renders both series, no NaN')
+ok(Object.values(clipFeatures(clips[norm[0]], theory)).every((v) => v >= 0 && v <= 1), 'clip features stay in 0..1')
+const srv = computeChart({ clips, theory, votes, server: { weights: { status_invert: 1.2 }, line: 'You laugh hardest at status flips.' } })
+ok(srv.ops.some((o) => o.k === 'status_invert') && /status flips/.test(srv.serverLine), 'GET /me/humour weights + line blend in')
+console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASS'); process.exit(fails.length ? 1 : 0)
