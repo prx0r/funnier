@@ -646,7 +646,7 @@ function slideHTML(a, b, n, first) {
   const scr = (c, side) => `<div class="screen ${side} small" data-side="${side}">
       <div class="frame"><div class="yt" id="p${side}${n}"></div><div class="shield" aria-hidden="true"></div>
       <div class="label"><span class="side">${side === 'L' ? '1' : '2'}</span><div class="meta"><h3>${esc(c.comic)}${chip(c)}</h3><p>${esc(c.title)}${c.channel ? ' · ' + esc(c.channel) : ''}</p></div></div>
-      <div class="prog" role="slider" tabindex="0" data-side="${side}" aria-label="Seek clip ${side === 'L' ? '1' : '2'}" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00"><span class="ptrack"><i></i></span><b class="pknob"></b></div></div></div>`
+      <div class="prog" role="slider" tabindex="0" data-side="${side}" aria-label="Seek clip ${side === 'L' ? '1' : '2'}" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00"><span class="ptrack"><i></i></span><b class="pknob"></b></div>${fsBtnHTML()}</div></div>`
   return `<div class="slide" data-n="${n}">
     <div class="intro">
       <div class="introbar">${introLine()}</div>
@@ -742,6 +742,11 @@ function bindSlide(el) {
     screens[sh.closest('.screen').dataset.side]?.toggle()
   }))
   el.querySelectorAll('.prog').forEach(bindScrub)
+  el.querySelectorAll('.vfs').forEach((b) => {
+    b.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true }) // a tap on the toggle is never a swipe
+    b.addEventListener('pointerdown', (e) => e.stopPropagation())
+    b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); toggleFullscreen() }
+  })
   const lb = LAUGHS_ENABLED ? el.querySelector('.laughbtn') : null
   if (lb) {
     lb.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true }) // a laugh is never a swipe
@@ -1005,7 +1010,7 @@ function bindGestures() {
   const begin = (t) => { x0 = lx = t.clientX; y0 = ly = t.clientY; t0 = lt = now(); vx = vy = 0; axis = null; active = true; dx = dy = 0 }
   stageEl.addEventListener('touchstart', (e) => {
     if (!arenaOn() || !screeningActive() || committing || moving || e.touches.length > 1) { active = false; return }
-    if (e.target?.closest?.('.prog, .laughbtn')) { active = false; return } // scrub / laugh, not a swipe
+    if (e.target?.closest?.('.prog, .laughbtn, .vfs')) { active = false; return } // scrub / laugh, not a swipe
     begin(e.touches[0])
   }, { passive: true })
   stageEl.addEventListener('touchmove', (e) => {
@@ -1097,12 +1102,18 @@ const fsNative = () => { const de = document.documentElement; return !!(document
 const fsOn = () => !!fsEl() || fsPseudo
 const FS_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>'
 const FS_EXIT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>'
+// the toggle lives in the theatre, bottom-right of the video (YouTube-style), one per screen; it fades with the chrome
+function fsBtnHTML() {
+  const on = fsOn(), l = on ? 'Exit fullscreen (F)' : 'Fullscreen (F)'
+  return `<button type="button" class="vfs" aria-pressed="${on}" aria-label="${l}" title="${l}">${on ? FS_EXIT : FS_ICON}</button>`
+}
 function paintFs() {
   const on = fsOn()
   document.body.classList.toggle('fs', on); document.body.classList.toggle('fs-pseudo', fsPseudo && !fsEl())
-  const b = $('#fsbtn'); if (!b) return
-  b.innerHTML = on ? FS_EXIT : FS_ICON; b.setAttribute('aria-pressed', String(on))
-  b.setAttribute('aria-label', on ? 'Exit fullscreen (F)' : 'Fullscreen (F)'); b.title = on ? 'Exit fullscreen (F)' : 'Fullscreen (F)'
+  document.querySelectorAll('.vfs').forEach((b) => {
+    b.innerHTML = on ? FS_EXIT : FS_ICON; b.setAttribute('aria-pressed', String(on))
+    b.setAttribute('aria-label', on ? 'Exit fullscreen (F)' : 'Fullscreen (F)'); b.title = on ? 'Exit fullscreen (F)' : 'Fullscreen (F)'
+  })
 }
 async function enterNative() {
   const de = document.documentElement
@@ -1125,7 +1136,6 @@ async function setFullscreen(on) {
 }
 function toggleFullscreen() { return setFullscreen(!fsOn()) }
 function bindFullscreen() {
-  const b = $('#fsbtn'); if (b) b.onclick = (e) => { e.stopPropagation(); toggleFullscreen() }
   const onChange = () => { if (!fsEl() && !fsPseudo) LS.set('fs', false); paintFs() } // Esc out of real fullscreen = preference off
   document.addEventListener('fullscreenchange', onChange); document.addEventListener('webkitfullscreenchange', onChange)
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') escBusy = menuOpen() || !($('#sheet')?.hidden ?? true) }, { capture: true })
@@ -1981,6 +1991,18 @@ function newSeed() {
     return seed
   }
 }
+// every visitor gets their own mascot from the first visit: a random seed kept on this device (funnier.avatarSeed).
+// A signed-in user's saved avatar_seed overrides it; onboarding preselects it so the same mascot carries over.
+function deviceSeed() {
+  let s = null
+  try { s = LS.get('avatarSeed', null) } catch {}
+  if (typeof s === 'string' && SEED_RE.test(s)) return s
+  s = newSeed()
+  try { LS.set('avatarSeed', s) } catch {}
+  return s
+}
+const mySeed = () => seedOf(USER) || deviceSeed()
+const meHTML = () => (seedOf(USER) || !(USER?.google_avatar && /^https:\/\//.test(USER.google_avatar)) ? `<span class="av">${seedSVG(mySeed())}</span>` : avatarHTML(USER))
 function avatarHTML(u) {
   const seed = seedOf(u)
   if (seed) return `<span class="av">${seedSVG(seed)}</span>`
@@ -2038,7 +2060,7 @@ function openOnboarding() {
   sh.onclick = (e) => { if (e.target === sh) close() }
   sh.querySelectorAll('[data-ob="close"]').forEach((b) => (b.onclick = close))
   sh.querySelector('[data-ob="dice"]').onclick = () => { sh.querySelector('#obuser').value = funnyName() }
-  const roller = avatarRoller(sh.querySelector('.avroll'), seedOf(u))
+  const roller = avatarRoller(sh.querySelector('.avroll'), seedOf(u) || deviceSeed())
   sh.querySelector('#obform').onsubmit = async (e) => {
     e.preventDefault()
     sh.querySelectorAll('.oberr').forEach((x) => (x.textContent = ''))
@@ -2063,6 +2085,7 @@ function openOnboarding() {
       if (!Object.keys(f).length) sh.querySelector('[data-err=form]').textContent = 'Couldn\u2019t save right now. Please try again.'
       return
     }
+    if (seedOf(r.j.user)) LS.set('avatarSeed', seedOf(r.j.user)) // this device keeps the mascot they chose
     USER = r.j.user; close(); paintUser(); paintProfilePage(); toast(first ? `Welcome, ${USER.username}.` : 'Profile saved.')
   }
 }
@@ -2079,11 +2102,12 @@ function openAvatarSheet() {
   const close = () => { sh.hidden = true; sh.innerHTML = '' }
   sh.onclick = (e) => { if (e.target === sh) close() }
   sh.querySelectorAll('[data-ob="close"]').forEach((b) => (b.onclick = close))
-  const roller = avatarRoller(sh.querySelector('.avroll'), seedOf(USER))
+  const roller = avatarRoller(sh.querySelector('.avroll'), mySeed())
   sh.querySelector('[data-ob="save"]').onclick = async (e) => {
     const btn = e.currentTarget; btn.disabled = true
     const r = await api('/me/profile', { method: 'PUT', body: { avatar_seed: roller.seed } }).catch(() => null); btn.disabled = false
     if (!r?.ok) { sh.querySelector('[data-err=form]').textContent = 'Couldn\u2019t save right now. Please try again.'; return }
+    if (seedOf(r.j.user)) LS.set('avatarSeed', seedOf(r.j.user)) // this device keeps the mascot they chose
     USER = r.j.user; close(); paintUser(); paintProfilePage(); toast('New look saved.')
   }
 }
@@ -2093,7 +2117,7 @@ async function paintProfilePage() {
   const el = $('#profileview'); if (!el || $('#v-profile')?.hidden) return
   if (!signedIn()) { el.innerHTML = `<div class="pf"><h2>Your profile</h2><p class="empty">Sign in with Google from the account menu to add friends and compare your taste.</p></div>`; return }
   const u = USER
-  el.innerHTML = `<div class="pf"><div class="pfhead"><button type="button" class="pfav" id="pfav" aria-label="Change avatar" title="Change avatar">${avatarHTML(u)}<span class="pfavdice">${DICE}</span></button><div><h2>${esc(u.username || 'New comic fan')}</h2><p class="muted small">${esc(u.email || '')}</p></div><span class="pfbtns"><button type="button" class="dhghost" id="pfavbtn">Change avatar</button><button type="button" class="dhghost" id="pfedit">Edit profile</button></span></div>
+  el.innerHTML = `<div class="pf"><div class="pfhead"><button type="button" class="pfav" id="pfav" aria-label="Change avatar" title="Change avatar">${meHTML()}<span class="pfavdice">${DICE}</span></button><div><h2>${esc(u.username || 'New comic fan')}</h2><p class="muted small">${esc(u.email || '')}</p></div><span class="pfbtns"><button type="button" class="dhghost" id="pfavbtn">Change avatar</button><button type="button" class="dhghost" id="pfedit">Edit profile</button></span></div>
     <div class="kpis pfk"><div class="kpi"><b id="pk-sent">–</b><span>clashes shared</span></div><div class="kpi"><b id="pk-open">–</b><span>opened by friends</span></div><div class="kpi"><b id="pk-voted">–</b><span>friends voted</span></div><div class="kpi"><b id="pk-fr">–</b><span>friends</span></div></div>
     <h3>Taste match</h3><div id="pftaste" class="pflist"><p class="muted">Loading…</p></div>
     <h3>Invites you sent</h3><div id="pfinv" class="pflist"><p class="muted">Loading…</p></div>
@@ -2124,8 +2148,8 @@ function setMenu(open) {
 }
 function paintUser() {
   const b = $('#userbtn'); if (!b) return
-  b.innerHTML = signedIn() ? avatarHTML(USER) : SILHOUETTE
-  b.classList.toggle('in', signedIn())
+  b.innerHTML = signedIn() ? meHTML() : `<span class="av">${seedSVG(deviceSeed())}</span>`
+  b.classList.add('in')
   b.setAttribute('aria-label', signedIn() ? `Account: ${USER.username || USER.name || 'you'}` : 'Sign in')
   if (menuOpen()) paintMenu()
 }
@@ -2135,7 +2159,7 @@ function paintMenu() {
   const adv = `<details class="um-adv"><summary>Advanced</summary><div class="um-sec">${bskyHTML()}</div></details>`
   const legal = `<p class="um-legal"><a href="privacy.html" target="_blank" rel="noopener">Privacy</a> · <a href="terms.html" target="_blank" rel="noopener">Terms</a> · <a href="credits.html" target="_blank" rel="noopener">Credits</a></p>`
   if (signedIn()) {
-    m.innerHTML = `<div class="um-sec um-me">${avatarHTML(USER)}<div><b>${esc(USER.username || USER.name || 'You')}</b><small>${esc(USER.email || '')}</small></div></div>
+    m.innerHTML = `<div class="um-sec um-me">${meHTML()}<div><b>${esc(USER.username || USER.name || 'You')}</b><small>${esc(USER.email || '')}</small></div></div>
       <div class="um-sec"><button type="button" class="um-item" data-um="profile">Your profile</button><button type="button" class="um-item" data-um="history">History</button><button type="button" class="um-item" data-um="avatar">Change avatar</button>${USER.username ? '' : '<button type="button" class="um-item gold" data-um="edit">Finish your profile</button>'}</div>
       ${lane}<div class="um-sec"><button type="button" class="um-item" data-um="signout">Sign out</button></div>${adv}
       <div class="um-sec"><button type="button" class="um-del" data-um="delete">Delete my account</button>${legal}</div>`
