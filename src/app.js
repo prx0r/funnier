@@ -280,11 +280,25 @@ function roundFormat() { // the device's preferred format for this round, when t
 const shuffle = (a) => a.map((x) => [Math.random(), x]).sort((p, q) => p[0] - q[0]).map((p) => p[1])
 
 const pairSim = (a, b) => structSim(a, b, THEORY, { pairing: true })
-if (typeof window !== 'undefined') window.__funnierTest = { pickPair: () => pickPair(), openPair: (a, b) => openPair(a, b) } // smoke tests sample rounds
+// §4b: the clips you rated highest (winners, summed pick confidence), at most 8
+function likedClips() {
+  const w = {}
+  for (const v of LS.get('votes', [])) if (v && BYID[v.winner]) w[v.winner] = (w[v.winner] || 0) + (Number.isFinite(v.weight) ? v.weight : voteWeight(v))
+  return Object.entries(w).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([id, k]) => ({ c: BYID[id], k }))
+}
+// contentSim(c) = weighted mean struct_sim(c, x) over your liked clips (c itself excluded; same-comic kinship counts here):
+// kindred clips rise before you have voted on them
+function contentSim(c, liked) {
+  let s = 0, n = 0
+  for (const { c: x, k } of liked) if (x.id !== c.id) { s += k * structSim(c, x, THEORY); n += k }
+  return n ? s / n : 0
+}
+if (typeof window !== 'undefined') window.__funnierTest = { pickPair: () => pickPair(), openPair: (a, b) => openPair(a, b), contentSim: (id) => contentSim(BYID[id], likedClips()), pickForYou: () => pickForYou() } // smoke tests sample rounds
 function pickForYou() {
   // your model's favourite unseen matchup: its top clip vs the clip it knows least about
   const P = pool(); if (P.length < 2) return null
-  const fy = (c) => MODEL.score(c.id) + traitScore(c) + 0.3 * Math.random()
+  const liked = likedClips()
+  const fy = (c) => MODEL.score(c.id) + traitScore(c) + contentSim(c, liked) + 0.3 * Math.random()
   const top = [...P].sort((x, y) => fy(y) - fy(x))
   for (const a of top.slice(0, 6)) {
     // its opponent: structurally kindred (same kind of funny) and still little-known to your model
