@@ -340,6 +340,11 @@ body.in-theatre.chrome-hidden .brand{opacity:0;pointer-events:none}
 body.after-vote footer{visibility:hidden} /* the after-vote card sits where the footer is */
 .vcount{display:flex;align-items:center;justify-content:center;gap:10px}
 .vcount .hint{margin:0}
+.ring{width:22px;height:22px;flex:none;transform:rotate(-90deg)} /* the 10 s ballot window, draining */
+.ring circle{fill:none;stroke-width:2.4}
+.ring .rbg{stroke:rgba(255,255,255,.1)}
+.ring .rfg{stroke:rgba(243,241,236,.62);stroke-dasharray:100;stroke-dashoffset:0;stroke-linecap:round}
+.ballot.held .ring .rfg{stroke:rgba(243,241,236,.9)}
 @media (pointer:coarse){.ballot .kb{display:none}}
 .vpass{background:none;border:1px solid var(--line);color:var(--muted);font:inherit;font-size:13px;border-radius:999px;padding:5px 14px;cursor:pointer;transition:color .2s,border-color .2s}
 .vpass:hover,.vpass:focus-visible{color:var(--text);border-color:rgba(243,241,236,.45)}

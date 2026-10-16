@@ -19,12 +19,12 @@ export const PARAMS = {
   pairCloseUnc: [0.4, 0.05, 1], pairFresh: [0.3, 0.05, 1], pairStruct: [0.3, 0.05, 1],
   mixForyou: [0.4, 0.1, 0.8], mixTraining: [0.4, 0.1, 0.8], mixExplore: [0.2, 0.1, 0.6],
   coldTraining: [0.55, 0.2, 0.8], coldExplore: [0.45, 0.2, 0.8],
-  snapMult: [1.25, 1, 1.6], slowMult: [0.7, 0.4, 1], strongMult: [1.4, 1, 2], skipLoss: [0.3, 0.1, 0.6], clipSkipLoss: [0.4, 0.1, 0.7],
-  snapMs: [1500, 800, 3000], slowMs: [12000, 6000, 20000],
+  snapMult: [1.25, 1, 1.6], slowMult: [0.85, 0.6, 1], strongMult: [1.4, 1, 2], skipLoss: [0.3, 0.1, 0.6], clipSkipLoss: [0.4, 0.1, 0.7],
+  snapMs: [1500, 800, 3000], slowMs: [7000, 5000, 9500] /* the last ~3 s of the 10 s ballot */,
   simStyle: [0.25, 0.05, 0.5], simOps: [0.25, 0.05, 0.5], simTopic: [0.15, 0.05, 0.4], simSty: [0.15, 0.05, 0.4], simArch: [0.15, 0.05, 0.4], simMary: [0.05, 0, 0.2],
   watchGateSec: [30, 20, 45], watchGateFrac: [0.8, 0.6, 0.95],
   capMobileSec: [75, 45, 150], capDesktopSec: [150, 75, 300], minWindowSec: [30, 30, 60],
-  introMs: [2500, 1500, 4000], ballotMs: [7000, 5000, 10000], ballotResumeMs: [2500, 1500, 4000],
+  introMs: [2500, 1500, 4000], ballotMs: [10000, 5000, 10000] /* never more than 10 s */, ballotResumeMs: [3000, 1500, 4000],
 }
 export const DEFAULTS = Object.fromEntries(Object.entries(PARAMS).map(([k, v]) => [k, v[0]]))
 export const MIN_SESSIONS = 500

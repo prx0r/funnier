@@ -23,7 +23,7 @@ const WHY_MAX = 40
 // watch signals (lexicon #signals): whole seconds, all optional; anything else is dropped
 const SIG_INT = { leftWatchedSec: 36000, rightWatchedSec: 36000, rightPct: 100, replays: 1000, leftSkippedAt: 36000, rightSkippedAt: 36000 }
 const SIG_ARR = ['leftSeekTargets', 'leftSeekFrom', 'rightSeekTargets', 'rightSeekFrom']
-const SIG_BOOL = ['skippedAhead', 'leftSkipped', 'rightSkipped']
+const SIG_BOOL = ['skippedAhead', 'leftSkipped', 'rightSkipped', 'timedOut'] // timedOut: a pass because the 10 s ballot ran out (events only)
 export function cleanSignals(x) {
   if (!x || typeof x !== 'object' || Array.isArray(x)) return null
   const o = {}

@@ -1,6 +1,6 @@
 // Browser regression for the four screening fixes (2026-10-16), real site/ bundle in headless Chromium with a stub
 // YouTube API whose videos have their clips.json lengths: (1) every clip plays to its very end (no equal-length or cap
-// truncation; a long uncut set plays its closing window), (2) the ballot is untimed, (3) a desktop never gets a vertical
+// truncation; a long uncut set plays its closing window), (2) the ballot is a 10 s window (ring, auto-pass, Pass button), (3) a desktop never gets a vertical
 // clip in any mode (sampled rounds, #clash links), (4) the Daily Clash pill hides once today's pair has been watched
 // to its ballot, however it was reached, immediately and after a reload.
 // Usage (from api/): node test/screening-browser.mjs   Needs Chromium + puppeteer-core (as test/ballot-browser.mjs).
@@ -70,10 +70,15 @@ async function playThrough(page) {
   const [L, R] = await playThrough(page)
   ok(Math.abs(L[0] - (long.dur - 150)) < 1 && L[1] >= long.dur - 0.01, `long set (${long.dur}s): plays its last 150s, ${L[0].toFixed(0)}..${L[1].toFixed(0)}s (trimmed from the start, never the end)`)
   ok(R[0] >= 249 && R[1] >= 399.99, `unknown length (400s per the player): moves to its closing window and plays to the end, ${R[0].toFixed(0)}..${R[1].toFixed(0)}s`)
-  // (2) untimed ballot
-  await sleep(10000); ok(await stageOf(page) === 'vote', 'ballot still open after 10s (no auto-pass)')
+  // (2) the 10 s ballot: a draining ring; no pick in 10 s = an auto-pass (a pass, never a vote); the Pass button still works
+  ok(await page.evaluate(() => !!document.querySelector('.slide:last-child .ballot .ring .rfg') && !!document.querySelector('.slide:last-child .vpass')), 'ballot shows the countdown ring and the Pass button')
+  await sleep(6500); ok(await stageOf(page) === 'vote', 'ballot still open at ~7s')
+  await sleep(4500)
+  const P1 = await page.evaluate(() => ({ passes: JSON.parse(localStorage.getItem('funnier.passes') || '[]'), votes: JSON.parse(localStorage.getItem('funnier.votes') || '[]').length, st: document.querySelector('.slide:last-child')?.dataset.stage }))
+  ok(P1.passes.length === 1 && P1.passes[0].timedOut === true && P1.passes[0].decisionMs >= 9900 && P1.passes[0].decisionMs < 11500 && P1.votes === 0 && P1.st !== 'vote', `no pick in 10s = an auto-pass, not a vote (${P1.passes[0]?.decisionMs}ms, stage now ${P1.st})`)
+  await page.waitForFunction(() => ['left', 'intro'].includes(document.querySelector('.slide:last-child')?.dataset.stage), { timeout: 8000 }); await toBallot(page)
   await page.click('.slide:last-child .vpass'); await sleep(900)
-  ok(await page.evaluate(() => JSON.parse(localStorage.getItem('funnier.passes') || '[]').length === 1), 'Pass button records a pass and moves on'); await ctx.close() }
+  ok(await page.evaluate(() => { const p = JSON.parse(localStorage.getItem('funnier.passes') || '[]'); return p.length === 2 && !p[1].timedOut && Number.isInteger(p[1].decisionMs) }), 'Pass button records a (non-timed-out) pass and moves on'); await ctx.close() }
 // (3) desktop: never a vertical clip; phone still gets them
 { const { page, ctx } = await open('desktop')
   const r = await page.evaluate(() => { let v = 0, n = 0; for (let i = 0; i < 400; i++) { const p = window.__funnierTest.pickPair(); if (!p) continue; n++; v += p.filter((c) => c.format === 'vertical').length } return { v, n } })

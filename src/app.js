@@ -200,12 +200,12 @@ const LATE_NIGHT = /coco|letterman|tonight|late/i
 function bumpSeen(...ids) { const s = LS.get('seen', {}); ids.forEach((i) => (s[i] = (s[i] || 0) + 1)); LS.set('seen', s) }
 
 // ---------- implicit signals -> confidence weight per pick ----------
-// decisionMs runs from the moment the Funnier buttons appear to the click.
-// <1.5s = snap pick (x1.25), >12s = hesitant (x0.7), otherwise x1.0.
+// decisionMs runs from the moment the Funnier buttons appear to the click (the ballot is a 10 s window, VOTE_MS).
+// <1.5s = snap pick (x1.25), after 7s = a last-moment pick in the final ~3s of the window (x0.85), otherwise x1.0.
 // Picking clip ONE in under 3s while less than 60% of clip TWO was watched = strong (x1.4): you didn't need the rest.
 // Old picks without signals keep weight 1.
-let SNAP_MS = 1500, SLOW_MS = 12000; const LS_WIN_W = 1.2, LS_LOSE_W = 0.6
-let SNAP_MULT = 1.25, SLOW_MULT = 0.7, STRONG_MULT = 1.4
+let SNAP_MS = 1500, SLOW_MS = 7000; const LS_WIN_W = 1.2, LS_LOSE_W = 0.6
+let SNAP_MULT = 1.25, SLOW_MULT = 0.85, STRONG_MULT = 1.4
 function timingWeight(v) {
   const ms = v && v.decisionMs
   if (!Number.isFinite(ms)) return 1
@@ -868,9 +868,9 @@ function toggleCrowd() {
   toast(crowdLaughsOn() ? 'Crowd laughs on.' : 'Crowd laughs off.'); showChrome()
 }
 
-// ---------- the screening: intro face-off -> clip ONE full screen -> clip TWO -> untimed ballot ----------
+// ---------- the screening: intro face-off -> clip ONE full screen -> clip TWO -> 10 s ballot ----------
 // stages: intro | left | right | vote | done
-let VOTE_MS = 7000, INTRO_MS = 2500, VOTE_RESUME_MIN = 2500 // VOTE_MS / VOTE_RESUME_MIN: legacy screening params, unused (the ballot is untimed)
+let VOTE_MS = 10000, INTRO_MS = 2500, VOTE_RESUME_MIN = 3000 // the ballot window (max 10 s) and the least time left after a hold (a sheet, a hidden tab)
 let screens = {}, stage = 'idle', tick = null, armed = false, armedAt = 0, prediction = null
 let cur = null, nScreen = 0, timers = [], userStarted = false, moving = false
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
@@ -899,7 +899,7 @@ function signals() {
 // the watch signals as sent to the API and the AT Protocol record (lexicon `signals`): whole seconds, all optional
 const SIG_INT = ['leftWatchedSec', 'rightWatchedSec', 'replays', 'leftSkippedAt', 'rightSkippedAt']
 const SIG_ARR = ['leftSeekTargets', 'leftSeekFrom', 'rightSeekTargets', 'rightSeekFrom']
-const SIG_BOOL = ['skippedAhead', 'leftSkipped', 'rightSkipped']
+const SIG_BOOL = ['skippedAhead', 'leftSkipped', 'rightSkipped', 'timedOut'] // timedOut: only on passes (the 10 s ballot ran out)
 function sigPayload(v) {
   if (!v || typeof v !== 'object') return undefined
   const o = {}
@@ -951,7 +951,7 @@ function slideHTML(a, b, n, first) {
     <div class="theatre">${scr(a, 'L')}${scr(b, 'R')}${LAUGHS_ENABLED ? `<div class="lfx" aria-hidden="true"></div><button type="button" class="laughbtn" aria-label="Laugh (tap whenever it's funny)" title="Laugh">${LAUGH_SVG}</button>` : '' /* laugh button + particles: off */}<div class="peek" aria-hidden="true"><span class="pkimg" ${b.media === 'youtube' ? `style="background-image:url(${thumb(b.id)})"` : ''}></span><span class="pkcap"><b>#2</b> ${esc(b.comic)}</span></div></div>
     <div class="ballot"><p class="bq">Which was funnier?</p><div class="picks">${shot(a, 'L')}${shot(b, 'R')}</div>
       <div class="audiofb" role="group" aria-label="Sound level feedback"><span>Sound off?</span>${[['L', '#1'], ['R', '#2']].map(([sd, n]) => `<button type="button" data-aud="${sd}" data-k="loud">${n} too loud</button><button type="button" data-aud="${sd}" data-k="quiet">${n} too quiet</button>`).join('')}</div>
-      <div class="vcount"><p class="hint">Take your time. Tap the funnier one<span class="kb">, or ← / →</span>.</p><button type="button" class="vpass" title="Pass: no pick, neither comic loses anything (P)">Pass</button></div>
+      <div class="vcount"><svg class="ring" viewBox="0 0 36 36" aria-hidden="true"><circle class="rbg" cx="18" cy="18" r="15.5"/><circle class="rfg" cx="18" cy="18" r="15.5" pathLength="100"/></svg><p class="hint">Tap the funnier one<span class="kb">, or ← / →</span>. No pick = pass.</p><button type="button" class="vpass" title="Pass: no pick, neither comic loses anything (P)">Pass</button></div>
       <p class="friendres" aria-live="polite"></p></div>
   </div>`
 }
@@ -976,7 +976,7 @@ function setStage(s) {
 function stopScreening() {
   clearInterval(tick); tick = null; clearTimers(); clearTimeout(advT); advT = null
   cancelAnimationFrame?.(progRaf); progRaf = 0
-  Object.values(screens).forEach((s) => s.retire()); screens = {}; armed = false; armedAt = 0
+  Object.values(screens).forEach((s) => s.retire()); screens = {}; armed = false; armedAt = 0; stopCountdown()
   document.body.classList.remove('in-theatre')
 }
 
@@ -1190,16 +1190,43 @@ function startVote() {
   setStage('vote')
   markDailyDone() // watched it through to the ballot
   armed = true; armedAt = now(); sharedDuringBallot = false // decision time runs from the moment the FUNNIER logos appear
+  voteLeft = VOTE_MS; voteHeld = false
+  runCountdown()
 }
-// The ballot is never timed: it stays until you pick (tap, or ← / →) or explicitly move on (Pass / P, swipe up,
-// "Next clash", S). Nothing auto-advances. decisionMs still runs from the moment the ballot appears.
-function pass() {
+// The ballot is a 10 s window (VOTE_MS, at most 10 s): a thin ring drains; no pick when it empties = a pass (same as the
+// Pass button / P: neither comic loses anything). Swipe up / "Next clash" / S still leave at once (a ballot skip).
+// The ring only holds while a sheet is open over it (share) or the tab is hidden, and then resumes with at least
+// VOTE_RESUME_MIN left (never more than the window). decisionMs runs from the moment the ballot appears.
+let voteLeft = 0, voteT0 = 0, voteT = null, voteHeld = false
+function ringEl() { return q('.ballot .ring .rfg') }
+function runCountdown() {
+  clearTimeout(voteT); voteT0 = now()
+  const r = ringEl(), frac = voteLeft / VOTE_MS
+  if (r) { r.style.transition = 'none'; r.style.strokeDashoffset = String(100 * (1 - frac)); void r.getBoundingClientRect?.(); r.style.transition = `stroke-dashoffset ${voteLeft}ms linear`; r.style.strokeDashoffset = '100' }
+  voteT = setTimeout(() => { voteT = null; if (stage === 'vote' && armed) pass(true) }, voteLeft + 60)
+}
+function holdCountdown() {
+  if (!(stage === 'vote' && armed) || voteT == null) return
+  clearTimeout(voteT); voteT = null; voteHeld = true
+  voteLeft = Math.max(0, voteLeft - (now() - voteT0))
+  const r = ringEl(); if (r) { r.style.transition = 'none'; r.style.strokeDashoffset = String(100 * (1 - voteLeft / VOTE_MS)) }
+  q('.ballot')?.classList.add('held')
+}
+function resumeCountdown() {
+  if (!(stage === 'vote' && armed) || voteT != null || !voteHeld) return
+  voteHeld = false; voteLeft = Math.min(VOTE_MS, Math.max(voteLeft, VOTE_RESUME_MIN)); q('.ballot')?.classList.remove('held'); runCountdown()
+}
+function stopCountdown() { clearTimeout(voteT); voteT = null; voteHeld = false }
+if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => { if (document.hidden) holdCountdown(); else resumeCountdown() })
+function pass(timedOut) {
   if (!current) return
+  stopCountdown()
   const [a, b] = current
   armed = false
-  LS.set('passes', [...LS.get('passes', []), { a: a.id, b: b.id, ...signals(), ...(current.policy ? { policy: current.policy } : {}), ...(current.daily ? { daily: current.daily } : {}), at: new Date().toISOString() }].slice(-300)); queueEvents()
+  const pms = armedAt && !sharedDuringBallot ? Math.max(0, Math.round(now() - armedAt)) : undefined
+  LS.set('passes', [...LS.get('passes', []), { a: a.id, b: b.id, ...(Number.isFinite(pms) ? { decisionMs: pms } : {}), ...(timedOut === true ? { timedOut: true } : {}), ...signals(), ...(current.policy ? { policy: current.policy } : {}), ...(current.daily ? { daily: current.daily } : {}), at: new Date().toISOString() }].slice(-300)); queueEvents()
   LS.set('skipped', [...LS.get('skipped', []), pairKey(a.id, b.id)].slice(-500)); bumpSeen(a.id, b.id)
-  toast('No pick, so it\u2019s a pass. Neither comic loses anything.')
+  toast(timedOut === true ? 'Time\u2019s up, so it\u2019s a pass. Neither comic loses anything.' : 'No pick, so it\u2019s a pass. Neither comic loses anything.')
   goNext(null); paintHistory()
 }
 
@@ -1233,7 +1260,7 @@ function bumpShown(comic) { const s = LS.get('shown', {}); s[comic] = (s[comic] 
 
 async function vote(side) {
   if (!current || !armed || stage !== 'vote') return
-  armed = false; setStage('done'); markDailyDone()
+  armed = false; stopCountdown(); setStage('done'); markDailyDone()
   const [a, b] = current
   const decisionMs = armedAt && !sharedDuringBallot ? Math.max(0, Math.round(now() - armedAt)) : undefined
   const sg = signals()
@@ -1809,6 +1836,13 @@ async function syncChars() { // pull your characters from the API (another devic
   const remote = new Set((r.j.characters || []).map((c) => c.id))
   for (const c of local) if (!remote.has(c.id)) queueCharPush(c.id)
 }
+async function syncVersions(sub = null) { // saved versions from your other devices (GET /me/versions): merged by id, newest first
+  if (!signedIn()) return
+  const r = await api('/me/versions?subject=' + encodeURIComponent(sub || 'me')).catch(() => null); if (!r?.ok) return
+  const local = versionsLocal(sub), ids = new Set(local.map((v) => v.id)); let added = 0
+  for (const v of r.j?.versions || []) if (v && v.id && v.passport && !ids.has(v.id)) { local.push({ id: v.id, at: v.created_at, n: v.votes, hash: v.hash, name: v.name || typeName(v.passport).name, passport: v.passport }); added++ }
+  if (added) LS.set(verKey(sub), local.sort((x, y) => (String(y.at) > String(x.at) ? 1 : -1)).slice(0, 40))
+}
 function setTrainAs(id) {
   TRAIN_AS = id && charGet(id) ? id : null
   LS.set('trainAs', TRAIN_AS)
@@ -2245,8 +2279,9 @@ async function holdWhile(fn) {
   if (advT) { clearTimeout(advT); advT = null; h.adv = true }
   else if (stage === 'intro') { clearTimers(); h.intro = true }
   else if (stage === 'left' || stage === 'right') { const s = screens[stage === 'left' ? 'L' : 'R']; if (s?.playing?.()) { s.pause(); h.play = s } }
-  else if (stage === 'vote' && armed) pauseBallot()
+  else if (stage === 'vote' && armed) { pauseBallot(); holdCountdown(); h.vote = cur?.el }
   try { await fn() } catch {} finally {
+    if (h.vote && cur?.el === h.vote) resumeCountdown()
     if (h.adv && cur?.el === h.el) scheduleAdvance(500)
     else if (h.intro && stage === 'intro' && cur?.el === h.el) later(() => stage === 'intro' && cur?.el === h.el && startClip('L'), 900)
     else if (h.play && !h.play.dead) h.play.play()
@@ -2508,7 +2543,7 @@ async function initAccount() {
 }
 async function afterSignIn(needs, fresh) {
   paintUser(); paintProfilePage(); paintDaily() // a daily finished on another device hides here too
-  syncVotes().catch(() => {}); syncEvents(); syncProfile().catch(() => {}); syncChars().catch(() => {})
+  syncVotes().catch(() => {}); syncEvents(); syncProfile().catch(() => {}); syncChars().catch(() => {}); syncVersions().catch(() => {})
   const pa = LS.get('pendingAccept', null)
   if (pa?.code) {
     try { const r = await api(`/invites/${encodeURIComponent(pa.code)}/accept`, { method: 'POST', body: { open_id: pa.open_id } }); if (r.ok) toast(`You and ${r.j.friend?.username || pa.username} are now friends.`) } catch {}
