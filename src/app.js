@@ -1,6 +1,10 @@
 import { BrowserOAuthClient } from '@atproto/oauth-client-browser'
 import { renderAvatar, PALETTES } from 'mascot-avatars' // MIT, (c) 2026 s1dashu / Ato Augustine — see site/credits.html
 
+// Laugh button, crowd-laugh particles and the "Crowd laughs" toggle are switched OFF for now. The code (and the
+// /laughs API + the laugh terms in the taste model) stays in place; nothing laugh-related renders or calls the API
+// while this is false.
+const LAUGHS_ENABLED = false
 const COLLECTION = 'io.github.prx0r.funnier.vote'
 const BASE = new URL('.', location.href).href.replace(/#.*$/, '')
 const IS_LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname)
@@ -317,6 +321,7 @@ function loadYT() {
 // ---------- volume: YouTube's setVolume can only attenuate (0-100), so loud clips get turned down, never quiet ones up past 100 ----------
 // effective = clamp(clip.vol (editorial, default 100) + your local offset from "Too loud"/"Too quiet") x your volume slider
 const AUD_STEP = 15
+const FADE_IN_MS = 1200, FADE_OUT_MS = 400, FADE_STEP_MS = 40
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x))
 function userVol() { return 100 } // no master slider: per-clip editorial vol + your too-loud/quiet offsets only
 function audioMap() { const m = LS.get('audio', {}); return m && typeof m === 'object' && !Array.isArray(m) ? m : {} }
@@ -354,7 +359,7 @@ class Screen {
     if (c.media === 'audio') {
       host.innerHTML = `<audio preload="auto" controls src="${esc(c.src)}"></audio>`
       this.a = host.querySelector('audio')
-      this.a.onloadedmetadata = () => { this.applyVol(); this._ready() }
+      this.a.onloadedmetadata = () => { this.setVol(0); this._ready() }
       this.a.onended = () => (this.ended = true)
       return
     }
@@ -363,11 +368,34 @@ class Screen {
     const res = this._ready
     this.p = new YT.Player(this.hostId, {
       host: 'https://www.youtube-nocookie.com', videoId: c.id,
-      playerVars: { rel: 0, playsinline: 1, start: this.start, controls: 1, modestbranding: 1 },
-      events: { onReady: () => { this.applyVol(); res() }, onStateChange: (e) => { if (e.data === 0) this.ended = true } },
+      // our own chrome (thin progress line, name overlay, tap to pause, F for fullscreen) replaces YouTube's control bar
+      playerVars: { rel: 0, playsinline: 1, start: this.start, controls: 0, modestbranding: 1, iv_load_policy: 3, fs: 0, disablekb: 1 },
+      events: { onReady: () => { this.setVol(this.started && this.fadeT == null ? clipVol(this.clip) : 0); res() }, onStateChange: (e) => { if (e.data === 0) this.ended = true } },
     })
   }
-  applyVol() { const v = clipVol(this.clip); try { if (this.a) this.a.volume = v / 100; else this.p?.setVolume?.(v) } catch {} }
+  // ---- volume: every clip fades in from 0 to its level (editorial vol x crowd offset x your offset) over FADE_IN_MS
+  // and out over FADE_OUT_MS on skip / clip change, with player.setVolume steps (the iframe's audio can't be measured)
+  setVol(v) { this.vol = clamp(Number(v) || 0, 0, 100); try { if (this.a) this.a.volume = this.vol / 100; else this.p?.setVolume?.(Math.round(this.vol)) } catch {} }
+  fadeTo(to, ms, done) {
+    clearInterval(this.fadeT); this.fadeT = null
+    const from = this.vol ?? 0, t0 = now()
+    if (!(ms > 0) || Math.abs(to - from) < 0.5) { this.setVol(to); done?.(); return }
+    this.fadeT = setInterval(() => {
+      const k = Math.min(1, (now() - t0) / ms), e = k * k * (3 - 2 * k) // smoothstep
+      this.setVol(from + (to - from) * e)
+      if (k >= 1) { clearInterval(this.fadeT); this.fadeT = null; done?.() }
+    }, FADE_STEP_MS)
+  }
+  fadeIn() { this.setVol(0); this.fadeTo(clipVol(this.clip), FADE_IN_MS) }
+  fadeOut(done) { this.fadeTo(0, FADE_OUT_MS, done) }
+  // fade in once playback has really begun (YouTube may buffer first); gives up quietly after a few seconds
+  armFade() {
+    clearInterval(this.armT); this.setVol(0)
+    const t0 = now()
+    const go = () => { if (this.dead || !this.wantPlay) { clearInterval(this.armT); this.armT = null; return true } if (this.playing() || now() - t0 > 4000) { clearInterval(this.armT); this.armT = null; this.fadeIn(); return true } return false }
+    if (!go()) this.armT = setInterval(go, 80)
+  }
+  applyVol() { if (this.fadeT == null && this.armT == null) this.setVol(this.started ? clipVol(this.clip) : 0) }
   dur() { let d = 0; try { d = this.a ? this.a.duration : this.p?.getDuration?.() } catch {} return (Number.isFinite(d) && d > 0 ? d : 0) || Number(this.clip.dur) || this.clip.sec || 0 }
   win() { let d = 0; try { d = this.a ? this.a.duration : this.p?.getDuration?.() } catch {} return clipWin(this.clip, Number.isFinite(d) ? d : 0) }
   // both clips in a clash play the same length window: the shorter of the two (at least MIN_WIN)
@@ -376,27 +404,47 @@ class Screen {
     const s = this.start, e = this.end(), t = clamp(Number(to) || 0, s, Math.max(s, e - 1)), from = this.t()
     if (t > from + 1) this.jumped = true // seeking forward = skippedAhead, same as before
     if (t < from) this.ended = false
+    // the bar shows the target at once and holds it until the player reports a time near it (getCurrentTime lags a seek)
+    const n = now(); this.hold = { to: t, until: n + 2500 }; this.shown = t; this.rawV = t; this.rawAt = n
     try { if (this.a) this.a.currentTime = t; else this.p?.seekTo?.(t, ahead) } catch {}
     return t
   }
   seekBy(dt) { return this.seek(this.t() + dt) }
   t() { return this.a ? this.a.currentTime : this.p?.getCurrentTime?.() || 0 }
   playing() { return this.a ? !this.a.paused : this.p?.getPlayerState?.() === 1 }
-  progress() { const s = this.start, e = this.end(); return Math.max(0, Math.min(1, (this.t() - s) / Math.max(1, e - s))) }
+  progress() { const s = this.start, e = this.end(); return Math.max(0, Math.min(1, (this.shownT() - s) / Math.max(1, e - s))) }
+  // smooth + monotonic position for the progress bar: the player's time, extrapolated between its (steppy) reports
+  // while playing, never stepping back for sub-second jitter, holding a seek target until the player catches up, and
+  // ignoring the 0 YouTube reports while (re)loading. A real jump back (seek, replay) still resets it.
+  shownT() {
+    const n = now(), st = this.playing()
+    let raw = Number(this.t())
+    if (!Number.isFinite(raw)) raw = this.rawV ?? this.start
+    if (this.hold) { if (Math.abs(raw - this.hold.to) < 1.2 || n > this.hold.until) this.hold = null; else raw = this.hold.to }
+    if (!this.hold && raw <= 0.05 && (this.shown ?? 0) > this.start + 1.5) raw = this.rawV ?? this.shown // loading blip
+    if (raw !== this.rawV) { this.rawV = raw; this.rawAt = n }
+    const est = raw + (st && !this.hold ? Math.min(0.6, (n - (this.rawAt || n)) / 1000) : 0)
+    const prev = this.shown
+    if (prev == null || est >= prev || prev - est > 1.5) this.shown = est
+    return this.shown
+  }
   done() { return this.ended || (this.started && this.t() >= this.end() - 0.3) }
   async play() {
     await this.ready; if (this.dead) return
-    this.started = true; this.wantPlay = true; this.applyVol()
+    if (!this.started) { this.shown = this.start; this.rawV = null; this.hold = null }
+    this.started = true; this.wantPlay = true; this.setVol(0)
     const muted = !soundAllowed()
     if (this.a) {
       this.a.muted = muted
       try { await this.a.play() } catch { this.a.muted = true; try { await this.a.play() } catch {} }
       if (this.a.muted) soundPill(true)
+      this.armFade()
       return
     }
     try { muted ? this.p.mute() : this.p.unMute() } catch {}
     if (muted) soundPill(true)
     this.p.playVideo()
+    this.armFade()
     setTimeout(() => { // autoplay with sound refused: play muted, one "Tap for sound" pill
       if (this.dead || !this.wantPlay) return // paused or skipped since: don't restart it behind the next clip
       const st = this.p?.getPlayerState?.()
@@ -406,14 +454,15 @@ class Screen {
   }
   unmute() {
     try {
-      if (this.a) { this.a.muted = false; if (this.a.paused && this.wantPlay) this.a.play().catch(() => {}) }
-      else { this.p?.unMute?.(); this.applyVol(); if (this.wantPlay && !this.playing()) this.p?.playVideo?.() }
+      if (this.a) { this.setVol(0); this.a.muted = false; if (this.a.paused && this.wantPlay) this.a.play().catch(() => {}) }
+      else { this.setVol(0); this.p?.unMute?.(); if (this.wantPlay && !this.playing()) this.p?.playVideo?.() }
+      if (this.armT == null) this.fadeIn() // sound arrives with the same gentle fade (unless the start fade is still waiting)
     } catch {}
   }
   toggle() { // tap on the gesture layer: unmute, play/pause
-    if (this.a) { if (this.a.muted) { soundOn(); return } this.a.paused ? this.a.play().catch(() => {}) : this.a.pause(); return }
+    if (this.a) { if (this.a.muted) { soundOn(); return } if (this.a.paused) { this.wantPlay = true; this.a.play().catch(() => {}) } else this.pause(); return }
     try { if (this.p?.isMuted?.()) { soundOn(); return } } catch {}
-    this.playing() ? this.pause() : this.p?.playVideo?.()
+    if (this.playing()) this.pause(); else { this.wantPlay = true; this.p?.playVideo?.() }
   }
   // called every tick: accumulates real seconds watched, notices seeks back (replay) and jumps ahead (skip)
   track() {
@@ -432,8 +481,19 @@ class Screen {
   screened() { return Math.max(1, this.end() - this.start) }
   // the watch minimum: min(30s, 80% of what we screen), or the clip played to its end
   enough() { return this.ended || (this.watched || 0) >= Math.min(30, 0.8 * this.screened()) - 0.5 || (this.started && this.t() >= this.end() - 0.3 && (this.watched || 0) > 3 && !this.jumped) }
-  pause() { this.wantPlay = false; try { this.a ? this.a.pause() : this.p?.pauseVideo?.() } catch {} }
-  destroy() { this.dead = true; try { this.a?.pause() } catch {} try { this.p?.destroy?.() } catch {} }
+  pause() { this.wantPlay = false; clearInterval(this.armT); this.armT = null; try { this.a ? this.a.pause() : this.p?.pauseVideo?.() } catch {} }
+  // skip / clip change: stop wanting playback now, fade out over FADE_OUT_MS, then pause
+  fadePause() { if (this.wantPlay === false && this.fadeT == null) return this.pause(); this.wantPlay = false; clearInterval(this.armT); this.armT = null; this.fadeOut(() => { if (!this.wantPlay) this.pause() }) }
+  destroy() { if (this.gone) return; this.gone = true; this.dead = true; clearInterval(this.fadeT); clearInterval(this.armT); this.fadeT = this.armT = null; try { this.a?.pause() } catch {} try { this.p?.destroy?.() } catch {} }
+  // leaving the clash: fade out, then tear the player down (the slide is removed ~520ms later)
+  retire() {
+    if (this.dead) return
+    const live = this.wantPlay && this.playing()
+    this.dead = true; this.wantPlay = false; clearInterval(this.armT); this.armT = null
+    if (!live) { this.destroy(); return }
+    this.fadeOut(() => this.destroy())
+    setTimeout(() => this.destroy(), FADE_OUT_MS + 200) // belt and braces
+  }
 }
 
 // ---------- durations learned from the official player (getDuration), shared via the API so everyone benefits ----------
@@ -467,6 +527,7 @@ function laughWeights() {
   return Object.values(by).map((x) => ({ clip: x.clip, w: Math.min(LAUGH_CAP, LAUGH_W * x.n) }))
 }
 function laugh() {
+  if (!LAUGHS_ENABLED) return false
   if (!(stage === 'left' || stage === 'right')) return false
   const sc = screens[stage === 'left' ? 'L' : 'R']; if (!sc?.clip) return false
   const n = now(); if (n - lastLaughAt < LAUGH_GAP) return false // one per 0.7s (the API enforces the same)
@@ -498,7 +559,7 @@ function laughBurst() {
 }
 // other viewers' laughs: GET /laughs/:clip (1-second bins), minus your own, replayed as particles at those moments
 function prefetchLaughs(sc) {
-  if (!sc || sc.histP || !CFG.apiBase || sc.clip.media !== 'youtube') return
+  if (!LAUGHS_ENABLED || !sc || sc.histP || !CFG.apiBase || sc.clip.media !== 'youtube') return
   sc.histP = api('/laughs/' + encodeURIComponent(sc.clip.id)).then((r) => {
     if (!r.ok || !Array.isArray(r.j?.bins)) return
     const bins = r.j.bins.map((x) => Number(x) || 0)
@@ -507,7 +568,7 @@ function prefetchLaughs(sc) {
   }).catch(() => {})
 }
 function crowdTick(sc) {
-  if (!sc?.hist || !crowdLaughsOn() || reduced() || !sc.playing()) { if (sc) sc.lastSec = null; return }
+  if (!LAUGHS_ENABLED || !sc?.hist || !crowdLaughsOn() || reduced() || !sc.playing()) { if (sc) sc.lastSec = null; return }
   const s = Math.floor(sc.t())
   if (sc.lastSec == null || s < sc.lastSec || s - sc.lastSec > 3) sc.lastSec = s - 1
   for (let k = sc.lastSec + 1; k <= s; k++) {
@@ -518,12 +579,14 @@ function crowdTick(sc) {
   sc.lastSec = s
 }
 function paintCrowdBtn() {
+  if (!LAUGHS_ENABLED) return
   const b = $('#crowdbtn'); if (!b) return
   const on = crowdLaughsOn()
   b.setAttribute('aria-pressed', String(on)); b.classList.toggle('off', !on)
   b.title = on ? 'Crowd laughs on' : 'Crowd laughs off'; b.setAttribute('aria-label', on ? 'Crowd laughs: on (tap to hide)' : 'Crowd laughs: off (tap to show)')
 }
 function toggleCrowd() {
+  if (!LAUGHS_ENABLED) return
   LS.set('crowdLaughs', !crowdLaughsOn()); paintCrowdBtn()
   if (!crowdLaughsOn()) document.querySelectorAll('.lp.crowd').forEach((x) => x.remove())
   toast(crowdLaughsOn() ? 'Crowd laughs on.' : 'Crowd laughs off.'); showChrome()
@@ -578,17 +641,19 @@ function slideHTML(a, b, n, first) {
   const shot = (c, side) => `<button class="pick ${side}" data-side="${side}" aria-label="${esc(c.comic)} was funnier">
       <span class="pimg" ${c.media === 'youtube' ? `style="background-image:url(${thumb(c.id)})"` : ''}></span>
       <span class="pname">${esc(c.comic)}</span><span class="logo">FUNNIER</span></button>`
+  // the clip fills the screen (16:9, letterboxed only where the aspect needs it). Name/title overlay the bottom-left in a
+  // gradient that fades with the chrome; the progress bar is a thin line on the video's bottom edge (24px hit area).
   const scr = (c, side) => `<div class="screen ${side} small" data-side="${side}">
-      <div class="frame"><div id="p${side}${n}"></div><div class="shield" aria-hidden="true"></div></div>
-      <div class="label"><span class="side">${side === 'L' ? '1' : '2'}</span><div class="meta"><h3>${esc(c.comic)}${chip(c)}</h3><p>${esc(c.title)} · ${esc(c.channel || '')}</p></div></div>
-      <div class="prog" role="slider" tabindex="0" data-side="${side}" aria-label="Seek clip ${side === 'L' ? '1' : '2'}" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00"><span class="ptrack"><i></i></span><b class="pknob"></b></div></div>`
+      <div class="frame"><div class="yt" id="p${side}${n}"></div><div class="shield" aria-hidden="true"></div>
+      <div class="label"><span class="side">${side === 'L' ? '1' : '2'}</span><div class="meta"><h3>${esc(c.comic)}${chip(c)}</h3><p>${esc(c.title)}${c.channel ? ' · ' + esc(c.channel) : ''}</p></div></div>
+      <div class="prog" role="slider" tabindex="0" data-side="${side}" aria-label="Seek clip ${side === 'L' ? '1' : '2'}" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00"><span class="ptrack"><i></i></span><b class="pknob"></b></div></div></div>`
   return `<div class="slide" data-n="${n}">
     <div class="intro">
       <div class="introbar">${introLine()}</div>
       <div class="faceoff">${faceCard(a, 'L')}<span class="vsx">VS</span>${faceCard(b, 'R')}</div>
       <div class="introfoot"></div>
     </div>
-    <div class="theatre">${scr(a, 'L')}${scr(b, 'R')}<div class="lfx" aria-hidden="true"></div><button type="button" class="laughbtn" aria-label="Laugh (tap whenever it's funny)" title="Laugh">${LAUGH_SVG}</button><div class="peek" aria-hidden="true"><span class="pkimg" ${b.media === 'youtube' ? `style="background-image:url(${thumb(b.id)})"` : ''}></span><span class="pkcap"><b>#2</b> ${esc(b.comic)}</span></div></div>
+    <div class="theatre">${scr(a, 'L')}${scr(b, 'R')}${LAUGHS_ENABLED ? `<div class="lfx" aria-hidden="true"></div><button type="button" class="laughbtn" aria-label="Laugh (tap whenever it's funny)" title="Laugh">${LAUGH_SVG}</button>` : '' /* laugh button + particles: off */}<div class="peek" aria-hidden="true"><span class="pkimg" ${b.media === 'youtube' ? `style="background-image:url(${thumb(b.id)})"` : ''}></span><span class="pkcap"><b>#2</b> ${esc(b.comic)}</span></div></div>
     <div class="ballot"><p class="bq">Which was funnier?</p><div class="picks">${shot(a, 'L')}${shot(b, 'R')}</div>
       <div class="audiofb" role="group" aria-label="Sound level feedback"><span>Sound off?</span>${[['L', '#1'], ['R', '#2']].map(([sd, n]) => `<button type="button" data-aud="${sd}" data-k="loud">${n} too loud</button><button type="button" data-aud="${sd}" data-k="quiet">${n} too quiet</button>`).join('')}</div>
       <div class="count"><i></i></div><p class="hint">Tap one, or ← / →. No pick in 3s = pass.</p>
@@ -615,7 +680,8 @@ function setStage(s) {
 }
 function stopScreening() {
   clearInterval(tick); tick = null; clearTimers(); clearTimeout(advT); advT = null
-  Object.values(screens).forEach((s) => s.destroy()); screens = {}; armed = false; armedAt = 0
+  cancelAnimationFrame?.(progRaf); progRaf = 0
+  Object.values(screens).forEach((s) => s.retire()); screens = {}; armed = false; armedAt = 0
   document.body.classList.remove('in-theatre')
 }
 
@@ -676,7 +742,7 @@ function bindSlide(el) {
     screens[sh.closest('.screen').dataset.side]?.toggle()
   }))
   el.querySelectorAll('.prog').forEach(bindScrub)
-  const lb = el.querySelector('.laughbtn')
+  const lb = LAUGHS_ENABLED ? el.querySelector('.laughbtn') : null
   if (lb) {
     lb.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true }) // a laugh is never a swipe
     lb.addEventListener('pointerdown', (e) => e.stopPropagation())
@@ -690,15 +756,34 @@ function bindSlide(el) {
     bt.parentElement?.querySelectorAll(`[data-aud="${sd}"]`).forEach((x) => (x.disabled = true)); bt.classList.add('on')
   }))
 }
-// ---------- progress bar: the screening window, 4Hz from getCurrentTime() with CSS easing; tap/drag to seek ----------
+// ---------- progress bar: the screening window (start..end). One rAF loop paints the live clip's bar from its smoothed,
+// monotonic clock (Screen.shownT); no CSS transition on the fill, so seeks/scrubs never animate backwards. Tap/drag to seek.
 const mmss = (s) => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + pad2(s % 60) }
+let progRaf = 0
+function progLoop() {
+  if (progRaf) cancelAnimationFrame(progRaf)
+  progRaf = 0
+  if (typeof requestAnimationFrame !== 'function') return
+  const el = cur?.el
+  const step = () => {
+    progRaf = 0
+    if (!cur || cur.el !== el || !(stage === 'left' || stage === 'right')) return
+    const side = stage === 'left' ? 'L' : 'R', pg = q(`.screen.${side} .prog`)
+    if (pg && !pg.classList.contains('scrub')) paintProg(side)
+    progRaf = requestAnimationFrame(step)
+  }
+  progRaf = requestAnimationFrame(step)
+}
 function paintProg(side, frac) {
   const sc = screens[side], pg = q(`.screen.${side} .prog`); if (!pg) return
-  const f = frac != null ? frac : sc?.started ? sc.progress() : 0
+  const f = clamp(frac != null ? frac : sc?.started ? sc.progress() : 0, 0, 1)
   const i = pg.querySelector('i'), k = pg.querySelector('.pknob')
-  if (i) i.style.transform = `scaleX(${f})`
+  if (i) i.style.transform = `scaleX(${f.toFixed(4)})`
   if (k) k.style.left = (100 * f).toFixed(2) + '%'
-  if (sc) { const w = Math.max(1, sc.end() - sc.start); pg.setAttribute('aria-valuemax', String(Math.round(w))); pg.setAttribute('aria-valuenow', String(Math.round(f * w))); pg.setAttribute('aria-valuetext', mmss(f * w) + ' of ' + mmss(w)) }
+  if (sc) {
+    const w = Math.max(1, sc.end() - sc.start), key = Math.round(w) + '|' + Math.round(f * w)
+    if (pg.dataset.aria !== key) { pg.dataset.aria = key; pg.setAttribute('aria-valuemax', String(Math.round(w))); pg.setAttribute('aria-valuenow', String(Math.round(f * w))); pg.setAttribute('aria-valuetext', mmss(f * w) + ' of ' + mmss(w)) }
+  }
 }
 function bindScrub(pg) {
   const side = pg.dataset.side
@@ -739,7 +824,7 @@ function pauseBallot(msg) {
 function skipClip() {
   if (!current || !cur || moving || (stage !== 'left' && stage !== 'right')) return false
   const side = stage === 'left' ? 'L' : 'R', sc = screens[side]; if (!sc) return false
-  sc.track(); sc.skipped = true; sc.pause()
+  sc.track(); sc.skipped = true; sc.fadePause()
   const c = sc.clip, [a, b] = current
   const rec = { a: a.id, b: b.id, stage: side === 'L' ? 'left-skip' : 'right-skip', comics: [c.comic], comic: c.comic, clip: c.id, ...(current.daily ? { daily: current.daily } : {}),
     style: Array.isArray(c.style) ? c.style : [], watchedSec: Math.round(10 * (sc.watched || 0)) / 10, at: new Date().toISOString() }
@@ -759,29 +844,32 @@ function startClip(side) {
     sc?.classList.toggle('big', s === side); sc?.classList.toggle('small', s !== side)
     sc?.classList.toggle('gone', side === 'R' && s === 'L')
   }
-  if (side === 'R') screens.L.pause()
+  if (side === 'R') screens.L.fadePause()
   screens[side].play()
   runTick()
 }
 function runTick() {
+  progLoop()
   clearInterval(tick)
   tick = setInterval(() => {
     const L = screens.L, R = screens.R; if (!L || !R || !cur) return
     for (const s of ['L', 'R']) {
       const sc = screens[s]; sc.track()
-      if (!cur.el.querySelector(`.screen.${s} .prog`)?.classList.contains('scrub')) paintProg(s)
+      const live = (stage === 'left' && s === 'L') || (stage === 'right' && s === 'R')
+      if (!live && !cur.el.querySelector(`.screen.${s} .prog`)?.classList.contains('scrub')) paintProg(s)
     }
     crowdTick(stage === 'left' ? L : stage === 'right' ? R : null)
     // keyboard focus gets swallowed by the YouTube iframe: take it back
     const ae = document.activeElement
     if (ae && ae.tagName === 'IFRAME') { try { ae.blur() } catch {} $('#stage')?.focus?.({ preventScroll: true }) }
-    if (stage === 'left' && L.done()) { L.pause(); startClip('R') }
-    else if (stage === 'right' && R.done()) { R.pause(); startVote() }
+    if (stage === 'left' && L.done()) { L.fadePause(); startClip('R') }
+    else if (stage === 'right' && R.done()) { R.fadePause(); startVote() }
   }, 250)
 }
 function startVote() {
-  clearInterval(tick); tick = null
+  clearInterval(tick); tick = null; cancelAnimationFrame?.(progRaf); progRaf = 0
   setStage('vote')
+  markDailyDone() // watched it through to the ballot
   armed = true; armedAt = now(); sharedDuringBallot = false // decision time runs from the moment the FUNNIER logos appear
   const bar = q('.count i')
   if (bar) { bar.style.transition = 'none'; bar.style.transform = 'scaleX(1)'; void bar.offsetWidth; bar.style.transition = `transform ${VOTE_MS}ms linear`; bar.style.transform = 'scaleX(0)' }
@@ -823,7 +911,7 @@ function bumpShown(comic) { const s = LS.get('shown', {}); s[comic] = (s[comic] 
 
 async function vote(side) {
   if (!current || !armed || stage !== 'vote') return
-  armed = false; setStage('done')
+  armed = false; setStage('done'); markDailyDone()
   const [a, b] = current
   const decisionMs = armedAt && !sharedDuringBallot ? Math.max(0, Math.round(now() - armedAt)) : undefined
   const sg = signals()
@@ -882,8 +970,12 @@ function dragLayer() { // what moves under the finger on a vertical drag
 }
 function setPull(p, armedUp) { // the next face-off card rising from the bottom
   const pn = $('#pullnext'); if (!pn) return
-  if (p == null) { pn.style.transition = 'transform .35s cubic-bezier(.2,.9,.3,1),opacity .3s'; pn.style.transform = ''; pn.style.opacity = ''; pn.classList.remove('armed'); return }
-  pn.style.transition = 'none'
+  clearTimeout(pn._hideT)
+  if (p == null) { // springs back below the edge, then is hidden outright (never a sliver left on the bottom edge)
+    pn.style.transition = 'transform .35s cubic-bezier(.2,.9,.3,1),opacity .3s'; pn.style.transform = ''; pn.style.opacity = ''; pn.classList.remove('armed')
+    pn._hideT = setTimeout(() => { pn.style.visibility = '' }, 380); return
+  }
+  pn.style.visibility = 'visible'; pn.style.transition = 'none'
   pn.style.transform = `translate3d(-50%,${Math.round((1 - Math.min(1, p)) * 100)}%,0)`
   pn.style.opacity = String(Math.min(1, p * 1.6)); pn.classList.toggle('armed', !!armedUp)
 }
@@ -1222,7 +1314,7 @@ function paintYou() {
   const el = $('#you'), votes = LS.get('votes', [])
   if (!votes.length) {
     const ns = specialsSeen()
-    const nl = laughsAll().length
+    const nl = LAUGHS_ENABLED ? laughsAll().length : 0
     el.innerHTML = `<h2>Your model</h2><p class="empty">Every pick trains a small model of your sense of humour, right here on your device.<br>Watch a double feature to start it.</p>${nl ? `<p class="sure"><b>${nl}</b> your laughs</p>` : ''}${ns ? `<p class="sure">${ns} special${ns === 1 ? '' : 's'} seen · <a href="#comics">log more in Comics</a></p>` : ''}`
     return
   }
@@ -1249,12 +1341,12 @@ function paintYou() {
   }
   const best = Object.keys(MODEL.o).filter((id) => MODEL.bouts[id]).sort((x, y) => MODEL.score(y) - MODEL.score(x)).slice(0, 5)
   el.innerHTML = `<h2>Your model</h2>
-    <div class="kpis">
+    <div class="kpis${LAUGHS_ENABLED ? ' k5' : ''}">
       <div class="kpi"><b>${votes.length}</b><span>picks trained on</span></div>
       <div class="kpi"><b>${acc == null ? '—' : acc + '%'}</b><span>how often it predicts you${last.length ? ` (last ${last.length})` : ''}</span></div>
       <div class="kpi"><b>${esc(comics[0].k.split(' ').slice(-1)[0])}</b><span>your top comic so far</span></div>
       <div class="kpi"><b>${new Set(votes.flatMap((v) => [v.a, v.b])).size}</b><span>shorts seen</span></div>
-      <div class="kpi laughs"><b>${laughsAll().length}</b><span>your laughs</span></div>
+      ${LAUGHS_ENABLED ? `<div class="kpi laughs"><b>${laughsAll().length}</b><span>your laughs</span></div>` : ''}
     </div>
     ${sureLine(votes)}
     ${(() => { const h = humourType(); return h ? `<div class="type"><span class="eyebrow">Your humour type</span><b>${h.name}</b><p>${h.line}${h.also ? ` With a streak of <i>${h.also}</i>.` : ''}</p></div>` : `<div class="type"><span class="eyebrow">Your humour type</span><b>Still reading you…</b><p>A few more picks across different styles and it will name your type.</p></div>` })()}
@@ -1348,8 +1440,7 @@ function bindChrome() {
   document.addEventListener('pointerdown', () => { soundOK = true }, { capture: true, passive: true })
   document.addEventListener('keydown', () => { soundOK = true }, { capture: true })
   const sp = $('#soundbtn'); if (sp) sp.onclick = (e) => { e.stopPropagation(); soundOn() }
-  const cb = $('#crowdbtn'); if (cb) cb.onclick = (e) => { e.stopPropagation(); toggleCrowd() }
-  paintCrowdBtn()
+  if (LAUGHS_ENABLED) { const cb = $('#crowdbtn'); if (cb) cb.onclick = (e) => { e.stopPropagation(); toggleCrowd() }; paintCrowdBtn() }
   bindUser()
 }
 
@@ -1485,23 +1576,23 @@ function playDaily() {
   showTab('arena'); moving = false; goNext(null)
 }
 let dailyTimer = null, dailyDay = null
+// the daily clash lives in ONE place: the banner above the screening. Tap it to play. Once you've watched it (reached
+// its ballot) or voted on it, the banner is gone for the rest of the day (localStorage funnier.dailyDone = date).
+function dailyDone(date) { return !!date && (LS.get('dailyDone', '') === date || !!dailyMine(date)) }
+function markDailyDone() { if (current?.mode === 'daily' && DAY_RE.test(String(current.daily || ''))) { LS.set('dailyDone', current.daily); paintDaily() } }
 function paintDaily() {
   const el = $('#daily'); if (!el) return
   const D = dailyFor(dayStr()); dailyDay = D?.date || dayStr()
-  if (!D) { el.hidden = true; el.innerHTML = ''; return }
-  const A = BYID[D.a], B = BYID[D.b], mine = dailyMine(D.date)
-  const playing = current?.mode === 'daily' && current.daily === D.date && ['intro', 'left', 'right', 'vote'].includes(stage)
-  el.hidden = false
-  el.classList.toggle('playing', playing)
-  el.innerHTML = `<div class="dhinner" title="${esc(A.comic)} vs ${esc(B.comic)}${D.blurb ? ' · ' + esc(D.blurb) : ''}">
+  const playing = !!D && current?.mode === 'daily' && current.daily === D.date && ['intro', 'left', 'right', 'vote', 'done'].includes(stage)
+  if (!D || dailyDone(D.date) || playing) { el.hidden = true; el.innerHTML = '' }
+  else {
+    const A = BYID[D.a], B = BYID[D.b]
+    el.hidden = false
+    el.innerHTML = `<button type="button" class="dhinner" data-dh="play" aria-label="Play today's Daily Clash${D.title ? ': ' + esc(D.title) : ''}" title="${esc(A.comic)} vs ${esc(B.comic)}${D.blurb ? ' · ' + esc(D.blurb) : ''}">
     <i class="dot" aria-hidden="true"></i><b class="dhtitle">Daily Clash${D.title ? `<span>: ${esc(D.title)}</span>` : ''}</b>
-    <span class="dhcount" aria-label="Next daily clash in">${untilNext()}</span>
-    ${playing ? '' : mine ? `<button type="button" class="dhghost" data-dh="share">Share ↗</button>` : `<button type="button" class="dhbtn" data-dh="play">Play</button>`}</div>`
-  el.querySelectorAll('[data-dh]').forEach((b) => (b.onclick = (e) => {
-    e.stopPropagation()
-    if (b.dataset.dh === 'play') playDaily()
-    else holdWhile(() => shareClash(A, B, mine.winner === A.id ? 'a' : 'b'))
-  }))
+    <span class="dhcount" aria-label="Next daily clash in">${untilNext()}</span><span class="dhbtn" aria-hidden="true">Play</span></button>`
+    el.querySelector('[data-dh="play"]').onclick = (e) => { e.stopPropagation(); playDaily() }
+  }
   if (!dailyTimer) dailyTimer = setInterval(() => {
     if (dayStr() !== dailyDay) return paintDaily() // midnight: a new clash
     const c = document.querySelector('#daily .dhcount'); if (c) c.textContent = untilNext()
@@ -1731,7 +1822,7 @@ function exportData() {
   const blob = new Blob([JSON.stringify({ kind: 'funnier.local-data', version: 1, exported: new Date().toISOString(), data }, null, 2)], { type: 'application/json' })
   try { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `funnier-data-${dayStr()}.json`; document.body.appendChild(a); a.click(); a.remove() } catch { toast('Download blocked by the browser.') }
 }
-const HISTORY_KEYS = ['votes', 'partials', 'passes', 'skips', 'skipped', 'seen', 'shown', 'preds', 'dur', 'specials', 'dailyAuto']
+const HISTORY_KEYS = ['votes', 'partials', 'passes', 'skips', 'skipped', 'seen', 'shown', 'preds', 'dur', 'specials', 'dailyAuto', 'dailyDone']
 function clearHistory() {
   let ok = false
   try { ok = window.confirm('Clear your Funnier history on this device?\n\nThis removes your picks, passes, skips and specials log, and resets your taste model here. Picks already published to Bluesky stay published.') } catch { ok = false }
@@ -2119,10 +2210,7 @@ function tabs() {
   const sh = parseClash(location.hash), ic = parseInvite(location.hash)
   if (ic) { history.replaceState(null, '', location.pathname + location.search); await Promise.race([openInvite(ic), new Promise((r) => setTimeout(r, 4000))]) }
   else if (sh) { pendingClash = sh; history.replaceState(null, '', location.pathname + location.search) }
-  else { // the day's first visit opens on the daily clash (once a day, and not if you've already voted on it)
-    const D = dailyFor(dayStr())
-    if (D && !dailyMine(D.date) && LS.get('dailyAuto', '') !== D.date && !/^#(comic|history)/.test(location.hash)) { LS.set('dailyAuto', D.date); pendingClash = { a: D.a, b: D.b, pick: null, daily: D.date } }
-  }
+  // (no auto-inserted daily round: the daily clash is only ever the banner at the top; tapping it plays it)
   bindGestures(); bindChrome(); bindFullscreen(); newRound(true); paintBoards(); paintYou(); paintComics(); paintBanner(); paintDaily(); window._route()
   initAuth(); initAccount()
 })()
