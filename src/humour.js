@@ -242,7 +242,7 @@ export function chartSVG(series, opts = {}) {
   const pt = (i, v) => [cx + Math.cos(ang(i)) * R * (v / 100), cy + Math.sin(ang(i)) * R * (v / 100)]
   const poly = (vals) => vals.map((v, i) => pt(i, v).map((x) => x.toFixed(1)).join(',')).join(' ')
   const id = opts.id || 'hc' + Math.round(Math.random() * 1e6)
-  const mx = opts.labels === false ? 0 : Math.round(S * 0.17) // room for the side labels ("Observational 47")
+  const mx = opts.labels === false ? 0 : Math.round(S * 0.23) // room for the side labels ("Observational 47"), wide fallback fonts included
   let g = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-mx} 0 ${S + 2 * mx} ${S}" class="hchart" role="img" aria-label="${xmlEsc(opts.title || 'Humour chart')}">`
   g += `<defs>${series.map((s, j) => `<radialGradient id="${id}g${j}" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="${s.color || CHART_COLORS[j]}" stop-opacity=".08"/><stop offset="100%" stop-color="${s.color || CHART_COLORS[j]}" stop-opacity="${j ? '.22' : '.38'}"/></radialGradient>`).join('')}</defs>`
   for (const r of [25, 50, 75, 100]) g += `<polygon points="${poly(ks.map(() => r))}" fill="none" stroke="rgba(255,255,255,${r === 50 ? '.28' : '.09'})" stroke-width="${r === 50 ? 1.2 : 1}"${r === 50 ? ' stroke-dasharray="3 4"' : ''}/>`

@@ -7,6 +7,7 @@
 //    and the daily re-check keeps stored metadata fresh (YouTube API policy: refresh within 30 days).
 // Usage: node tally/ingest.mjs   (run from the funnier/ dir)
 import fs from 'node:fs'
+import { isVertical } from '../tools/detect-format.mjs'
 const UA = { 'user-agent': 'Mozilla/5.0 (compatible; FunnierBot/1.0; +https://prx0r.github.io/characters/)' }
 const clips = JSON.parse(fs.readFileSync('clips.json', 'utf8'))
 const cfg = JSON.parse(fs.readFileSync('channels.json', 'utf8'))
@@ -27,7 +28,11 @@ for (const c of clips) {
   try {
     const o = await oembed(c.id)
     if (!o.ok && (o.status === 401 || o.status === 403 || o.status === 404)) { c.status = 'removed'; c.removedOn = today; removed++ }
-    else if (o.ok) c.checked = today
+    else if (o.ok) {
+      c.checked = today
+      // desktop never gets vertical clips: an untagged clip (a Short added by hand) is tagged here
+      if (c.format !== 'vertical' && c.format !== 'horizontal') { const v = await isVertical(c.id); if (v != null) { c.format = v ? 'vertical' : 'horizontal'; console.log('format', c.id, c.format) } }
+    }
   } catch (e) { console.warn('oembed fail', c.id, e.message) }
 }
 
@@ -44,7 +49,8 @@ for (const ch of cfg.channels) {
       if (!comic) continue
       const o = await oembed(id)
       if (!o.ok) continue
-      cands.push({ id, comic, title: o.title, channel: ch.name, kind: 'human', media: 'youtube', published: pub.slice(0, 10), found: today, status: 'pending' })
+      const v = await isVertical(id)
+      cands.push({ id, comic, title: o.title, channel: ch.name, kind: 'human', media: 'youtube', ...(v != null ? { format: v ? 'vertical' : 'horizontal' } : {}), published: pub.slice(0, 10), found: today, status: 'pending' })
       known.add(id); added++
     }
   } catch (e) { console.warn('feed fail', ch.name, e.message) }

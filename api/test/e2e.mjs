@@ -168,6 +168,14 @@ try {
   row = sql(`SELECT stage, clip, watched_sec, signals FROM watch_events WHERE kind = 'skip' AND a = '${SA}'`)[0]
   ok(row.stage === 'right-skip' && row.clip === SB && row.watched_sec === 12 && JSON.parse(row.signals).rightSkippedAt === 95, 'skip event stores clip, stage, skippedAt')
   r = await J('POST', '/events', null, { events: evs }); ok(r.s === 401, 'POST /events needs a session')
+  // ---- daily clash done on any device ----
+  r = await J('GET', '/me/daily/2026-10-16', t2); ok(r.s === 200 && r.j.done === false, `GET /me/daily before watching -> not done (${JSON.stringify(r.j)})`)
+  r = await J('POST', '/events', t2, { events: [{ kind: 'pass', a: 'dlyAAAAAAAA', b: 'dlyBBBBBBBB', stage: 'vote', daily: '2026-10-16', createdAt: new Date().toISOString() }] })
+  r = await J('GET', '/me/daily/2026-10-16', t2); ok(r.s === 200 && r.j.done === true && r.j.voted === false, `a pass at the daily's ballot = done, not voted (${JSON.stringify(r.j)})`)
+  r = await J('POST', '/votes', t2, { votes: [{ a: 'dlyAAAAAAAA', b: 'dlyBBBBBBBB', winner: 'dlyAAAAAAAA', daily: '2026-10-17', createdAt: new Date().toISOString() }] })
+  r = await J('GET', '/me/daily/2026-10-17', t2); ok(r.s === 200 && r.j.done === true && r.j.voted === true, 'a daily vote = done')
+  r = await J('GET', '/me/daily/2026-10-17', null); ok(r.s === 401, 'GET /me/daily needs a session')
+  r = await J('GET', '/me/daily/notadate', t2); ok(r.s === 400, 'GET /me/daily rejects a bad date')
   r = await J('GET', '/me/humour', t1); ok(r.s === 200 && r.j.humour === null, 'GET /me/humour -> null before the offline fit has run')
   execSync(`npx wrangler d1 execute funnier --local --command "INSERT OR REPLACE INTO humour_profiles (user_id, profile, updated_at) SELECT id, '{\\"n\\":12,\\"line\\":\\"You laugh hardest at split knowledge.\\"}', '2026-10-16' FROM users WHERE email = 'g1@example.com'"`, { stdio: 'ignore' })
   r = await J('GET', '/me/humour', t1); ok(r.s === 200 && r.j.humour?.n === 12 && /split knowledge/.test(r.j.humour.line), `GET /me/humour returns the offline profile (${JSON.stringify(r.j)})`)

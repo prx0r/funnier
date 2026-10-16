@@ -232,6 +232,15 @@ app.get('/me/humour', auth, async (c) => {
   return c.json({ humour: p, updated: r?.updated_at || null })
 })
 
+// has this user finished a daily clash (voted on it, or watched it through to its ballot) on any device?
+app.get('/me/daily/:date', auth, async (c) => {
+  const u = c.get('user'), date = c.req.param('date')
+  if (!DAY.test(date)) return c.json({ error: 'bad_date' }, 400)
+  const v = await c.env.DB.prepare('SELECT 1 AS x FROM votes WHERE user_id = ? AND daily = ? LIMIT 1').bind(u.id, date).first()
+  const e = v ? null : await c.env.DB.prepare("SELECT 1 AS x FROM watch_events WHERE user_id = ? AND daily = ? AND (kind = 'pass' OR stage = 'vote') LIMIT 1").bind(u.id, date).first()
+  return c.json({ date, done: !!(v || e), voted: !!v })
+})
+
 app.get('/clash/:a/:b/friends', auth, async (c) => {
   const u = c.get('user'), { a: ra, b: rb } = c.req.param()
   if (!CLIP.test(ra) || !CLIP.test(rb)) return c.json({ error: 'bad_clip' }, 400)

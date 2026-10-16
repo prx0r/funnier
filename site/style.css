@@ -17,7 +17,7 @@ button{font:inherit;cursor:pointer;border:0;color:inherit;background:none}
 
 /* top bar */
 .top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:28px;padding:16px clamp(16px,4vw,48px);
-  background:linear-gradient(#07070a 30%,rgba(7,7,10,0));}
+  background:linear-gradient(#07070a 72%,rgba(7,7,10,0));} /* solid behind the tabs so scrolled pages never show through */
 .wordmark{font-family:var(--display);font-size:30px;letter-spacing:.04em;color:var(--red);text-decoration:none;
   text-shadow:0 0 24px var(--glow);transform:scaleY(1.08)}
 .top nav{display:flex;gap:4px}
@@ -306,7 +306,7 @@ body.screening #stage{touch-action:none}
 .theatre .frame{border-radius:0;box-shadow:none;background:#000}
 .shield{position:absolute;inset:0;z-index:3;background:transparent;cursor:pointer;touch-action:none}
 .theatre .label{position:absolute;left:0;right:0;bottom:0;z-index:4;margin:0;display:flex;align-items:flex-end;gap:12px;
-  padding:clamp(36px,10%,96px) clamp(14px,2.6vw,36px) clamp(16px,2.8vw,32px);
+  padding:clamp(36px,10%,96px) calc(clamp(6px,1.4vw,16px) + 96px) clamp(16px,2.8vw,32px) clamp(14px,2.6vw,36px); /* right: room for the speaker + fullscreen buttons */
   background:linear-gradient(to top,rgba(0,0,0,.66),rgba(0,0,0,.28) 55%,rgba(0,0,0,0));pointer-events:none;transition:opacity .35s ease}
 body.chrome-hidden .theatre .label{opacity:0}
 .theatre .label .side{display:none}
@@ -335,13 +335,14 @@ body.in-theatre.chrome-hidden .brand{opacity:0;pointer-events:none}
 .pick:hover .logo{box-shadow:0 12px 60px -6px var(--red2)}
 .pick.won .logo{background:var(--gold);color:#0b0b0e;box-shadow:0 0 60px -6px var(--gold)}
 .slide[data-stage="done"] .pick:not(.won){opacity:.35}
+.slide[data-stage="done"] .logo{opacity:1;transform:none} /* the winner's button turns gold and stays */
+.slide[data-stage="done"] .vcount,.slide[data-stage="done"] .audiofb{visibility:hidden}
+body.after-vote footer{visibility:hidden} /* the after-vote card sits where the footer is */
 .vcount{display:flex;align-items:center;justify-content:center;gap:10px}
 .vcount .hint{margin:0}
-.ring{width:20px;height:20px;flex:none;transform:rotate(-90deg)}
-.ring circle{fill:none;stroke-width:2.4}
-.ring .rbg{stroke:rgba(255,255,255,.1)}
-.ring .rfg{stroke:rgba(243,241,236,.62);stroke-dasharray:100;stroke-dashoffset:0;stroke-linecap:round}
-.ballot.held .ring .rfg{stroke:rgba(243,241,236,.9)}
+@media (pointer:coarse){.ballot .kb{display:none}}
+.vpass{background:none;border:1px solid var(--line);color:var(--muted);font:inherit;font-size:13px;border-radius:999px;padding:5px 14px;cursor:pointer;transition:color .2s,border-color .2s}
+.vpass:hover,.vpass:focus-visible{color:var(--text);border-color:rgba(243,241,236,.45)}
 .pick{touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
 .ballot .hint{margin:0}
 #arena .why{position:fixed;left:50%;bottom:calc(70px + env(safe-area-inset-bottom));transform:translate(-50%,8px);z-index:31;width:max-content;max-width:94vw;background:rgba(7,7,10,.9);padding:10px 12px;border-radius:16px;border:1px solid var(--line)}
@@ -617,6 +618,7 @@ body.screening .top{background:linear-gradient(rgba(7,7,10,.92) 30%,rgba(7,7,10,
 .gest{position:fixed;right:max(6px,env(safe-area-inset-right));top:50%;z-index:33;display:none;flex-direction:column;align-items:center;gap:14px;padding:12px 0;transform:translate3d(0,-50%,0);opacity:.1;transition:opacity .6s ease}
 .gest::before{content:'';position:absolute;left:50%;top:0;bottom:0;width:1px;background:linear-gradient(transparent,rgba(255,255,255,.16),transparent);pointer-events:none}
 body.screening #v-arena:not([hidden]) .gest{display:flex}
+@media (max-width:640px){ .gest[data-stage="vote"],.gest[data-stage="done"]{display:none!important} } /* on phones the ballot spans the width: Pass / swipe up move on */
 body.rail-on .gest,.gest:hover,.gest:focus-within,.gest.pulse{opacity:.75}
 .gbtn{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px;color:var(--text);border-radius:12px}
 .gbtn[hidden]{display:none}

@@ -24,11 +24,14 @@ const DAILY = (() => {
 })()
 // MUST match dailyFor() in src/app.js: same clip order, same FNV-1a hash
 function hashStr(s) { let h = 2166136261; for (const ch of String(s)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0 } return h >>> 0 }
+// clips.json fields only (identical in src/app.js and tally/tally.mjs): over 3 min with no editorial start/end
+const dailyLong = (c) => Number(c.dur) > 180 && c.start == null && c.end == null
 function topicPairs() {
   const cs = [...clips].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)), out = []
   for (let i = 0; i < cs.length; i++) for (let j = i + 1; j < cs.length; j++) {
     const A = cs[i], B = cs[j]
     if (A.kind !== B.kind || A.comic === B.comic) continue // daily fallback: two different comics
+    if (A.format === 'vertical' || B.format === 'vertical' || dailyLong(A) || dailyLong(B)) continue // the daily plays on every device: no Shorts, no uncut long sets
     const tb = Array.isArray(B.topics) ? B.topics : []
     const shared = (Array.isArray(A.topics) ? A.topics : []).filter((t) => tb.includes(t)).sort()
     if (shared.length) out.push({ a: A.id, b: B.id, topic: shared[0] })
@@ -37,7 +40,7 @@ function topicPairs() {
 }
 const TOPIC_PAIRS = topicPairs()
 function dailyFor(date) {
-  const e = DAILY.find((x) => x && x.date === date && byId[x.a] && byId[x.b] && x.a !== x.b)
+  const e = DAILY.find((x) => x && x.date === date && byId[x.a] && byId[x.b] && x.a !== x.b && byId[x.a].comic !== byId[x.b].comic)
   if (e) return { date, a: e.a, b: e.b, topic: e.topic || '', title: e.title || 'Daily Clash', editorial: true }
   if (!TOPIC_PAIRS.length) return null
   const p = TOPIC_PAIRS[hashStr(date) % TOPIC_PAIRS.length]

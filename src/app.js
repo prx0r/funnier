@@ -48,31 +48,48 @@ let LANE = LS.get('lane', 'human'), BOARDKIND = 'all'
 // much of a long clip we screen (the duration-fairness rule below still applies on top).
 const FORMAT_PREFS = {
   mobile: { prefer: 'vertical', share: 0.8, minPool: 6, maxSec: 75 },
-  desktop: { prefer: 'horizontal', share: 0.9, minPool: 6, maxSec: 150 },
+  desktop: { prefer: 'horizontal', share: 1, minPool: 6, maxSec: 150 }, // and never vertical (servable)
 }
 const mm = (q) => typeof matchMedia === 'function' && matchMedia(q).matches
 const isMobile = () => (mm('(pointer: coarse)') && mm('(orientation: portrait)')) || (typeof innerWidth === 'number' && innerWidth > 0 && innerWidth < 700)
 const devPrefs = () => FORMAT_PREFS[isMobile() ? 'mobile' : 'desktop']
 const fmtOf = (c) => (c?.format === 'vertical' ? 'vertical' : 'horizontal')
+// HARD rule: vertical clips (Shorts) are only ever served to touch devices (primary pointer coarse: phones, tablets).
+// A desktop (mouse/trackpad) never gets one, whatever the window width, in any mode: For you, Training, Explore,
+// the daily clash, #clash / invite / history links, and the comic pages' clip rails.
+const vertOK = () => mm('(pointer: coarse)') // primary pointer is a finger (a touch laptop's primary pointer is fine: desktop)
+const servable = (c) => !!c && (fmtOf(c) !== 'vertical' || vertOK())
 let SHORT_MAX = 75 // seconds of each clip we screen when the clip is longer (set from FORMAT_PREFS at start)
 // ---------- clip length fairness ----------
-// Each clip is screened for a window = editorial start..end, else min(duration, SHORT_MAX) from `start` (default 0).
-// Two clips only meet when their windows are within FAIR_RATIO of each other, and both then play the SAME length:
-// the shorter window (at least MIN_WIN, never past a clip's own window). Clips over LONG_SEC without an editorial
-// `start` are flagged needsCut and only paired when nothing else is left.
+// A clip always plays to its END: its natural end, or its editorial `end`. We never stop a clip before its last
+// seconds (that is where the punchline is). Its screening window =
+//   editorial start..end when set;
+//   else the whole clip from `start` (default 0) when it runs up to LONG_SEC;
+//   else (a long set with no editorial cut, flagged needsCut) its LAST SHORT_MAX seconds: trimmed from the START.
+// Fairness comes from pairing, not truncation: two clips only meet when their windows are within FAIR_RATIO of each
+// other, and each then plays its own full window. needsCut clips are only paired when nothing else is left.
 let MIN_WIN = 30; const FAIR_RATIO = 1.5, LONG_SEC = 180
-let PAIR_LEVEL = 0 // 0: fair + no needsCut, 1: fair (needsCut allowed), 2: anything (equal windows still apply)
+let PAIR_LEVEL = 0 // 0: fair + no needsCut, 1: fair (needsCut allowed), 2: anything (each clip still plays to its end)
+const clipDur = (c, liveDur) => (Number(liveDur) > 0 ? Number(liveDur) : Number(c?.dur) || Number(c?.sec) || 0)
+// where the screened window starts (seconds into the video)
+function clipStart(c, liveDur) {
+  const s = Number(c?.start) || 0
+  if (c?.end != null && Number(c.end) > s) return s
+  const d = clipDur(c, liveDur)
+  if (c?.start == null && d - s > LONG_SEC) return Math.max(s, d - SHORT_MAX) // a long set: its closing SHORT_MAX seconds
+  return s
+}
 function clipWin(c, liveDur) {
   const s = Number(c?.start) || 0
   if (c?.end != null && Number(c.end) > s) return Number(c.end) - s
-  const d = Number(liveDur) > 0 ? Number(liveDur) : Number(c?.dur) || Number(c?.sec) || 0
-  return d > 0 ? Math.max(1, Math.min(d - s, SHORT_MAX)) : SHORT_MAX // unknown length: assume a full window until the player tells us
+  const d = clipDur(c, liveDur)
+  if (!(d > 0)) return SHORT_MAX // unknown length: assume a typical window until the player tells us
+  return Math.max(1, d - clipStart(c, liveDur)) // to the very end
 }
 const fairPair = (A, B) => { const a = clipWin(A), b = clipWin(B); return Math.max(a, b) <= FAIR_RATIO * Math.min(a, b) + 0.01 }
-const sharedWin = (a, b) => Math.min(Math.max(a, b), Math.max(MIN_WIN, Math.min(a, b))) // both clips play this long
 function deriveCuts() { for (const c of CLIPS) if (!c.needsCut && Number(c.dur) > LONG_SEC && c.start == null && c.end == null) c.needsCut = true }
 function mergeDurs(m) { // learned lengths never override clips.json
-  for (const [id, d] of Object.entries(m && typeof m === 'object' ? m : {})) { const c = BYID[id]; if (c && !(Number(c.dur) > 0) && Number(d) > 0) c.dur = Math.round(Number(d) * 10) / 10 }
+  for (const [id, d] of Object.entries(m && typeof m === 'object' ? m : {})) { const c = BYID[id]; if (c && !(Number(c.dur) > 0) && Number(d) > 0) { c.dur = Math.round(Number(d) * 10) / 10; c.durLearned = true } }
   deriveCuts()
 }
 // a random id for anonymous laughs and sound feedback (no account needed); never linked to anything else
@@ -397,16 +414,17 @@ function openPair(a, b) {
   const A = BYID[a], B = BYID[b]
   if (!A || !B || a === b || done.has(pairKey(a, b)) || skipped.has(pairKey(a, b))) return false
   if (A.comic === B.comic) return false // hard rule at every level: a clash is always two different comics
+  if (!servable(A) || !servable(B)) return false // hard rule: no vertical clips on desktop
   if (PAIR_LEVEL < 2 && !fairPair(A, B)) return false
   if (PAIR_LEVEL < 1 && (A.needsCut || B.needsCut)) return false
   if (LANE === 'mixed') return A.kind !== B.kind || Math.random() < 0.25
   return A.kind === LANE && B.kind === LANE
 }
 let ROUND_FMT = null // the format this round is drawn from (null = any)
-function pool() { const P = CLIPS.filter((c) => LANE === 'mixed' || c.kind === LANE); return ROUND_FMT ? P.filter((c) => fmtOf(c) === ROUND_FMT) : P }
+function pool() { const P = CLIPS.filter((c) => (LANE === 'mixed' || c.kind === LANE) && servable(c)); return ROUND_FMT ? P.filter((c) => fmtOf(c) === ROUND_FMT) : P }
 function roundFormat() { // the device's preferred format for this round, when the lane has enough of it
   const pr = devPrefs(); ROUND_FMT = null
-  const P = CLIPS.filter((c) => (LANE === 'mixed' || c.kind === LANE) && fmtOf(c) === pr.prefer)
+  const P = CLIPS.filter((c) => (LANE === 'mixed' || c.kind === LANE) && fmtOf(c) === pr.prefer && servable(c))
   // enough of that format, from at least two comics (a clash is always two different comics)
   if (P.length >= pr.minPool && new Set(P.map((c) => c.comic)).size >= 2 && Math.random() < pr.share) ROUND_FMT = pr.prefer
 }
@@ -570,7 +588,7 @@ class Screen {
   constructor(side, clip, hostId) { this.side = side; this.clip = clip; this.hostId = hostId; this.started = false; this.view = Date.now().toString(36) + side + Math.random().toString(36).slice(2, 6); this.ready = new Promise((res) => (this._ready = res)) }
   async mount() {
     const c = this.clip, host = document.getElementById(this.hostId)
-    this.start = c.start || 0
+    this.start = clipStart(c)
     if (!host) return
     if (c.media === 'audio') {
       host.innerHTML = `<audio preload="auto" controls src="${esc(c.src)}"></audio>`
@@ -613,9 +631,18 @@ class Screen {
   }
   applyVol() { if (this.fadeT == null && this.armT == null) this.setVol(this.started ? clipVol(this.clip) : 0) }
   dur() { let d = 0; try { d = this.a ? this.a.duration : this.p?.getDuration?.() } catch {} return (Number.isFinite(d) && d > 0 ? d : 0) || Number(this.clip.dur) || this.clip.sec || 0 }
-  win() { let d = 0; try { d = this.a ? this.a.duration : this.p?.getDuration?.() } catch {} return clipWin(this.clip, Number.isFinite(d) ? d : 0) }
-  // both clips in a clash play the same length window: the shorter of the two (at least MIN_WIN)
-  end() { const w = this.win(); return this.start + (this.mate ? Math.min(w, sharedWin(w, this.mate.win())) : w) }
+  liveDur() { let d = 0; try { d = this.a ? this.a.duration : this.p?.getDuration?.() } catch {} return Number.isFinite(d) && d > 0 ? d : 0 }
+  win() { return clipWin(this.clip, this.liveDur()) }
+  // every clip plays its own full window, to its end (fairness is in the pairing, never a truncation)
+  end() { return this.start + this.win() }
+  natural() { const c = this.clip; return !(c?.end != null && Number(c.end) > (Number(c?.start) || 0)) } // window ends where the video ends
+  // the player told us the real length: a long set with no editorial cut moves its window to the closing seconds
+  syncStart() {
+    const d = this.liveDur(); if (!(d > 0) || this.clip.start != null || this.clip.end != null) return
+    const ns = clipStart(this.clip, d); if (Math.abs(ns - this.start) < 1) return
+    const t = this.t(); this.start = ns
+    if (t < ns - 1) { try { if (this.a) this.a.currentTime = ns; else this.p?.seekTo?.(ns, true) } catch {} this.lastT = null; this.shown = ns; this.rawV = null; this.hold = { to: ns, until: now() + 2500 } }
+  }
   seek(to, ahead = true) {
     const s = this.start, e = this.end(), t = clamp(Number(to) || 0, s, Math.max(s, e - 1)), from = this.t()
     if (t > from + 1) this.jumped = true // seeking forward = skippedAhead, same as before
@@ -644,7 +671,16 @@ class Screen {
     if (prev == null || est >= prev || prev - est > 1.5) this.shown = est
     return this.shown
   }
-  done() { return this.ended || (this.started && this.t() >= this.end() - 0.3) }
+  // finished = the player reported ENDED, or (editorial end) the window's end. A clip that runs to its natural end
+  // only counts as done at the very end: ENDED, or parked within 0.3s of the end and no longer playing.
+  done() {
+    if (this.ended) return true
+    if (!this.started) return false
+    const t = this.t(), e = this.end()
+    if (!this.natural()) return t >= e
+    let st = -1; try { st = this.a ? (this.a.ended ? 0 : this.a.paused ? 2 : 1) : this.p?.getPlayerState?.() } catch {}
+    return t >= e - 0.3 && st !== 1 && st !== 3 && this.wantPlay !== false ? (this.parkedAt = this.parkedAt || now(), now() - this.parkedAt > 1200) : (this.parkedAt = 0, false)
+  }
   async play() {
     await this.ready; if (this.dead) return
     if (!this.started) { this.shown = this.start; this.rawV = null; this.hold = null }
@@ -657,6 +693,7 @@ class Screen {
       return
     }
     try { muted ? this.p.mute() : this.p.unMute() } catch {}
+    if (!this.synced && this.liveDur() > 0) { this.synced = true; this.syncStart() }
     this.p.playVideo()
     this.armFade()
     paintSnd()
@@ -714,6 +751,7 @@ class Screen {
     }
     if (d > 5) this.jumped = true
     this.lastT = t
+    if (!this.synced && this.liveDur() > 0) { this.synced = true; this.syncStart() }
     if (!this.durSent) { const dd = this.a ? this.a.duration : this.p?.getDuration?.(); if (Number.isFinite(dd) && dd > 0) { this.durSent = true; learnDur(this.clip, dd) } }
   }
   screened() { return Math.max(1, this.end() - this.start) }
@@ -830,9 +868,9 @@ function toggleCrowd() {
   toast(crowdLaughsOn() ? 'Crowd laughs on.' : 'Crowd laughs off.'); showChrome()
 }
 
-// ---------- the screening: intro face-off -> clip ONE full screen -> clip TWO -> 3s ballot ----------
+// ---------- the screening: intro face-off -> clip ONE full screen -> clip TWO -> untimed ballot ----------
 // stages: intro | left | right | vote | done
-let VOTE_MS = 7000, INTRO_MS = 2500, VOTE_RESUME_MIN = 2500
+let VOTE_MS = 7000, INTRO_MS = 2500, VOTE_RESUME_MIN = 2500 // VOTE_MS / VOTE_RESUME_MIN: legacy screening params, unused (the ballot is untimed)
 let screens = {}, stage = 'idle', tick = null, armed = false, armedAt = 0, prediction = null
 let cur = null, nScreen = 0, timers = [], userStarted = false, moving = false
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
@@ -913,7 +951,7 @@ function slideHTML(a, b, n, first) {
     <div class="theatre">${scr(a, 'L')}${scr(b, 'R')}${LAUGHS_ENABLED ? `<div class="lfx" aria-hidden="true"></div><button type="button" class="laughbtn" aria-label="Laugh (tap whenever it's funny)" title="Laugh">${LAUGH_SVG}</button>` : '' /* laugh button + particles: off */}<div class="peek" aria-hidden="true"><span class="pkimg" ${b.media === 'youtube' ? `style="background-image:url(${thumb(b.id)})"` : ''}></span><span class="pkcap"><b>#2</b> ${esc(b.comic)}</span></div></div>
     <div class="ballot"><p class="bq">Which was funnier?</p><div class="picks">${shot(a, 'L')}${shot(b, 'R')}</div>
       <div class="audiofb" role="group" aria-label="Sound level feedback"><span>Sound off?</span>${[['L', '#1'], ['R', '#2']].map(([sd, n]) => `<button type="button" data-aud="${sd}" data-k="loud">${n} too loud</button><button type="button" data-aud="${sd}" data-k="quiet">${n} too quiet</button>`).join('')}</div>
-      <div class="vcount"><svg class="ring" viewBox="0 0 36 36" aria-hidden="true"><circle class="rbg" cx="18" cy="18" r="15.5"/><circle class="rfg" cx="18" cy="18" r="15.5" pathLength="100"/></svg><p class="hint">Tap one, or ← / →. No pick = pass.</p></div>
+      <div class="vcount"><p class="hint">Take your time. Tap the funnier one<span class="kb">, or ← / →</span>.</p><button type="button" class="vpass" title="Pass: no pick, neither comic loses anything (P)">Pass</button></div>
       <p class="friendres" aria-live="polite"></p></div>
   </div>`
 }
@@ -928,6 +966,7 @@ function setStage(s) {
   stage = s
   if (cur?.el) cur.el.dataset.stage = s
   document.body.classList.toggle('in-theatre', s === 'left' || s === 'right')
+  document.body.classList.toggle('after-vote', s === 'done' && !!cur?.a)
   if (s === 'right') { // the peek now previews the ballot, not clip two
     const pk = q('.peek'); if (pk) pk.innerHTML = '<span class="pkimg pkvote">Which was funnier?</span><span class="pkcap"><b>Vote</b></span>'
   }
@@ -1002,13 +1041,8 @@ function bindSlide(el) {
     x.onclick = (e) => { e.stopPropagation(); vote(x.dataset.side) }
   })
   const bal = el.querySelector('.ballot')
-  if (bal) { // hover / touch on the ballot holds the countdown
-    bal.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') { voteHover = true; holdCountdown() } })
-    bal.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') { voteHover = false; resumeCountdown() } })
-    bal.addEventListener('touchstart', () => { voteHover = true; holdCountdown() }, { passive: true })
-    const lift = () => { voteHover = false; setTimeout(resumeCountdown, 600) }
-    bal.addEventListener('touchend', lift, { passive: true }); bal.addEventListener('touchcancel', lift, { passive: true })
-  }
+  const vp = el.querySelector('.vpass')
+  if (vp) { vp.addEventListener('pointerdown', (e) => e.stopPropagation()); vp.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true }); vp.onclick = (e) => { e.stopPropagation(); e.preventDefault(); if (stage === 'vote' && armed) pass() } }
   el.querySelectorAll('.shield').forEach((sh) => (sh.onclick = () => {
     if (now() - dragEndAt < 400) return // the tail of a swipe, not a tap
     if (tapRevealed) { tapRevealed = false; return } // chrome was hidden: this tap only brings it back
@@ -1033,7 +1067,7 @@ function bindSlide(el) {
   }
   el.querySelectorAll('[data-aud]').forEach((bt) => (bt.onclick = (e) => {
     e.stopPropagation()
-    pauseBallot('Countdown paused. Pick when you\u2019re ready.')
+    pauseBallot()
     const sd = bt.dataset.aud, clip = sd === 'L' ? cur?.a : cur?.b
     audioFeedback(clip, bt.dataset.k)
     bt.parentElement?.querySelectorAll(`[data-aud="${sd}"]`).forEach((x) => (x.disabled = true)); bt.classList.add('on')
@@ -1095,11 +1129,10 @@ function bindScrub(pg) {
     e.preventDefault(); e.stopPropagation(); screens[side]?.seekBy(d)
   })
 }
-// a tap on the ballot that isn't a pick (share, sound feedback) pauses the 3s countdown; that pick gets no timing signal
-function pauseBallot(msg) {
+// a tap on the ballot that isn't a pick (share, sound feedback, a sheet): that pick gets no timing signal
+function pauseBallot() {
   if (!(stage === 'vote' && armed)) return
-  sharedDuringBallot = true; clearTimers(); voteHeld = true; holdCountdown()
-  const h = q('.ballot .hint'); if (h) h.textContent = msg
+  sharedDuringBallot = true
 }
 // "Not funny -> next": ends the clip on screen but stays in the clash. Clip ONE -> clip TWO; clip TWO -> the ballot.
 // Logged in funnier.skips as stage 'left-skip' / 'right-skip' and counted as 0.4 of a loss for that clip, its comic and styles.
@@ -1122,6 +1155,7 @@ function skipClip() {
 function startClip(side) {
   if (!cur || !screens[side]) return
   clearTimers()
+  if (side === 'L') { const w = $('#why'); if (w?.classList.contains('on') && !w.matches?.(':hover') && !w.contains(document.activeElement)) w.classList.remove('on') } // the last vote's card never sits over the next clip
   setStage(side === 'L' ? 'left' : 'right')
   bumpShown(screens[side].clip.comic)
   for (const s of ['L', 'R']) {
@@ -1156,30 +1190,9 @@ function startVote() {
   setStage('vote')
   markDailyDone() // watched it through to the ballot
   armed = true; armedAt = now(); sharedDuringBallot = false // decision time runs from the moment the FUNNIER logos appear
-  voteLeft = VOTE_MS; voteHeld = false; voteHover = false
-  runCountdown()
 }
-// the ballot countdown: a thin ring that drains over VOTE_MS. It holds while the pointer or a finger is on the ballot
-// (or after a sound-feedback tap) and resumes with at least VOTE_RESUME_MIN left. No pick when it empties = a pass.
-let voteLeft = 0, voteT0 = 0, voteT = null, voteHeld = false, voteHover = false
-function ringEl() { return q('.ballot .ring .rfg') }
-function runCountdown() {
-  clearTimeout(voteT); voteT0 = now()
-  const r = ringEl(), frac = voteLeft / VOTE_MS
-  if (r) { r.style.transition = 'none'; r.style.strokeDashoffset = String(100 * (1 - frac)); void r.getBoundingClientRect?.(); r.style.transition = `stroke-dashoffset ${voteLeft}ms linear`; r.style.strokeDashoffset = '100' }
-  voteT = setTimeout(() => { voteT = null; if (stage === 'vote' && armed) pass() }, voteLeft + 60)
-}
-function holdCountdown() {
-  if (!(stage === 'vote' && armed) || voteT == null) return
-  clearTimeout(voteT); voteT = null
-  voteLeft = Math.max(0, voteLeft - (now() - voteT0))
-  const r = ringEl(); if (r) { r.style.transition = 'none'; r.style.strokeDashoffset = String(100 * (1 - voteLeft / VOTE_MS)) }
-  q('.ballot')?.classList.add('held')
-}
-function resumeCountdown() {
-  if (!(stage === 'vote' && armed) || voteT != null || voteHeld || voteHover) return
-  voteLeft = Math.max(voteLeft, VOTE_RESUME_MIN); q('.ballot')?.classList.remove('held'); runCountdown()
-}
+// The ballot is never timed: it stays until you pick (tap, or ← / →) or explicitly move on (Pass / P, swipe up,
+// "Next clash", S). Nothing auto-advances. decisionMs still runs from the moment the ballot appears.
 function pass() {
   if (!current) return
   const [a, b] = current
@@ -1225,7 +1238,7 @@ async function vote(side) {
   const decisionMs = armedAt && !sharedDuringBallot ? Math.max(0, Math.round(now() - armedAt)) : undefined
   const sg = signals()
   const v = { a: a.id, b: b.id, winner: side === 'L' ? a.id : b.id, voter: 'human', basis: 'watched', mode: current.mode, decisionMs, ...sg, ...(current.policy ? { policy: current.policy } : {}), createdAt: new Date().toISOString() }
-  if (current.mode === 'daily' && DAY_RE.test(String(current.daily || ''))) v.daily = current.daily
+  const dd = dailyOfCurrent(); if (dd) v.daily = dd
   v.weight = voteWeight(v)
   q(`.pick.${side}`)?.classList.add('won')
   bumpSeen(a.id, b.id)
@@ -1278,6 +1291,7 @@ document.addEventListener('keydown', (e) => {
   if ((e.key === 'ArrowRight' || e.key === 'n' || e.key === 'N') && (stage === 'left' || stage === 'right')) { e.preventDefault(); skipClip() }
   else if (e.key === 'ArrowLeft') vote('L')
   else if (e.key === 'ArrowRight') vote('R')
+  else if ((e.key === 'p' || e.key === 'P') && stage === 'vote' && armed) { e.preventDefault(); pass() }
   else if (e.key === 'ArrowUp' || e.key === 'PageDown' || e.key === 's' || e.key === 'S') { e.preventDefault(); skipClash() }
   else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen() }
   else if ((e.key === 'm' || e.key === 'M') && (stage === 'left' || stage === 'right')) { e.preventDefault(); toggleSound() }
@@ -1490,14 +1504,14 @@ function paintBoards() {
     metas.forEach((m) => (m.textContent = BOARDKIND === 'agent' ? 'No agent picks yet. Agents vote through the AT Protocol API.' : 'The chart opens with the first published picks. Until then, here is everything in rotation.'))
     const comics = [...new Set(CLIPS.map((c) => c.comic))]
     $('#comics').innerHTML = comics.map((k, i) => comicTile({ comic: k }, i, CLIPS.filter((c) => c.comic === k).length + ' shorts')).join('')
-    $('#clips').innerHTML = CLIPS.map((c) => clipTile(c, null, c.channel)).join('')
+    $('#clips').innerHTML = CLIPS.filter(servable).map((c) => clipTile(c, null, c.channel)).join('')
     return
   }
   const ago = Math.max(0, Math.round((Date.now() - Date.parse(BOARD.updated)) / 60000))
   metas.forEach((m) => (m.textContent = `${bd.votes} picks from ${bd.voters} account${bd.voters === 1 ? '' : 's'} · Bradley-Terry ratings with 95% ranges · updated ${isNaN(ago) ? 'recently' : ago + ' min ago'}`))
   const rng = (r) => (r.lo != null ? ` (${Math.round(r.lo)}–${Math.round(r.hi)})` : '')
   $('#comics').innerHTML = bd.comics.filter((c) => c.bouts).map((c, i) => comicTile(c, i, Math.round(c.elo) + rng(c))).join('')
-  $('#clips').innerHTML = bd.clips.filter((c) => c.bouts && BYID[c.id]).slice(0, 10).map((c, i) => clipTile(c, i, Math.round(c.elo))).join('')
+  $('#clips').innerHTML = bd.clips.filter((c) => c.bouts && BYID[c.id] && servable(BYID[c.id])).slice(0, 10).map((c, i) => clipTile(c, i, Math.round(c.elo))).join('')
 }
 
 // ---------- comics ----------
@@ -1553,7 +1567,7 @@ function paintProfile(el, name) {
       ${Object.entries(P.links || {}).map(([k, u]) => `<a class="btn ghost" href="${esc(u)}" target="_blank" rel="noopener">${esc(k)}</a>`).join(' ')}</div>
       <div><h3>Head-to-head</h3>${Object.keys(st.h2h).length ? `<div class="bars">${Object.entries(st.h2h).map(([o, r]) => `<div class="barrow"><span>vs ${esc(o)}</span><div class="track"><i style="left:0;width:${(100 * r.w) / r.n}%"></i></div><span class="v">${Math.round((100 * r.w) / r.n)}% · ${r.n}</span></div>`).join('')}</div>` : '<p class="muted">No matchups yet. Every pick involving this comic shows up here.</p>'}</div></div>
     ${specialsHTML(P.specials)}
-    <h3 class="shelf">Best-rated shorts</h3><div class="rail">${st.rated.map(({ c, r }, i) => clipTile(c, r ? i : null, r ? Math.round(r.elo) : c.channel)).join('')}</div>`
+    <h3 class="shelf">Best-rated shorts</h3><div class="rail">${st.rated.filter(({ c }) => servable(BYID[c.id] || c)).map(({ c, r }, i) => clipTile(c, r ? i : null, r ? Math.round(r.elo) : c.channel)).join('') || '<p class="muted">This comic\u2019s clips are vertical Shorts, which play on phones.</p>'}</div>`
   bindSpecials(el)
   scrollTo({ top: 0 })
 }
@@ -2030,6 +2044,8 @@ function takeClash() {
   if (!sh) return null
   const A = BYID[sh.a], B = BYID[sh.b]
   if (!A || !B || sh.a === sh.b) { setTimeout(() => toast('That clash is no longer on the bill, so here is tonight\u2019s instead.'), 400); return null }
+  if (A.comic === B.comic) { setTimeout(() => toast('That clash pits a comic against themselves, so here is tonight\u2019s instead.'), 400); return null }
+  if (!servable(A) || !servable(B)) { setTimeout(() => toast('That clash uses vertical Shorts, which play on phones only. Here is tonight\u2019s instead.'), 400); return null }
   const pair = [A, B]
   if (sh.daily) { pair.mode = 'daily'; pair.daily = sh.daily; sharedRound = null; return pair }
   if (sh.rewatch) { pair.mode = 'rewatch'; sharedRound = null; return pair }
@@ -2056,7 +2072,7 @@ function myPick(a, b) {
 }
 function shareCurrent() {
   if (!current || !current[0] || !current[1]) return toast('Nothing on screen to share yet.')
-  pauseBallot('Countdown paused. Pick when you\u2019re ready.') // sharing mid-ballot pauses the 3s countdown
+  pauseBallot() // sharing mid-ballot: that pick carries no timing signal
   const [a, b] = current
   shareClash(a, b, myPick(a, b))
 }
@@ -2097,11 +2113,14 @@ const pad2 = (n) => String(n).padStart(2, '0')
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 function dayStr(d = new Date()) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` }
 function hashStr(s) { let h = 2166136261; for (const ch of String(s)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0 } return h >>> 0 }
+// clips.json fields only (identical in src/app.js and tally/tally.mjs): over 3 min with no editorial start/end
+const dailyLong = (c) => !c.durLearned && Number(c.dur) > 180 && c.start == null && c.end == null // learned lengths don't count (the tally can't see them)
 function topicPairs() {
   const cs = [...CLIPS].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)), out = []
   for (let i = 0; i < cs.length; i++) for (let j = i + 1; j < cs.length; j++) {
     const A = cs[i], B = cs[j]
     if (A.kind !== B.kind || A.comic === B.comic) continue // daily fallback: two different comics
+    if (A.format === 'vertical' || B.format === 'vertical' || dailyLong(A) || dailyLong(B)) continue // the daily plays on every device: no Shorts, no uncut long sets
     const tb = Array.isArray(B.topics) ? B.topics : []
     const shared = (Array.isArray(A.topics) ? A.topics : []).filter((t) => tb.includes(t)).sort()
     if (shared.length) out.push({ a: A.id, b: B.id, topic: shared[0] })
@@ -2110,7 +2129,7 @@ function topicPairs() {
 }
 function dailyFor(date) {
   if (!DAY_RE.test(String(date || ''))) return null
-  const e = DAILY.find((x) => x && x.date === date && BYID[x.a] && BYID[x.b] && x.a !== x.b)
+  const e = DAILY.find((x) => x && x.date === date && BYID[x.a] && BYID[x.b] && x.a !== x.b && BYID[x.a].comic !== BYID[x.b].comic)
   if (e) return { date, title: e.title || '', blurb: e.blurb || '', a: e.a, b: e.b, topic: e.topic || '', editorial: true }
   const P = topicPairs(); if (!P.length) return null
   const p = P[hashStr(date) % P.length]
@@ -2149,13 +2168,29 @@ function playDaily() {
 let dailyTimer = null, dailyDay = null
 // the daily clash lives in ONE place: the banner above the screening. Tap it to play. Once you've watched it (reached
 // its ballot) or voted on it, the banner is gone for the rest of the day (localStorage funnier.dailyDone = date).
-function dailyDone(date) { return !!date && (LS.get('dailyDone', '') === date || !!dailyMine(date)) }
-function markDailyDone() { if (current?.mode === 'daily' && DAY_RE.test(String(current.daily || ''))) { LS.set('dailyDone', current.daily); paintDaily() } }
+// It counts however you met today's pair (the banner, a link, or the same two clips coming up in rotation), and on
+// another device too when signed in (GET /me/daily/<date>).
+function dailyDone(date) { return !!date && (LS.get('dailyDone', '') === date || !!dailyMine(date) || [...LS.get('votes', []), ...LS.get('partials', [])].some((v) => v && dailyPairIs(date, v.a, v.b) && dayStr(new Date(v.createdAt)) === date)) }
+function dailyPairIs(date, a, b) { const D = dailyFor(date); return !!D && !!a && !!b && pairKey(D.a, D.b) === pairKey(a, b) }
+// the daily this clash is (its date), or null: played from the banner, or today's pair met any other way
+function dailyOfCurrent() {
+  if (!current) return null
+  if (current.mode === 'daily' && DAY_RE.test(String(current.daily || ''))) return current.daily
+  const d = dayStr(); return current[0] && current[1] && dailyPairIs(d, current[0].id, current[1].id) ? d : null
+}
+function markDailyDone() { const d = dailyOfCurrent(); if (d) { LS.set('dailyDone', d); paintDaily() } }
+let dailyAsked = ''
+function checkDailyRemote(date) { // signed in: done on another device hides it here too
+  if (!signedIn() || !date || dailyAsked === date || dailyDone(date)) return
+  dailyAsked = date
+  api('/me/daily/' + date).then((r) => { if (r.ok && r.j?.done && dayStr() === date) { LS.set('dailyDone', date); paintDaily() } }).catch(() => { dailyAsked = '' })
+}
 function paintDaily() {
   const el = $('#daily'); if (!el) return
   const D = dailyFor(dayStr()); dailyDay = D?.date || dayStr()
-  const playing = !!D && current?.mode === 'daily' && current.daily === D.date && ['intro', 'left', 'right', 'vote', 'done'].includes(stage)
-  if (!D || dailyDone(D.date) || playing) { el.hidden = true; el.innerHTML = '' }
+  const playing = !!D && dailyOfCurrent() === D.date && ['intro', 'left', 'right', 'vote', 'done'].includes(stage)
+  if (D && !dailyDone(D.date)) checkDailyRemote(D.date)
+  if (!D || dailyDone(D.date) || playing || !servable(BYID[D.a]) || !servable(BYID[D.b])) { el.hidden = true; el.innerHTML = '' }
   else {
     const A = BYID[D.a], B = BYID[D.b]
     el.hidden = false
@@ -2210,7 +2245,7 @@ async function holdWhile(fn) {
   if (advT) { clearTimeout(advT); advT = null; h.adv = true }
   else if (stage === 'intro') { clearTimers(); h.intro = true }
   else if (stage === 'left' || stage === 'right') { const s = screens[stage === 'left' ? 'L' : 'R']; if (s?.playing?.()) { s.pause(); h.play = s } }
-  else if (stage === 'vote' && armed) pauseBallot('Countdown paused. Pick when you\u2019re ready.')
+  else if (stage === 'vote' && armed) pauseBallot()
   try { await fn() } catch {} finally {
     if (h.adv && cur?.el === h.el) scheduleAdvance(500)
     else if (h.intro && stage === 'intro' && cur?.el === h.el) later(() => stage === 'intro' && cur?.el === h.el && startClip('L'), 900)
@@ -2327,7 +2362,7 @@ function clashRow(e, i) {
   const stg = { intro: 'Skipped at the intro', left: 'Skipped during #1', right: 'Skipped during #2', vote: 'Skipped the ballot', done: 'Moved on' }
   const W = BYID[win]
   const what = e.kind === 'pick' ? `Picked <b>${esc(W?.comic || '?')}</b>${e.counted ? '' : ' <span class="hmuted">· didn\u2019t count (under 30s)</span>'}`
-    : e.sub === 'pass' ? 'Pass <span class="hmuted">· no pick in 3s</span>'
+    : e.sub === 'pass' ? 'Pass <span class="hmuted">· no pick</span>'
       : e.sub === 'notfunny' ? '\u201cNot funny\u201d skip' : (stg[v.stage] || 'Skipped')
   const chips = []
   if (v.daily) chips.push(`<span class="hchip daily">Daily clash</span>`)
@@ -2472,7 +2507,7 @@ async function initAccount() {
   paintUser()
 }
 async function afterSignIn(needs, fresh) {
-  paintUser(); paintProfilePage()
+  paintUser(); paintProfilePage(); paintDaily() // a daily finished on another device hides here too
   syncVotes().catch(() => {}); syncEvents(); syncProfile().catch(() => {}); syncChars().catch(() => {})
   const pa = LS.get('pendingAccept', null)
   if (pa?.code) {
