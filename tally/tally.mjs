@@ -8,6 +8,7 @@ import { cleanPolicy } from '../src/policy.js'
 import { resolveParams } from '../src/screening.js'
 import { buildSessions, trainScreening } from './train-screening.mjs'
 import { fetchExport, mergeVotes, eventsForTraining } from './sources.mjs'
+import { fgResolver, arenaPairs, arenaDoc } from './arena.mjs'
 
 const COLLECTION = 'io.github.prx0r.funnier.vote'
 const [, , CLIPS_PATH, OUT] = process.argv
@@ -368,6 +369,13 @@ fs.writeFileSync(path.join(DATA, 'daily.json'), JSON.stringify(dailyOut))
 console.log('daily results', Object.keys(dailyOut.days).length, 'days')
 fs.writeFileSync(path.join(DATA, 'leaderboard.json'), JSON.stringify(board, null, 1))
 fs.writeFileSync(path.join(DATA, 'votes.json'), JSON.stringify({ updated: board.updated, voters, votes }, null, 1))
+// funnygraph arena ballot (ARENA_BALLOT.md): per comedian-pair counts from the merged votes, for funnygraph to pull
+{
+  let fgSha7 = null; try { fgSha7 = JSON.parse(fs.readFileSync(path.join(DATA, 'funnygraph', 'meta.json'), 'utf8')).sha?.slice(0, 7) || null } catch {}
+  const ar = arenaPairs(votes, byId, fgResolver({ outDir: OUT, srcDir: path.dirname(CLIPS_PATH) }))
+  fs.writeFileSync(path.join(DATA, 'arena.json'), JSON.stringify(arenaDoc(ar, { updated: board.updated, synthetic: !!process.env.SYNTH, fgSha7 }), null, 1))
+  console.log('arena', ar.pairs.length, 'comic pairs from', ar.votes, 'human votes', ar.unmapped.length ? '(unmapped: ' + ar.unmapped.join(', ') + ')' : '')
+}
 state.dids = [...dids]
 fs.writeFileSync(statePath, JSON.stringify(state))
 console.log(`tallied ${votes.length} votes from ${voters.length} voters`)

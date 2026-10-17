@@ -1,0 +1,4 @@
+{
+ "_note": "Funnier comic name (clips.json `comic`) -> funnygraph comedian_id, only where the default (site/comics.json slug, else the slugified name) does not match. tools/sync-funnygraph.mjs and tally/tally.mjs read it.",
+ "map": {}
+}

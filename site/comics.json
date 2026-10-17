@@ -1,12 +1,10 @@
 {
- "_note": "Comedian profiles. Fill in bio (markdown-free text), photo (img/<slug>.jpg committed under site/img, or an https image you have rights to) + photoCredit/photoLicense/photoLicenseUrl/photoSource (Wikimedia Commons file page), facts, links. Empty fields show a placeholder. specials: verified against Wikipedia + official pages (Oct 2026); 'where' lists only the official home (Netflix originals, louisck.com) plus a JustWatch search, since availability varies by country.",
+ "_note": "Funnier-owned comic fields only: photo (img/<slug>.jpg under site/img, or an https image you have rights to) + photoCredit/photoLicense/photoLicenseUrl/photoSource/photoNote, verified specials (Wikipedia + official pages, Oct 2026; 'where' = official home + a JustWatch search), links, the card tagline, bio and credit facts. Identity (years, region, tier, generation, persona style) and every ranking come live from funnygraph: tools/sync-funnygraph.mjs merges them into the published comics.json on each deploy. slug = funnygraph comedian_id (fg-map.json for exceptions).",
  "comics": {
   "Norm Macdonald": {
    "slug": "norm-macdonald",
    "tagline": "The long way round to the punchline.",
    "facts": [
-    "1959–2021",
-    "Canada",
     "Weekend Update anchor on SNL"
    ],
    "bio": "",
@@ -72,7 +70,6 @@
    "slug": "louis-ck",
    "tagline": "Dark, honest, and uncomfortably observant.",
    "facts": [
-    "Born 1967",
     "Creator of Louie"
    ],
    "bio": "",
@@ -309,7 +306,6 @@
    "slug": "jerry-seinfeld",
    "tagline": "The precision engineer of everyday life.",
    "facts": [
-    "Born 1954",
     "Co-creator of Seinfeld"
    ],
    "bio": "",
@@ -386,7 +382,6 @@
    "slug": "chris-rock",
    "tagline": "Rhythm, repetition, and righteous rants.",
    "facts": [
-    "Born 1965",
     "Tamborine (2018)"
    ],
    "bio": "",
@@ -489,7 +484,6 @@
    "slug": "mark-normand",
    "tagline": "Rapid-fire one-liners, no topic spared.",
    "facts": [
-    "Born 1983",
     "New Orleans, raised; New York comic",
     "Co-hosts Tuesdays with Stories and We Might Be Drunk"
    ],
