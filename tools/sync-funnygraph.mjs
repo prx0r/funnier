@@ -107,6 +107,7 @@ export function buildBundle(meta, roster, dir = FGDIR) {
   const R = (f) => readJSON(path.join(dir, f))
   const rowsOf = (d) => (Array.isArray(d) ? d : d?.rows || [])
   const ratings = rowsOf(R('rankings/ratings.json')), house = R('rankings/house.json'), consensus = rowsOf(R('rankings/consensus.json'))
+  const nbs = R('rankings/neighbors.json') || {}
   const canon = R('rankings/canon.json'), peoples = R('rankings/peoples.json'), byType = R('rankings/by_type.json') || {}, spotlight = R('rankings/spotlight.json') || {}
   const C = roster.comedians || {}
   const people = {}
@@ -116,7 +117,10 @@ export function buildBundle(meta, roster, dir = FGDIR) {
     const b = r.boards || {}
     people[r.comedian_id] = { n: r.name, t: r.tier || g.tier || null, r: g.region || null, c: g.continent || null, cov: r.coverage || null, h: typeof r.headline === 'number' ? r.headline : null, prov: r.provisional || null,
       house: b.house?.rank ?? null, pct: b.house?.pct ?? null, cons: b.consensus?.rank ?? null, canon: b.canon?.rank ?? null, peop: b.peoples?.rank ?? null, era: b.era?.rank ?? null,
-      lo: r.interval?.lo ?? null, hi: r.interval?.hi ?? null, sig: g.signature || null, tags: g.tags || [] }
+      lo: r.interval?.lo ?? null, hi: r.interval?.hi ?? null, sig: g.signature || null, tags: g.tags || [],
+      // feeds (src/feeds.js): funnygraph popularity lens (0..100) for the Underdog tier gap, top vibe neighbours [id, sim]
+      pop: typeof r.lenses?.popularity === 'number' ? Math.round(r.lenses.popularity) : null,
+      nb: (Array.isArray(nbs[r.comedian_id]) ? nbs[r.comedian_id] : []).filter((x) => x && typeof x.comedian_id === 'string' && typeof x.sim === 'number').slice(0, 8).map((x) => [x.comedian_id, +x.sim.toFixed(3)]) }
   }
   const order = (rows, val) => rows.filter((x) => people[x.comedian_id] && typeof x.rank === 'number').sort((a, b) => a.rank - b.rank).map((x) => [x.comedian_id, x.rank, val(x)])
   const regions = {}

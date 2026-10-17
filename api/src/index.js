@@ -2,6 +2,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { cleanPassport } from '../../src/passport.js'
+import { cleanFilter, cleanScope, isFeed, slugify, CURATED, SLUG as CAT_SLUG } from '../../src/feeds.js' // feeds + categories (shared with the client)
 import { cleanPolicy } from '../../src/policy.js' // logged screening policy (off-policy training) // Humour Passport schema (shared with the client)
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose'
@@ -76,6 +77,7 @@ const pub = (u) => u && ({ username: u.username || null, avatar_seed: seedOf(u),
 const self = (u) => ({
   id: u.id, email: u.email, name: u.name, google_avatar: u.google_avatar, username: u.username, avatar_seed: seedOf(u),
   birth_year: u.birth_year, country: u.country, sex_at_birth: u.sex_at_birth, created_at: u.created_at,
+  scope: u.scope || null, feed: u.feed || null,
 })
 // only the public part is required; year of birth, country and sex at birth are optional (the sheet says so)
 const needsProfile = (u) => !u.username || !seedOf(u)
@@ -134,6 +136,8 @@ app.put('/me/profile', auth, async (c) => {
     else set.birth_year = y
   }
   if ('country' in b) { const v = String(b.country ?? '').toUpperCase(); if (!/^[A-Z]{2}$/.test(v)) errs.country = 'two-letter ISO country code'; else set.country = v }
+  if ('scope' in b) { const v = cleanScope(b.scope); if (!v) errs.scope = "'global' or a region key"; else set.scope = v }
+  if ('feed' in b) { if (!isFeed(b.feed)) errs.feed = 'trending, foryou, underdog, vibes or cat:<slug>'; else set.feed = b.feed }
   if ('sex_at_birth' in b) { if (!['male', 'female', 'skip'].includes(b.sex_at_birth)) errs.sex_at_birth = 'male, female or skip'; else set.sex_at_birth = b.sex_at_birth }
   if (Object.keys(errs).length) { console.log('profile 400', JSON.stringify({ fields: Object.keys(errs) })); return c.json({ error: 'invalid', fields: errs }, 400) }
   if (!Object.keys(set).length) return c.json({ user: self(u), needsProfile: needsProfile(u) })
@@ -158,6 +162,9 @@ app.delete('/me', auth, async (c) => {
     DB.prepare('DELETE FROM votes WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM watch_events WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM watches WHERE user_id = ?').bind(id),
+    DB.prepare('DELETE FROM category_follows WHERE user_id = ?').bind(id),
+    DB.prepare('DELETE FROM categories WHERE creator_id = ? AND public = 0').bind(id),
+    DB.prepare('UPDATE categories SET creator_id = NULL WHERE creator_id = ?').bind(id),
     DB.prepare('DELETE FROM humour_profiles WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(id),
     DB.prepare('DELETE FROM specials_log WHERE user_id = ?').bind(id),
@@ -253,6 +260,70 @@ app.post('/me/watches', auth, async (c) => {
   }
   if (stmts.length) await DB.batch(stmts)
   return c.json({ ok: true, saved: stmts.length, skipped })
+})
+
+// ---------- categories: saved prompt feeds (src/feeds.js); public ones are community categories ----------
+const catRow = (r, followers = 0, mine = false) => ({ slug: r.slug, title: r.title, prompt: r.prompt || null, filter: jparse(r.filter, null), public: !!r.public, curated: !r.creator_id && CURATED.some((x) => x.slug === r.slug), followers, mine })
+const cleanTitle = (t) => String(t ?? '').replace(/[\u0000-\u001f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40)
+app.get('/categories', async (c) => {
+  c.header('cache-control', 'public, max-age=120')
+  const r = await c.env.DB.prepare(`SELECT c.*, (SELECT COUNT(*) FROM category_follows f WHERE f.slug = c.slug) AS n FROM categories c WHERE c.public = 1 ORDER BY n DESC, c.created_at DESC LIMIT 200`).all()
+  const rows = (r.results || []).map((x) => catRow(x, x.n))
+  const have = new Set(rows.map((x) => x.slug))
+  const curated = CURATED.filter((x) => !have.has(x.slug)).map((x) => ({ slug: x.slug, title: x.title, prompt: null, filter: x.filter, public: true, curated: true, followers: 0, mine: false }))
+  return c.json({ categories: [...curated, ...rows] })
+})
+app.get('/me/categories', auth, async (c) => {
+  const u = c.get('user'), DB = c.env.DB
+  const own = await DB.prepare('SELECT * FROM categories WHERE creator_id = ? ORDER BY created_at DESC LIMIT 100').bind(u.id).all()
+  const fol = await DB.prepare('SELECT slug FROM category_follows WHERE user_id = ? ORDER BY created_at').bind(u.id).all()
+  return c.json({ own: (own.results || []).map((x) => catRow(x, 0, true)), follows: (fol.results || []).map((x) => x.slug) })
+})
+app.post('/categories', auth, async (c) => {
+  const u = c.get('user'), b = (await body(c)) || {}, DB = c.env.DB
+  const title = cleanTitle(b.title), filter = cleanFilter(b.filter), prompt = typeof b.prompt === 'string' ? b.prompt.replace(/[\u0000-\u001f<>]/g, '').slice(0, 120) : null
+  if (title.length < 3 || !filter) return c.json({ error: 'invalid', fields: { ...(title.length < 3 ? { title: '3 to 40 characters' } : {}), ...(!filter ? { filter: 'nothing to filter on' } : {}) } }, 400)
+  let slug = typeof b.slug === 'string' && CAT_SLUG.test(b.slug) ? b.slug : slugify(title)
+  if (!CAT_SLUG.test(slug)) return c.json({ error: 'invalid', fields: { title: 'needs letters or numbers' } }, 400)
+  const n = await DB.prepare('SELECT COUNT(*) AS n FROM categories WHERE creator_id = ?').bind(u.id).first()
+  const prev = await DB.prepare('SELECT * FROM categories WHERE slug = ?').bind(slug).first()
+  if (prev && prev.creator_id !== u.id) { // someone else's slug (or curated): take a free variant
+    if (CURATED.some((x) => x.slug === slug) || prev) { for (let i = 2; i < 50; i++) { const s2 = (slug.slice(0, 36) + '-' + i); if (!(await DB.prepare('SELECT 1 FROM categories WHERE slug = ?').bind(s2).first())) { slug = s2; break } } }
+  } else if (!prev && CURATED.some((x) => x.slug === slug)) slug = slug.slice(0, 36) + '-2'
+  if (!prev && (n?.n || 0) >= 50) return c.json({ error: 'too_many', max: 50 }, 400)
+  const t = now(), pubFlag = b.public === false ? 0 : 1
+  await DB.prepare(`INSERT INTO categories (slug, title, prompt, filter, creator_id, public, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (slug) DO UPDATE SET title = excluded.title, prompt = excluded.prompt, filter = excluded.filter, public = excluded.public, updated_at = excluded.updated_at WHERE categories.creator_id = excluded.creator_id`)
+    .bind(slug, title, prompt, JSON.stringify(filter), u.id, pubFlag, t, t).run()
+  await DB.prepare('INSERT OR IGNORE INTO category_follows (user_id, slug, created_at) VALUES (?, ?, ?)').bind(u.id, slug, t).run()
+  const row = await DB.prepare('SELECT * FROM categories WHERE slug = ?').bind(slug).first()
+  return c.json({ category: catRow(row, 0, true) })
+})
+app.delete('/categories/:slug', auth, async (c) => {
+  const u = c.get('user'), slug = c.req.param('slug')
+  const r = await c.env.DB.prepare('DELETE FROM categories WHERE slug = ? AND creator_id = ?').bind(slug, u.id).run()
+  await c.env.DB.prepare('DELETE FROM category_follows WHERE user_id = ? AND slug = ?').bind(u.id, slug).run()
+  return c.json({ ok: true, deleted: r.meta?.changes || 0 })
+})
+app.post('/me/categories/follow', auth, async (c) => {
+  const u = c.get('user'), b = (await body(c)) || {}, list = Array.isArray(b.follows) ? b.follows : [{ slug: b.slug, on: b.on }]
+  const DB = c.env.DB, stmts = [], t = now()
+  for (const x of list.slice(0, 100)) {
+    if (!x || !CAT_SLUG.test(x.slug || '')) continue
+    stmts.push(x.on === false ? DB.prepare('DELETE FROM category_follows WHERE user_id = ? AND slug = ?').bind(u.id, x.slug) : DB.prepare('INSERT OR IGNORE INTO category_follows (user_id, slug, created_at) VALUES (?, ?, ?)').bind(u.id, x.slug, t))
+  }
+  if (!stmts.length) return c.json({ error: 'invalid' }, 400)
+  await DB.batch(stmts)
+  return c.json({ ok: true, saved: stmts.length })
+})
+// ---------- trending: anonymous per-clip watch aggregates over the last N hours (completion for data/trending.json) ----------
+app.get('/stats/trending', async (c) => {
+  c.header('access-control-allow-origin', '*'); c.header('cache-control', 'public, max-age=300')
+  const h = Math.max(1, Math.min(168, parseInt(c.req.query('hours') || '72', 10) || 72)), since = new Date(Date.now() - h * 3600e3).toISOString()
+  const r = await c.env.DB.prepare('SELECT clip_id, COUNT(*) AS shows, SUM(finished) AS fin FROM watches WHERE last_seen >= ? GROUP BY clip_id HAVING COUNT(*) >= 1 LIMIT 20000').bind(since).all()
+  const clips = {}
+  for (const x of r.results || []) clips[x.clip_id] = { shows: x.shows, finished: x.fin || 0 }
+  return c.json({ hours: h, since, clips })
 })
 
 // ---------- public, read-only, anonymised export for the tally (D1 votes + passes/skips reach the leaderboard) ----------

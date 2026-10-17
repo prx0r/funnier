@@ -3,24 +3,40 @@
 // /u/<username>: the app shell (index.html with <base href="/">, so its relative assets load) plus per-profile link-preview
 // tags; the app turns the path into its #u/<username> route. /u/<username>/og.png: the owner's card from the API
 // (api.funnier.si/og/u/<name>.png), falling back to the site card when there is none or the profile isn't public.
+import { skinnable, skinResponse } from './funnier-skin.js';
 const ORIGIN = 'https://prx0r.github.io/characters';
 const API = 'https://api.funnier.si';
 const USER = /^\/u\/([A-Za-z0-9_]{3,20})\/?$/, OG = /^\/u\/([A-Za-z0-9_]{3,20})\/og\.png$/;
 const HUMOUR = /^\/u\/([A-Za-z0-9_]{3,20})\/humour\.json$/, CHAR = /^\/c\/(c[a-z0-9]{8,16})\/?$/;
 // Freak Town party game on party.funnier.si: /party (-> /play), /party/*, /play, /join/* are proxied whole (method, body,
-// headers, streaming body for the SSE /party/<code>/stream), never cached.
-const PARTY = 'https://party.funnier.si', PARTY_PATH = /^\/(party(\/.*)?|play\/?|join\/.*)$/;
+// headers, streaming body for the SSE /party/<code>/stream), never cached. GET text/html responses get the Funnier skin
+// (funnier-skin.js, a port of the box's funnier_skin.py; ?skin=0 turns it off); everything else streams through untouched.
+// /icon-512.png, /icon-192.png: the box's icons (the /perform pages and party pages reference them; GitHub Pages has none).
+const PARTY = 'https://party.funnier.si', PARTY_PATH = /^\/(party(\/.*)?|play\/?|join\/.*)$/, BOX_ASSET = /^\/icon-(512|192)\.png$/;
 async function party(req, url) {
   const path = url.pathname === '/party' || url.pathname === '/party/' ? '/play' : url.pathname;
   const h = new Headers(req.headers); h.delete('host');
-  const init = { method: req.method, headers: h, redirect: 'manual', cf: { cacheTtl: 0, cacheEverything: false } };
+  const init = { method: req.method, headers: h, redirect: 'manual', cache: 'no-store' };
   if (req.method !== 'GET' && req.method !== 'HEAD') init.body = req.body;
   let res;
   try { res = await fetch(PARTY + path + url.search, init); } catch { return new Response('Freak Town is offline', { status: 502 }); }
   const out = new Headers(res.headers);
   const loc = out.get('Location'); if (loc) out.set('Location', loc.replace(/^https?:\/\/party\.funnier\.si/, 'https://www.funnier.si'));
-  if (!out.has('cache-control') || /text\/event-stream/.test(out.get('content-type') || '') || req.method !== 'GET') out.set('cache-control', 'no-store');
+  // live room state (/view, /stream?once=1, JSON) must never be browser-cached: the zone's 4h browser TTL froze polling
+  if (!/^image\//.test(out.get('content-type') || '') || req.method !== 'GET') out.set('cache-control', 'no-store');
+  if (skinnable(req, res, url.pathname) && url.searchParams.get('skin') !== '0') return skinResponse(new Response(res.body, { status: res.status, headers: out }), url.pathname, boxHotfix);
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: out });
+}
+// Box bug (party.py stage template, also on freaktown main): the deck buttons' JS string has unescaped double quotes
+// (`onclick="hostCmd('start','quip-"+d+"')"` – the Python `\"` collapses), a SyntaxError that kills the whole stage
+// script (no polling, no host buttons). Re-escape it here until the box ships the fix.
+const boxHotfix = (html) => html.split(`onclick="hostCmd('start','quip-"+d+"')">"`).join(`onclick=\\"hostCmd('start','quip-"+d+"')\\">"`);
+async function boxAsset(req, path) {
+  try {
+    const r = await fetch(PARTY + path, { cf: { cacheTtl: 86400, cacheEverything: true } });
+    const h = new Headers(r.headers); h.set('cache-control', r.ok ? 'public, max-age=86400' : 'no-store');
+    return new Response(r.body, { status: r.status, headers: h });
+  } catch { return new Response('', { status: 502 }); }
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const up = (path, req) => fetch(ORIGIN + path, { headers: { 'User-Agent': req.headers.get('User-Agent') || 'funnier-web' }, redirect: 'manual', cf: { cacheTtl: 60 } });
@@ -78,6 +94,7 @@ export default {
     if (url.hostname === 'funnier.si') { url.hostname = 'www.funnier.si'; return Response.redirect(url.toString(), 301); }
     let path = url.pathname, m;
     if (PARTY_PATH.test(path)) return party(req, url);
+    if (BOX_ASSET.test(path)) return boxAsset(req, path);
     if ((m = path.match(OG))) return ogImage(req, m[1]);
     if ((m = path.match(HUMOUR))) return humourJSON(m[1]);
     if ((m = path.match(CHAR))) return charShell(req, m[1]);

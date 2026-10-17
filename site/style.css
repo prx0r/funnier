@@ -987,3 +987,38 @@ a.tile{color:inherit;text-decoration:none}
 .head .boardsel .lanes{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;max-width:100%}
 .head .boardsel .lanes button,.chartbar .lanes button{white-space:nowrap}
 @media (max-width:640px){#v-charts .head{flex-wrap:wrap;gap:8px}#v-charts .head .boardsel{width:100%}}
+
+/* ===== feeds strip: one row of chips + the region scope (src/feeds.js) ===== */
+.feedbar{position:absolute;top:clamp(8px,1.6vh,14px);left:50%;transform:translateX(-50%);z-index:6;display:flex;align-items:center;gap:8px;width:min(1100px,calc(100% - 20px));height:30px;transition:opacity .3s}
+/* it floats over the intro bar's empty row, so the screening layout is unchanged; when that row has something to say
+   (a friend's challenge, a seen note on an explicit link) the strip steps aside */
+#arena:has(.slide:last-child .introbar :is(.challenge,.seennote)) .feedbar,#arena:has(#stage .slide:last-child[data-stage]:not([data-stage="intro"]):not([data-endcard])) .feedbar,body.after-vote .feedbar{opacity:0;pointer-events:none}
+/* only on the face-off intro (and the end card): never over a playing clip or the ballot */
+body.in-theatre .feedbar,body.chrome-hidden .feedbar{opacity:0;pointer-events:none}
+.fchips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;flex:1 1 auto;min-width:0;-webkit-mask-image:linear-gradient(90deg,#000 92%,transparent);mask-image:linear-gradient(90deg,#000 92%,transparent);padding-right:18px}
+.fchips::-webkit-scrollbar{display:none}
+.fchip{flex:0 0 auto;font-weight:600;font-size:12px;line-height:1;color:var(--muted);padding:7px 12px;border-radius:999px;border:1px solid var(--line);background:rgba(19,19,25,.6);white-space:nowrap;transition:color .2s,background .2s,border-color .2s}
+.fchip:hover{color:var(--text)}
+.fchip.on{background:var(--text);color:#0b0b0e;border-color:var(--text)}
+.fchip.fadd{font-family:var(--mono);padding:7px 10px;color:var(--gold);border-style:dashed}
+.fscope{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:3px 9px;background:rgba(19,19,25,.6);color:var(--muted)}
+.fscope svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6}
+.fscope select{background:transparent;border:0;color:var(--text);font:600 12px var(--sans,inherit);padding:2px 0;max-width:150px;outline:none;cursor:pointer}
+.fscope select option{background:#131319;color:var(--text)}
+.catwin{display:block;font-style:normal;font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:5px}.catwin b{color:var(--gold);font-weight:600}
+.catboard{display:block!important;margin-top:6px}.catboard[hidden]{display:none!important}.catboard ol{margin:4px 0;padding-left:18px;font-size:13px}.catboard small{font-family:var(--mono);color:var(--muted)}
+.feedsheet .fparsed{min-height:24px;margin:-2px 0 10px}
+.pchips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}
+.pchip{font-family:var(--mono);font-size:11px;letter-spacing:.04em;padding:3px 9px;border-radius:999px;border:1px solid rgba(245,199,107,.35);color:var(--gold);background:rgba(245,199,107,.06)}
+.fv{margin:4px 0 0;font-size:13px}.fv.good{color:var(--text)}.fv.warn{color:var(--gold)}.fv.bad{color:var(--red2)}
+.obchk{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--muted);margin:4px 0 8px}
+.catlist{display:flex;flex-direction:column;gap:8px;max-height:38vh;overflow:auto}
+.catrow{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:rgba(19,19,25,.5)}
+.catt{flex:1 1 auto;min-width:0}.catt b{display:block;font-size:14px}.catt span{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.catt .pchip{font-size:10px;padding:2px 7px}
+.catrow small{font-family:var(--mono);color:var(--muted);font-size:11px}
+.catrow .dhghost{padding:6px 10px;font-size:12px}
+.catfol.on{color:var(--gold);border-color:rgba(245,199,107,.5)}
+@media (max-width:640px){.feedbar{gap:6px;height:28px;top:6px}.fchip{padding:6px 10px}.fscope{padding:3px 7px}.fscope select{max-width:62px}
+  /* phones: the face-off cards start at the top of the stage, so they give up 34px of height (no shift) for the strip */
+  #arena .intro{padding-top:calc(clamp(10px,2vh,18px) + 30px)}}

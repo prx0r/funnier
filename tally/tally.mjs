@@ -9,6 +9,7 @@ import { resolveParams } from '../src/screening.js'
 import { buildSessions, trainScreening } from './train-screening.mjs'
 import { fetchExport, mergeVotes, eventsForTraining } from './sources.mjs'
 import { fgResolver, arenaPairs, arenaDoc } from './arena.mjs'
+import { trendingDoc, categoryBoard, CURATED, SLUG as CAT_SLUG } from '../src/feeds.js'
 
 const COLLECTION = 'io.github.prx0r.funnier.vote'
 const [, , CLIPS_PATH, OUT] = process.argv
@@ -276,8 +277,14 @@ const stat = Object.fromEntries(allBoard.clips.map((c) => [c.id, c]))
 const pairCount = {}
 for (const v of votes) { const k = [v.a, v.b].sort().join('|'); pairCount[k] = (pairCount[k] || 0) + 1 }
 const pairs = []
-for (let i = 0; i < clips.length; i++) for (let j = i + 1; j < clips.length; j++) {
-  const A = clips[i], Bc = clips[j]
+// a large catalogue samples PAIR_CAND opponents per clip (deterministic) instead of every pair; the file keeps the top PAIR_MAX
+const PAIR_CAND = 120, PAIR_MAX = 8000, nC = clips.length
+const oppsOf = (i) => { if (nC <= 800) { const o = []; for (let j = i + 1; j < nC; j++) o.push(j); return o }
+  const o = new Set(); let h = hashStr(clips[i].id); for (let t = 0; t < PAIR_CAND * 2 && o.size < PAIR_CAND; t++) { h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0; const j = h % nC; if (j !== i) o.add(j) } return [...o] }
+const pairSeen = new Set()
+for (let i = 0; i < clips.length; i++) for (const j of oppsOf(i)) {
+  const pk2 = i < j ? i + ',' + j : j + ',' + i; if (pairSeen.has(pk2)) continue; pairSeen.add(pk2)
+  const A = clips[Math.min(i, j)], Bc = clips[Math.max(i, j)]
   if (A.kind !== Bc.kind) continue // lanes: human vs human, ai vs ai (a "mixed" lane samples across)
   if (A.comic === Bc.comic) continue // hard rule: a clash is always two different comics (struct_sim only ranks across comics)
   const ba = band(A), bb = band(Bc)
@@ -294,6 +301,7 @@ for (let i = 0; i < clips.length; i++) for (let j = i + 1; j < clips.length; j++
   pairs.push({ a: A.id, b: Bc.id, kind: A.kind, s: st, f, w: Math.round(1000 * (SP.pairCloseUnc * f[0] + SP.pairFresh * f[1] + SP.pairStruct * f[2])) / 1000 })
 }
 pairs.sort((x, y) => y.w - x.w)
+pairs.length = Math.min(pairs.length, PAIR_MAX)
 fs.writeFileSync(path.join(DATA, 'pairs.json'), JSON.stringify({ updated: board.updated, explore: 0.2, screen: SCREEN.version, pairs }))
 // ---------- screening trainer (gated; dry run until >= 500 logged sessions beat the baseline on held-out data) ----------
 // From the public records + the D1 export: votes carry signals.policy; passes and skips come from GET /export/events.
@@ -367,6 +375,30 @@ for (const date of [...dailyDates].filter((d) => d <= nowDay).sort().slice(-90))
 }
 fs.writeFileSync(path.join(DATA, 'daily.json'), JSON.stringify(dailyOut))
 console.log('daily results', Object.keys(dailyOut.days).length, 'days')
+// ---------- feeds (src/feeds.js): Trending momentum + per-category leaderboards ----------
+{
+  const human = votes.filter((v) => v.voter !== 'agent')
+  let watch = {}, cats = [...CURATED]
+  const base = process.env.FUNNIER_API || 'https://api.funnier.si'
+  if (!process.env.SYNTH && base !== 'off') {
+    try { const r = await fetch(base.replace(/\/$/, '') + '/stats/trending?hours=72', { signal: AbortSignal.timeout(15000) }); if (r.ok) watch = (await r.json()).clips || {} } catch (e) { console.warn('trending watch stats skipped:', e?.message || e) }
+    try { const r = await fetch(base.replace(/\/$/, '') + '/categories', { signal: AbortSignal.timeout(15000) }); if (r.ok) { const j = await r.json(); for (const c of j.categories || []) if (c && CAT_SLUG.test(c.slug || '') && !cats.some((x) => x.slug === c.slug)) cats.push({ slug: c.slug, title: String(c.title || c.slug).slice(0, 40), filter: c.filter }) } } catch (e) { console.warn('categories skipped:', e?.message || e) }
+  }
+  const evs = d1Events.map((e) => ({ kind: e.kind, a: e.a, b: e.b, at: e.at, clip: e.clip || null, signals: e.signals }))
+  const T = trendingDoc(human, evs, watch, byId)
+  fs.writeFileSync(path.join(DATA, 'trending.json'), JSON.stringify(T))
+  const CDIR = path.join(DATA, 'categories'); fs.mkdirSync(CDIR, { recursive: true })
+  const index = []
+  for (const c of cats) {
+    const vs = human.filter((v) => v.signals?.policy?.fd === 'cat' && v.signals.policy.cat === c.slug)
+    const b = categoryBoard(vs, byId)
+    fs.writeFileSync(path.join(CDIR, c.slug + '.json'), JSON.stringify({ slug: c.slug, title: c.title, filter: c.filter || null, updated: board.updated, method: 'Elo (K=24) over the votes cast inside this category, in time order', ...b }))
+    index.push({ slug: c.slug, title: c.title, votes: b.votes, leader: b.comics[0]?.comic || null })
+  }
+  fs.writeFileSync(path.join(CDIR, 'index.json'), JSON.stringify({ updated: board.updated, categories: index }))
+  const byFeed = {}; for (const v of human) { const f = v.signals?.policy?.fd || 'none'; byFeed[f] = (byFeed[f] || 0) + 1 }
+  console.log('feeds: trending', Object.keys(T.clips).length, 'clips,', T.moments.length, 'underdog moments; categories', index.length, '; votes by feed', JSON.stringify(byFeed))
+}
 fs.writeFileSync(path.join(DATA, 'leaderboard.json'), JSON.stringify(board, null, 1))
 fs.writeFileSync(path.join(DATA, 'votes.json'), JSON.stringify({ updated: board.updated, voters, votes }, null, 1))
 // funnygraph arena ballot (ARENA_BALLOT.md): per comedian-pair counts from the merged votes, for funnygraph to pull

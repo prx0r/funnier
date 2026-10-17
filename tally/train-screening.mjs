@@ -21,7 +21,9 @@ import { DEFAULTS, PARAMS, THETA, MIN_SESSIONS, SCREEN_VERSION, bound, snips, tr
 const DAY = 86400e3
 // votes: [{user, a, b, at, signals}], events: [{user, kind: pass|skip, a, b, at, signals}]
 export function buildSessions(votes = [], events = []) {
-  const rows = [...votes.map((v) => ({ ...v, voted: true })), ...events.map((e) => ({ ...e, voted: false }))].filter((r) => r && r.signals?.policy?.m && Date.parse(r.at))
+  // feeds (src/feeds.js): only the For You feed runs the learned mode mix; Trending / Underdog / Vibes / category rounds are
+  // separate arms (signals.policy.fd) and never enter the mix's propensities
+  const rows = [...votes.map((v) => ({ ...v, voted: true })), ...events.map((e) => ({ ...e, voted: false }))].filter((r) => r && r.signals?.policy?.m && Date.parse(r.at) && (!r.signals.policy.fd || r.signals.policy.fd === 'foryou'))
   const byUser = {}
   for (const r of [...votes, ...events]) if (r?.user && Date.parse(r.at)) (byUser[r.user] = byUser[r.user] || []).push(Date.parse(r.at))
   for (const u of Object.keys(byUser)) byUser[u].sort((x, y) => x - y)

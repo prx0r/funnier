@@ -205,7 +205,11 @@
             "explore",
             "shared",
             "daily",
-            "rewatch"
+            "rewatch",
+            "trending",
+            "underdog",
+            "vibes",
+            "category"
           ]
         },
         "pm": {
@@ -248,6 +252,32 @@
           "type": "string",
           "maxLength": 40,
           "description": "Screening params version"
+        },
+        "fd": {
+          "type": "string",
+          "knownValues": [
+            "trending",
+            "foryou",
+            "underdog",
+            "vibes",
+            "cat"
+          ],
+          "description": "The feed the round came from (src/feeds.js)."
+        },
+        "cat": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Category slug when fd = cat."
+        },
+        "u": {
+          "type": "string",
+          "maxLength": 20,
+          "description": "The underdog's clip id when fd = underdog."
+        },
+        "sc": {
+          "type": "string",
+          "maxLength": 25,
+          "description": "Region scope in force (funnygraph region key or global)."
         }
       }
     }

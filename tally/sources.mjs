@@ -52,5 +52,5 @@ export function mergeVotes(atVotes, d1Votes, byId, { now = Date.now() } = {}) {
 // export events -> train-screening sessions input ({user, kind, a, b, at, signals}); aliased like the votes
 export function eventsForTraining(d1Events, alias = {}) {
   return (d1Events || []).filter((e) => e && ['pass', 'skip'].includes(e.kind) && typeof e.voter === 'string' && e.a && e.b && Date.parse(e.createdAt))
-    .map((e) => ({ user: alias[e.voter] || e.voter, kind: e.kind, a: e.a, b: e.b, at: e.createdAt, signals: e.signals && typeof e.signals === 'object' ? e.signals : {} }))
+    .map((e) => ({ user: alias[e.voter] || e.voter, kind: e.kind, a: e.a, b: e.b, at: e.createdAt, ...(typeof e.clip === 'string' ? { clip: e.clip } : {}), signals: e.signals && typeof e.signals === 'object' ? e.signals : {} }))
 }

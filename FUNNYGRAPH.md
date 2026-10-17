@@ -34,6 +34,13 @@ only, official YouTube embeds only (oEmbed 200), format via `tools/detect-format
 `tools/merge-c2-corpus.py`. Tags: setting + format + the comic's funnygraph persona tags (`tagsSource: "fg-persona"`).
 Each clip records `fg` (comedian_id) and `via` (funnygraph sha + source).
 
+Coverage run (2026-10-18): `--scope people --search --topup 5` covers every comic on the boards (UK/Ireland first, then other
+internationals, kings, the rest). Where funnygraph links give too few candidates, the public YouTube search-results page for
+"<name> stand up" is read (keyless, metadata only, throttled + retried; any embeddable upload incl. unofficial, still gated on
+the title naming the comic, a stand-up cue, <= 10 min, not a panel show/news/promo). Search clips carry `views` and `region`.
+`node tools/backfill-style.mjs` stamps `fg`, `region` and the persona style prior on older clips. The boards bundle now also
+carries `pop` (funnygraph popularity lens) and `nb` (top vibe neighbours) per comic for the Underdog / Similar Vibes feeds.
+
 ## 3. Arena votes (Funnier → funnygraph)
 
 The tally publishes **https://www.funnier.si/data/arena.json** on every deploy, in the shape funnygraph's

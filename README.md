@@ -150,3 +150,34 @@ Portraits are rights-cleared files from Wikimedia Commons (CC BY, CC BY-SA, CC0 
 - **Link previews:** the owner's browser draws a 1200×630 card from their chart and uploads it (`POST /me/og`, PNG ≤1 MB, only when the chart changed and the profile is public); `GET /og/u/<name>.png` serves it.
 - **API:** `GET|PUT /me/profile-data` (favs ≤4, pins ≤6, `chart` snapshot sanitised by `cleanChart`, `vis_profile` / `vis_diary` = public | friends | private; defaults public profile + chart, friends-only diary), `PUT /me/specials` (batch, newest `at` wins), `POST /me/og`, `GET /u/:username` (case-insensitive; strangers see what's public, friends also friends-only, owner all; never email or stats), `GET /og/u/:name.png`. Migration `0006_profiles.sql` (tables `profiles`, `specials_log`, `sets`; idempotent). `DELETE /me` removes them too. Browser test: `node test/profile-browser.mjs` (renders every card to PNG in Chromium, checks the `/u/<name>` shell and the OG upload).
 - **Planned (not built):** an MCP server exposing a user's humour profile (chart, Four Favourites, "make me laugh by") so assistants like ChatGPT can use it with consent; TikTok sharing; Year in Review.
+
+## Feeds, region scope and categories (src/feeds.js)
+
+One slim chip strip floats over the screening's empty intro row (layout unchanged; it hides in the theatre, after a vote,
+and when the intro row shows a challenge or seen note): **Trending · For You · Underdog · Similar Vibes · followed
+categories · +**, plus a compact region select (Global + every funnygraph region with clips). Both are remembered
+(`funnier.feed`, `funnier.scope`) and synced to the account (`users.scope`, `users.feed`, D1 `0010_feeds_categories.sql`).
+Every feed respects the scope (openPair hard filter), seen tracking, two different comics, no vertical clips on desktop,
+fair durations, clips playing to their end and the 10 s ballot. An empty scope shows a "Show everywhere" end card.
+
+Architecture (X-algorithm style, every step named, no opaque model): candidate retrieval (the scoped, servable, unseen
+pool) -> hard filters (`openPair`) -> independent scorers -> diversity (different comic, author penalty).
+- **Trending** (default): `trendScore` = data/trending.json momentum (tally `trendingDoc`: decayed win rate 0.45 + vote
+  volume 0.3 + completion from `GET /stats/trending` 0.25 - skips 0.1; 24 h half-life, 72 h window), blended with the
+  bootstrap prior (0.45 funnygraph house percentile + 0.25 spotlight comic + 0.2 crowd BT + 0.15 for a recent
+  "underdog beat legend" clip) by evidence (n/8). It must feel like today's feed: while momentum is sparse only 15% of
+  Trending rounds (rising to 65% as clips gather real votes) come from the Trending scorer; the rest are the usual mix.
+- **For You**: the personal engine mix (For you / Training / Explore), unchanged; the only arm the screening trainer learns.
+- **Underdog**: a lesser-known clip (fame <= 0.4: indie tier, low funnygraph popularity) vs a big comic (fame >= 0.6)
+  with fame gap >= 0.3 (hard rule), ranked by 0.5 struct_sim + 0.5 vibe (funnygraph neighbors + shared style tags +
+  topics). The underdog clip is logged (`policy.u`); wins become `moments` in trending.json.
+- **Similar Vibes**: 0.6 vibe + 0.4 struct_sim, real matches only.
+- **Categories** (`cat:<slug>`): a typed prompt parsed by a named vocabulary (`parsePrompt`: region, indie/legend, recency
+  and decades, talk show/special, vertical, short/long, style tags, leftover title keywords), shown as chips with a live
+  clip count; refused under 6 clips or 2 comics, warned under 20. Saved locally first, `POST /categories` when signed in
+  (public = community category), followed via `POST /me/categories/follow`, listed by `GET /categories` (curated: UK New
+  Indie, International, Underdogs, Short & Sharp). Category boards (Elo over the votes cast in that category) are written
+  by the tally to `data/categories/<slug>.json` (+ index.json) and shown only in the + sheet ("Who's winning", Board).
+- Logged on every vote / pass / skip: `policy.fd` (feed), `cat`, `u`, `sc` (scope), so the trainer separates the arms
+  (train-screening only uses For You rounds).
+- Tests: `node tally/test-feeds.mjs`; smoke `feeds`; API e2e (scope/feed, categories, /stats/trending, export fd).

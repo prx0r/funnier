@@ -9,7 +9,8 @@ import { humourPayload, shortPayload, chatgptURL } from './payload.js' // the LL
 import { handoff } from './handoff.js' // characters2 handoff export
 import { resolveParams } from './screening.js'
 import { recordWatch, mergeLogs, migrateLegacy, tierOf, eligible, freshness, authorMult, seenDate, cleanEntry, FINISH_FRAC, GLANCE_FRAC, GLANCE_SEC } from './seen.js' // seen tracking + the rotation's never-again rule
-import { cleanPolicy } from './policy.js' // the screening's constants (learned values only when the gate passed)
+import { cleanPolicy } from './policy.js'
+import { FEEDS, isFeed, GLOBAL, comicFacts, scopeOK, cleanScope, parsePrompt, chipLabel, cleanFilter, matchFilter, filterVerdict, slugify, CURATED, pickTrending, pickUnderdog, pickVibes } from './feeds.js' // feeds, region scope, categories // the screening's constants (learned values only when the gate passed)
 import { createEngine, basePrior, mergePrior, readout, deltas, deltaText, FEATURES, ENGINE_MODEL } from './engine.js' // humour engine v2 (handwired)
 
 // www.funnier.si/u/<username> (served by funnier-web with <base href="/">) -> the in-app route #u/<username>
@@ -46,6 +47,12 @@ let LANE = LS.get('lane', 'human'), BOARDKIND = 'all'
 // latest boards into data/funnygraph/boards.json (tools/sync-funnygraph.mjs); the site renders whatever that says, as a lens
 // separate from Funnier's own crowd Bradley-Terry chart. Loaded lazily (Charts / a profile).
 let COMICSRC = null, FG = null, FGP = null, LENS = 'crowd', FGBOARD = 'house', REGION = 'all'
+// ---------- feeds + region scope (src/feeds.js) ----------
+// FEED: trending (default) | foryou | underdog | vibes | cat:<slug>. SCOPE: 'global' or a funnygraph region key; every feed's
+// candidate pool (and openPair) is filtered by it. Both remembered on the device and synced to the account (users.scope/feed).
+let FEED = isFeed(LS.get('feed', 'trending')) ? LS.get('feed', 'trending') : 'trending'
+let SCOPE = cleanScope(LS.get('scope', GLOBAL)) || GLOBAL
+let TRENDING = null, COMMUNITY = null, CATBOARDS = {}, CATINDEX = null
 // ---------- device-aware clips (tunable) ----------
 // mobile = coarse pointer in portrait, or a narrow viewport. Each device prefers one clip format (clips.json `format`:
 // vertical = YouTube Shorts, horizontal = everything else; tools/detect-format.mjs sets it) for `share` of its rounds,
@@ -119,6 +126,8 @@ async function loadData() {
   try { const d = await (await fetch('daily.json', { cache: 'no-cache' })).json(); DAILY = Array.isArray(d) ? d : [] } catch { DAILY = [] }
   try { const r = await fetch('data/screening-params.json', { cache: 'no-cache' }); applyScreen(r && r.ok !== false ? await r.json() : null) } catch { applyScreen(null) }
   try { const r = await fetch('data/engine-prior.json', { cache: 'no-cache' }); const j = r && r.ok !== false ? await r.json() : null; CROWD_TASTE = j && j.weights && typeof j.weights === 'object' ? j : null } catch { CROWD_TASTE = null }
+  try { const r = await fetch('data/trending.json', { cache: 'no-cache' }); const j = r && r.ok !== false ? await r.json() : null; TRENDING = j && j.clips && typeof j.clips === 'object' ? j : null } catch { TRENDING = null }
+  await Promise.race([loadFG(), new Promise((r) => setTimeout(r, 2500))]) // region + tier + fame for the feeds
   await loadDailyResults()
 }
 // learned durations + crowd loudness from the API (both public, cached); applied silently
@@ -488,16 +497,17 @@ function openPair(a, b) {
   if (A.comic === B.comic) return false // hard rule at every level: a clash is always two different comics
   if (!servable(A) || !servable(B)) return false // hard rule: no vertical clips on desktop
   if (!rotOK(A) || !rotOK(B)) return false // hard rule (filter before scoring): a finished clip never comes back in rotation
+  if (!feedOK(A) || !feedOK(B)) return false // the region scope + the active category's filters (every feed, every fallback)
   if (PAIR_LEVEL < 2 && !fairPair(A, B)) return false
   if (PAIR_LEVEL < 1 && (A.needsCut || B.needsCut)) return false
   if (LANE === 'mixed') return A.kind !== B.kind || Math.random() < 0.25
   return A.kind === LANE && B.kind === LANE
 }
 let ROUND_FMT = null // the format this round is drawn from (null = any)
-function pool() { const P = CLIPS.filter((c) => (LANE === 'mixed' || c.kind === LANE) && servable(c) && rotOK(c)); return ROUND_FMT ? P.filter((c) => fmtOf(c) === ROUND_FMT) : P }
+function pool() { const P = CLIPS.filter((c) => (LANE === 'mixed' || c.kind === LANE) && servable(c) && rotOK(c) && feedOK(c)); return ROUND_FMT ? P.filter((c) => fmtOf(c) === ROUND_FMT) : P }
 function roundFormat() { // the device's preferred format for this round, when the lane has enough of it
   const pr = devPrefs(); ROUND_FMT = null
-  const P = CLIPS.filter((c) => (LANE === 'mixed' || c.kind === LANE) && fmtOf(c) === pr.prefer && servable(c))
+  const P = CLIPS.filter((c) => (LANE === 'mixed' || c.kind === LANE) && fmtOf(c) === pr.prefer && servable(c) && feedOK(c))
   // enough of that format, from at least two comics (a clash is always two different comics)
   if (P.length >= pr.minPool && new Set(P.map((c) => c.comic)).size >= 2 && Math.random() < pr.share) ROUND_FMT = pr.prefer
 }
@@ -517,7 +527,7 @@ function contentSim(c, liked) {
   for (const { c: x, k } of liked) if (x.id !== c.id) { s += k * structSim(c, x, THEORY); n += k }
   return n ? s / n : 0
 }
-if (typeof window !== 'undefined') window.__funnierTest = { pickPair: () => pickPair(), openPair: (a, b) => openPair(a, b), contentSim: (id) => contentSim(BYID[id], likedClips()), pickForYou: () => pickForYou(), pickTraining: () => pickTraining(), pickExplore: () => pickExplore(), watches: () => watches(), setWatches: (W) => saveWatches(W), pool: () => pool(), tierOf, rotOK: (id) => rotOK(BYID[id]), seenLevel: () => SEEN_LEVEL, sessionComic: SESSION_COMIC, skipClash: () => skipClash(), setPairs: (P) => { PAIRS = P }, mode: () => current?.mode || null } // smoke tests sample rounds
+if (typeof window !== 'undefined') window.__funnierTest = { pickPair: () => pickPair(), openPair: (a, b) => openPair(a, b), contentSim: (id) => contentSim(BYID[id], likedClips()), pickForYou: () => pickForYou(), pickTraining: () => pickTraining(), pickExplore: () => pickExplore(), watches: () => watches(), setWatches: (W) => saveWatches(W), pool: () => pool(), tierOf, rotOK: (id) => rotOK(BYID[id]), seenLevel: () => SEEN_LEVEL, sessionComic: SESSION_COMIC, skipClash: () => skipClash(), setPairs: (P) => { PAIRS = P }, mode: () => current?.mode || null, policy: () => current?.policy || null, setFeed: (k) => setFeed(k, true), setScope: (s) => setScope(s, true), feed: () => FEED, scope: () => SCOPE, facts: (id) => factsOf(BYID[id]), feedOK: (id) => feedOK(BYID[id]), pickFeed: () => pickFeed(), parse: (t) => parsePrompt(t), saveCat: (c) => saveCat(c), cats: () => followedCats().map((c) => c.slug), setFG: (j) => { FG = j }, setTrending: (j) => { TRENDING = j } } // smoke tests sample rounds
 function pickForYou() {
   // your model's favourite unseen matchup: its top clip vs the clip it knows least about
   const P = pool(); if (P.length < 2) return null
@@ -567,7 +577,34 @@ const MODES = {
   daily: ['Daily clash', () => null],
   rewatch: ['Rewatching from your history', () => null],
 }
+// the feed's own picker (Trending / Underdog / Similar Vibes / a category), unseen first, the device format first, then
+// the relaxed pairing levels. null -> pickPair falls back to the For You mix inside the same scope.
+function feedCtx() {
+  const t0 = Date.now(), crowd = {}
+  for (const k of BOARD?.boards?.all?.clips || []) if (k.bouts) crowd[k.id] = (k.elo - 1500) / SCALE
+  return { facts: factsOf, open: openPair, sim: pairSim, lm: (c) => Math.log(Math.max(1e-3, rotMult(c, t0))), rnd: Math.random, trending: TRENDING, crowd: (c) => crowd[c.id] || 0, spotlight: FG?.spotlight || {} }
+}
+const FEED_MODE = { trending: ['trending', pickTrending], underdog: ['underdog', pickUnderdog], vibes: ['vibes', pickVibes] }
+function pickFeed() {
+  const [mode, fn] = FEED.startsWith('cat:') ? ['category', pickTrending] : FEED_MODE[FEED] || []
+  if (!fn) return null
+  roundFormat(); const F0 = ROUND_FMT, ctx = feedCtx()
+  try {
+    for (SEEN_LEVEL = 0; SEEN_LEVEL < 2; SEEN_LEVEL++) for (const fmt of F0 ? [F0, null] : [null]) {
+      ROUND_FMT = fmt
+      for (PAIR_LEVEL = 0; PAIR_LEVEL < 3; PAIR_LEVEL++) {
+        const p = fn(pool(), ctx)
+        if (p) { const pair = Math.random() < 0.5 ? [p[0], p[1]] : [p[1], p[0]]; pair.mode = mode; pair.why = p.why; pair.policy = { m: mode, ...(p.under ? { u: p.under } : {}), v: SCREEN.version }; return pair }
+      }
+    }
+  } finally { PAIR_LEVEL = 0; ROUND_FMT = null; SEEN_LEVEL = 0 }
+  return null
+}
+// Trending must feel like today's feed: while crowd momentum is sparse, most Trending rounds are the usual mix and only a
+// share (15% + up to 50% as data/trending.json fills with clips that have real votes) comes from the Trending scorer.
+const trendShare = () => Math.min(0.65, 0.15 + Object.values(TRENDING?.clips || {}).filter((x) => (x.n || 0) >= 3).length / 100)
 function pickPair() {
+  if (FEED !== 'foryou' && (FEED !== 'trending' || Math.random() < trendShare())) { const p = pickFeed(); if (p) return p }
   const n = LS.get('votes', []).length
   const w = n < 6 ? { training: SP.coldTraining, explore: SP.coldExplore, foryou: 0 } : { foryou: SP.mixForyou, training: SP.mixTraining, explore: SP.mixExplore }
   let x = Math.random(), mode = 'explore'
@@ -1066,6 +1103,7 @@ function newRound(first) { mountScreening(first, null) }
 function mountScreening(first, oldEl) {
   current = takeClash() || pickPair()
   if (current && !current.policy) current.policy = { m: ['shared', 'daily', 'rewatch', 'foryou', 'training', 'explore'].includes(current.mode) ? current.mode : 'shared', v: SCREEN.version } // chosen by the user: no propensity
+  if (current?.policy && !explicitMode()) Object.assign(current.policy, feedPolicy())
   if (current?.mode !== 'shared') sharedRound = null
   const host = $('#stage')
   if (!host) return
@@ -1073,7 +1111,10 @@ function mountScreening(first, oldEl) {
     const msg = LANE === 'ai' ? 'The AI comics are still in rehearsal. Their first sets premiere here soon.' : LANE === 'mixed' ? 'Human vs AI opens when the first AI sets premiere.' : ''
     host.querySelectorAll('.slide').forEach((x) => x !== oldEl && x.remove())
     // the rotation's end card: never a silent repeat. Everything stays playable from the comic pages, charts and history.
-    host.insertAdjacentHTML('beforeend', msg ? `<div class="slide empty-slide"><p class="empty">${msg}</p></div>`
+    const scoped = !msg && (SCOPE !== GLOBAL || FEED.startsWith('cat:'))
+    if (scoped) { host.insertAdjacentHTML('beforeend', `<div class="slide empty-slide endcard" data-endcard="scope"><div class="ec"><p class="ec-k">That’s the bill</p><h2 class="ec-h">Nothing left ${FEED.startsWith('cat:') ? 'in ' + esc(activeCat()?.title || 'this feed') : 'from ' + esc(regionName(SCOPE))} for now.</h2><p class="ec-s">New clips arrive daily.</p><p class="ec-a"><button type="button" class="hbtn" data-widen="1">Show everywhere</button></p></div></div>`)
+      const ec = host.lastElementChild; ec.querySelector('[data-widen]').onclick = () => { setScope(GLOBAL, true); if (FEED.startsWith('cat:')) setFeed('trending', true); goNext(null) } }
+    else host.insertAdjacentHTML('beforeend', msg ? `<div class="slide empty-slide"><p class="empty">${msg}</p></div>`
       : `<div class="slide empty-slide endcard" data-endcard="1"><div class="ec"><p class="ec-k">That’s the bill</p><h2 class="ec-h">You’ve seen every clip on the bill.</h2><p class="ec-s">New ones arrive daily.</p><p class="ec-a"><a class="hbtn" href="#comics">Browse the comics</a><a class="hbtn" href="#you">Your history</a></p></div></div>`)
     finishSlide(host, oldEl); cur = { el: host.lastElementChild, n: ++nScreen }; setStage('done'); updateChrome()
     return
@@ -1661,6 +1702,165 @@ function paintFGBoards(metas, bar, repaint) {
   const top = rows.map(([id]) => fgName(id)).filter(Boolean)
   $('#clips').innerHTML = top.flatMap((n) => CLIPS.filter((c) => c.comic === n && servable(c)).slice(0, 2)).slice(0, 16).map((c) => clipTile(c, null, c.comic)).join('') || '<p class="muted">No shorts yet for the comics on this board.</p>'
   $('#chartprov') && ($('#chartprov').innerHTML = fgProv((B.label || FGBOARD).toLowerCase()))
+}
+
+// ---------- feeds strip, region scope, categories (src/feeds.js) ----------
+const factsOf = (c) => comicFacts(c, COMICS, FG?.people || {})
+const arrOf = (x) => (Array.isArray(x) ? x : [])
+const myCats = () => arrOf(LS.get('myCats', [])).filter((c) => c && typeof c.slug === 'string' && cleanFilter(c.filter))
+function catDef(slug) { return myCats().find((c) => c.slug === slug) || arrOf(COMMUNITY).find((c) => c.slug === slug) || CURATED.find((c) => c.slug === slug) || null }
+const followSlugs = () => { const f = LS.get('catFollows', null); return Array.isArray(f) ? f : CURATED.map((c) => c.slug) } // curated ones followed by default
+function followedCats() { const seen = new Set(); return [...followSlugs(), ...myCats().map((c) => c.slug)].filter((s) => !seen.has(s) && seen.add(s)).map(catDef).filter(Boolean) }
+const activeCat = () => (FEED.startsWith('cat:') ? catDef(FEED.slice(4)) : null)
+function feedOK(c) {
+  if (SCOPE === GLOBAL && !FEED.startsWith('cat:')) return true
+  const f = factsOf(c); if (!scopeOK(SCOPE, f)) return false
+  const k = activeCat(); return !k || matchFilter(c, cleanFilter(k.filter), f)
+}
+function feedPolicy() { const cat = FEED.startsWith('cat:') ? FEED.slice(4) : null; return { fd: cat ? 'cat' : FEED, ...(cat ? { cat } : {}), sc: SCOPE } }
+const regionName = (r) => (r === GLOBAL ? 'everywhere' : FG?.regionLabel?.[r] || COMICS && Object.values(COMICS).find((P) => P.region === r)?.regionLabel || r)
+function scopeOptions() { // regions that have clips you could be shown here, biggest first
+  const n = {}; for (const c of CLIPS) if (servable(c)) { const r = factsOf(c).region; if (r) n[r] = (n[r] || 0) + 1 }
+  return Object.entries(n).filter(([, k]) => k >= 2).sort((a, b) => b[1] - a[1])
+}
+function setFeed(k, quiet) {
+  if (!isFeed(k) || (k.startsWith('cat:') && !catDef(k.slice(4)))) k = 'trending'
+  FEED = k; LS.set('feed', k); paintFeedbar()
+  if (signedIn()) api('/me/profile', { method: 'PUT', body: { feed: k } }).catch(() => {})
+  if (k.startsWith('cat:')) loadCatBoard(k.slice(4))
+  if (!quiet && arenaOn() && CLIPS.length) { moving = false; goNext(null) }
+}
+function setScope(sc, quiet) {
+  sc = cleanScope(sc) || GLOBAL
+  SCOPE = sc; LS.set('scope', sc); LS.set('scopeAt', new Date().toISOString()); paintFeedbar()
+  if (signedIn()) api('/me/profile', { method: 'PUT', body: { scope: sc } }).catch(() => {})
+  if (!quiet && arenaOn() && CLIPS.length) { moving = false; goNext(null) }
+}
+function paintFeedbar() {
+  const bar = $('#feedbar'); if (!bar) return
+  const chips = [...FEEDS.map((f) => [f.k, f.label]), ...followedCats().map((c) => ['cat:' + c.slug, c.title])]
+  if (!chips.some(([k]) => k === FEED)) chips.push([FEED, activeCat()?.title || FEED])
+  const opts = scopeOptions()
+  bar.innerHTML = `<div class="fchips" role="tablist" aria-label="Feeds">${chips.map(([k, l]) => `<button type="button" role="tab" class="fchip${k === FEED ? ' on' : ''}" aria-selected="${k === FEED}" data-feed="${esc(k)}">${esc(l)}</button>`).join('')}<button type="button" class="fchip fadd" data-feedadd="1" aria-label="Make your own feed or browse categories" title="Make a feed">+</button></div>
+    <label class="fscope" title="Where the comics are from"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></svg><select id="scopesel" aria-label="Where the comics are from"><option value="global"${SCOPE === GLOBAL ? ' selected' : ''}>Global</option>${opts.map(([r, k]) => `<option value="${esc(r)}"${SCOPE === r ? ' selected' : ''}>${esc(regionName(r))} · ${k}</option>`).join('')}${SCOPE !== GLOBAL && !opts.some(([r]) => r === SCOPE) ? `<option value="${esc(SCOPE)}" selected>${esc(regionName(SCOPE))}</option>` : ''}</select></label>`
+  bar.querySelectorAll('[data-feed]').forEach((b) => (b.onclick = () => { if (b.dataset.feed !== FEED) setFeed(b.dataset.feed) }))
+  bar.querySelector('[data-feedadd]').onclick = () => openFeedSheet()
+  bar.querySelector('#scopesel').onchange = (e) => setScope(e.target.value)
+  bar.querySelector('.fchip.on')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+}
+async function loadCatBoard(slug) {
+  if (CATBOARDS[slug] !== undefined) return CATBOARDS[slug]
+  CATBOARDS[slug] = null
+  try { const r = await fetch('data/categories/' + encodeURIComponent(slug) + '.json', { cache: 'no-cache' }); CATBOARDS[slug] = r && r.ok !== false ? await r.json() : false } catch { CATBOARDS[slug] = false }
+  return CATBOARDS[slug]
+}
+async function loadCommunity() {
+  if (!CFG.apiBase) { COMMUNITY = [...CURATED]; return COMMUNITY }
+  try { const r = await api('/categories'); COMMUNITY = r.ok && Array.isArray(r.j?.categories) ? r.j.categories.filter((c) => c && cleanFilter(c.filter)) : [...CURATED] } catch { COMMUNITY = [...CURATED] }
+  return COMMUNITY
+}
+function saveCat(c) { // local first; pushed to the API when signed in
+  const filter = cleanFilter(c.filter); if (!filter) return null
+  const rec = { slug: c.slug || slugify(c.title), title: String(c.title).slice(0, 40), prompt: c.prompt || null, filter, public: c.public !== false, at: new Date().toISOString() }
+  LS.set('myCats', [rec, ...myCats().filter((x) => x.slug !== rec.slug)].slice(0, 50))
+  const f = followSlugs(); if (!f.includes(rec.slug)) LS.set('catFollows', [...f, rec.slug])
+  if (signedIn()) pushCat(rec).catch(() => {})
+  return rec
+}
+async function pushCat(rec) {
+  const r = await api('/categories', { method: 'POST', body: { slug: rec.slug, title: rec.title, prompt: rec.prompt, filter: rec.filter, public: rec.public } })
+  const s2 = r.ok && r.j?.category?.slug
+  if (s2 && s2 !== rec.slug) { // the name was taken: keep the server's slug everywhere
+    LS.set('myCats', myCats().map((x) => (x.slug === rec.slug ? { ...x, slug: s2 } : x)))
+    LS.set('catFollows', followSlugs().map((x) => (x === rec.slug ? s2 : x)))
+    if (FEED === 'cat:' + rec.slug) { FEED = 'cat:' + s2; LS.set('feed', FEED) }
+    paintFeedbar()
+  }
+}
+function toggleFollow(slug, on) {
+  const f = followSlugs().filter((x) => x !== slug); if (on) f.push(slug)
+  LS.set('catFollows', f)
+  if (signedIn()) api('/me/categories/follow', { method: 'POST', body: { slug, on } }).catch(() => {})
+  if (!on && FEED === 'cat:' + slug) setFeed('trending', true)
+  paintFeedbar()
+}
+// on sign-in: union of this device's and the account's categories + follows; scope/feed follow the newer side
+async function syncFeeds() {
+  if (!signedIn()) return
+  const r = await api('/me/categories'); if (!r.ok) return
+  const server = arrOf(r.j.own), mine = myCats()
+  for (const c of server) if (!mine.some((x) => x.slug === c.slug)) mine.push({ slug: c.slug, title: c.title, prompt: c.prompt, filter: c.filter, public: c.public, at: new Date().toISOString() })
+  LS.set('myCats', mine.slice(0, 50))
+  for (const c of mine) if (!server.some((x) => x.slug === c.slug)) await pushCat(c).catch(() => {})
+  const local = LS.get('catFollows', null), sf = arrOf(r.j.follows)
+  const all = [...new Set([...(Array.isArray(local) ? local : CURATED.map((c) => c.slug)), ...sf])]
+  LS.set('catFollows', all)
+  const add = all.filter((x) => !sf.includes(x)); if (add.length) api('/me/categories/follow', { method: 'POST', body: { follows: add.map((slug) => ({ slug, on: true })) } }).catch(() => {})
+  if (USER?.scope && !LS.get('scopeAt', null)) { SCOPE = cleanScope(USER.scope) || GLOBAL; LS.set('scope', SCOPE) } else if (SCOPE !== (USER?.scope || GLOBAL)) api('/me/profile', { method: 'PUT', body: { scope: SCOPE } }).catch(() => {})
+  if (USER?.feed && isFeed(USER.feed) && !LS.get('feed', null)) FEED = USER.feed
+  paintFeedbar()
+}
+function filterChipsHTML(f, chips) {
+  const list = chips || Object.entries(f || {}).flatMap(([k, v]) => (Array.isArray(v) ? v.map((x) => ({ k, v: x })) : [{ k, v }]))
+  return list.map((c) => `<span class="pchip">${esc(chipLabel(c, FG?.regionLabel || {}))}</span>`).join('')
+}
+function openFeedSheet() {
+  const sh = $('#sheet'); if (!sh) return
+  const titleCase = (t) => t.replace(/\s+/g, ' ').trim().replace(/\b([a-z])/g, (m) => m.toUpperCase()).replace(/\bUk\b/g, 'UK').replace(/\bUs\b/g, 'US').slice(0, 40)
+  const rowHTML = (c) => { const on = followSlugs().includes(c.slug) || myCats().some((x) => x.slug === c.slug)
+    const ix = arrOf(CATINDEX?.categories).find((x) => x.slug === c.slug)
+    return `<div class="catrow" data-row="${esc(c.slug)}"><div class="catt"><b>${esc(c.title)}</b><span>${filterChipsHTML(cleanFilter(c.filter))}</span><em class="catwin">Who’s winning: ${ix?.leader ? `<b>${esc(ix.leader)}</b> · ${ix.votes} vote${ix.votes === 1 ? '' : 's'}` : 'no votes yet'}</em><span class="catboard" hidden></span></div>${c.followers ? `<small>${c.followers}</small>` : ''}<button type="button" class="dhghost catfol${on ? ' on' : ''}" data-fol="${esc(c.slug)}" aria-pressed="${on}">${on ? 'Following' : 'Follow'}</button><button type="button" class="dhghost" data-board="${esc(c.slug)}" aria-label="Board">Board</button><button type="button" class="dhghost" data-watch="${esc(c.slug)}">Watch</button></div>` }
+  const listHTML = () => { const seen = new Set(); return [...myCats(), ...arrOf(COMMUNITY), ...CURATED].filter((c) => !seen.has(c.slug) && seen.add(c.slug)).map(rowHTML).join('') }
+  sh.innerHTML = `<div class="sheetcard feedsheet" role="dialog" aria-modal="true" aria-labelledby="fdh"><button type="button" class="sheetx" data-ob="close" aria-label="Close">×</button>
+    <h2 id="fdh">Make a feed</h2><p class="muted">Say who, where and what kind of funny: <i>UK new indie</i>, <i>dark one-liners</i>, <i>crowd work</i>, <i>Irish storytelling</i>.</p>
+    <label class="obf">Your feed<input id="fprompt" maxlength="120" placeholder="UK new indie" autocomplete="off"></label>
+    <div class="fparsed" id="fparsed" aria-live="polite"></div>
+    <label class="obf">Name<input id="ftitle" maxlength="40" placeholder="UK New Indie" autocomplete="off"></label>
+    <label class="obchk"><input type="checkbox" id="fpublic" checked> Share as a community category</label>
+    <p class="obmsg muted small" id="fmsg"></p>
+    <div class="obact"><button type="button" class="dhbtn" data-ob="save">Save and watch</button><button type="button" class="dhghost" data-ob="close">Cancel</button></div>
+    <h3 class="shelf">Categories</h3><div class="catlist" id="catlist">${listHTML()}</div></div>`
+  sh.hidden = false
+  let parsed = null, verdict = null, titled = false
+  const inp = sh.querySelector('#fprompt'), tin = sh.querySelector('#ftitle'), out = sh.querySelector('#fparsed')
+  const pool0 = CLIPS.filter((c) => servable(c) && c.kind === 'human')
+  const reparse = () => {
+    const t = inp.value.trim(); parsed = t ? parsePrompt(t, { regions: Object.keys(FG?.regionLabel || {}).length ? Object.keys(FG.regionLabel) : null }) : null
+    const f = parsed && cleanFilter(parsed.filter)
+    verdict = f ? filterVerdict(pool0, f, factsOf) : null
+    out.innerHTML = !t ? '' : !f ? '<p class="fv bad">Nothing I can filter on yet. Try a place, a kind of funny or “indie”.</p>'
+      : `<div class="pchips">${filterChipsHTML(f, parsed.chips.filter((c) => c.k !== 'kw' || (f.kw || []).includes(c.v)))}</div><p class="fv ${verdict.ok ? (verdict.warn ? 'warn' : 'good') : 'bad'}">${verdict.ok ? `${verdict.clips} clips from ${verdict.comics} comics${verdict.warn ? '. A small feed: it will run dry soon.' : ''}` : `Only ${verdict.clips} clip${verdict.clips === 1 ? '' : 's'}${verdict.comics < 2 && verdict.clips ? ' from one comic' : ''} match. Try fewer words.`}</p>`
+    if (!titled) tin.value = t ? titleCase(t) : ''
+  }
+  inp.oninput = reparse; tin.oninput = () => (titled = !!tin.value.trim())
+  setTimeout(() => inp.focus(), 50)
+  const relist = () => { const l = sh.querySelector('#catlist'); if (l) l.innerHTML = listHTML() }
+  if (!COMMUNITY) loadCommunity().then(relist)
+  if (!CATINDEX) fetch('data/categories/index.json', { cache: 'no-cache' }).then((r) => (r && r.ok !== false ? r.json() : null)).then((j) => { CATINDEX = j || { categories: [] }; relist() }).catch(() => {})
+  sh.onclick = (e) => {
+    const ob = e.target.closest('[data-ob]')?.dataset.ob, fol = e.target.closest('[data-fol]')?.dataset.fol, w = e.target.closest('[data-watch]')?.dataset.watch
+    if (e.target === sh || ob === 'close') { sh.hidden = true; sh.innerHTML = ''; return }
+    if (fol) { const on = !followSlugs().includes(fol); toggleFollow(fol, on); const b = e.target.closest('[data-fol]'); b.classList.toggle('on', on); b.textContent = on ? 'Following' : 'Follow'; b.setAttribute('aria-pressed', on); return }
+    if (w) { sh.hidden = true; sh.innerHTML = ''; showTab?.('arena'); setFeed('cat:' + w); return }
+    const bd = e.target.closest('[data-board]')?.dataset.board
+    if (bd) { // the category's own leaderboard (tally data/categories/<slug>.json), inline in the sheet
+      const box = e.target.closest('.catrow')?.querySelector('.catboard'); if (!box) return
+      if (!box.hidden) { box.hidden = true; return }
+      box.hidden = false; box.textContent = '…'
+      loadCatBoard(bd).then((B) => { const top = arrOf(B?.comics).filter((x) => x.bouts).slice(0, 5), clips = arrOf(B?.clips).filter((x) => x.bouts && BYID[x.id]).slice(0, 3)
+        box.innerHTML = top.length ? `<ol>${top.map((x) => `<li><b>${esc(x.comic)}</b> <small>${Math.round(x.elo)} · ${x.wins}/${x.bouts}</small></li>`).join('')}</ol>${clips.length ? `<small class="muted">Top clips: ${clips.map((x) => esc(BYID[x.id].comic + ': ' + (BYID[x.id].title || '').slice(0, 40))).join(' · ')}</small>` : ''}` : '<small class="muted">No votes cast in this category yet. Watch it to start the board.</small>' })
+      return
+    }
+    if (ob === 'save') {
+      const msg = sh.querySelector('#fmsg'), f = parsed && cleanFilter(parsed.filter), title = tin.value.trim()
+      if (!f) { msg.textContent = 'Describe the feed first.'; inp.focus(); return }
+      if (!verdict?.ok) { msg.textContent = 'Too few clips match to make a feed. Try fewer words.'; return }
+      if (title.length < 3) { msg.textContent = 'Give it a name (3 to 40 characters).'; tin.focus(); return }
+      const rec = saveCat({ title, prompt: inp.value.trim().slice(0, 120), filter: f, public: sh.querySelector('#fpublic').checked })
+      sh.hidden = true; sh.innerHTML = ''
+      if (rec) { showTab?.('arena'); setFeed('cat:' + rec.slug); toast(`${rec.title}: ${verdict.clips} clips.`) }
+    }
+  }
 }
 
 // ---------- funnygraph lens + region filter ----------
@@ -2709,7 +2909,7 @@ async function initAccount() {
 }
 async function afterSignIn(needs, fresh) {
   paintUser(); paintProfilePage(); paintDaily() // a daily finished on another device hides here too
-  syncVotes().catch(() => {}); syncEvents(); syncWatches(true); syncProfile().catch(() => {}); syncChars().catch(() => {}); syncVersions().catch(() => {})
+  syncVotes().catch(() => {}); syncEvents(); syncWatches(true); syncProfile().catch(() => {}); syncChars().catch(() => {}); syncVersions().catch(() => {}); syncFeeds().catch(() => {})
   const pa = LS.get('pendingAccept', null)
   if (pa?.code) {
     try { const r = await api(`/invites/${encodeURIComponent(pa.code)}/accept`, { method: 'POST', body: { open_id: pa.open_id } }); if (r.ok) toast(`You and ${r.j.friend?.username || pa.username} are now friends.`) } catch {}
@@ -3568,6 +3768,6 @@ function tabs() {
   if (ic) { history.replaceState(null, '', location.pathname + location.search); await Promise.race([openInvite(ic), new Promise((r) => setTimeout(r, 4000))]) }
   else if (sh) { pendingClash = sh; history.replaceState(null, '', location.pathname + location.search) }
   // (no auto-inserted daily round: the daily clash is only ever the banner at the top; tapping it plays it)
-  bindGestures(); bindChrome(); bindFullscreen(); newRound(true); paintBoards(); paintYou(); paintComics(); paintBanner(); paintDaily(); window._route()
+  paintFeedbar(); bindGestures(); bindChrome(); bindFullscreen(); newRound(true); paintBoards(); paintYou(); paintComics(); paintBanner(); paintDaily(); window._route()
   initAuth(); initAccount()
 })()

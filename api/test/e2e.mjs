@@ -55,7 +55,8 @@ execSync('npx wrangler d1 execute funnier --local --file migrations/0006_profile
 try { execSync('npx wrangler d1 execute funnier --local --file migrations/0007_humour_passport.sql', { stdio: 'ignore' }) } catch {} // already applied -> duplicate column
 execSync('npx wrangler d1 execute funnier --local --file migrations/0008_characters_versions.sql', { stdio: 'ignore' }) // idempotent
 execSync('npx wrangler d1 execute funnier --local --file migrations/0009_watches.sql', { stdio: 'ignore' }) // idempotent
-execSync(`npx wrangler d1 execute funnier --local --command "DELETE FROM votes; DELETE FROM friends; DELETE FROM invites; DELETE FROM invite_opens; DELETE FROM users; DELETE FROM laughs; DELETE FROM clip_durations; DELETE FROM clip_audio; DELETE FROM watch_events; DELETE FROM humour_profiles; DELETE FROM profiles; DELETE FROM specials_log; DELETE FROM sets; DELETE FROM characters; DELETE FROM model_versions; DELETE FROM watches;"`, { stdio: 'ignore' })
+try { execSync('npx wrangler d1 execute funnier --local --file migrations/0010_feeds_categories.sql', { stdio: 'ignore' }) } catch {} // already applied -> duplicate column
+execSync(`npx wrangler d1 execute funnier --local --command "DELETE FROM votes; DELETE FROM friends; DELETE FROM invites; DELETE FROM invite_opens; DELETE FROM users; DELETE FROM laughs; DELETE FROM clip_durations; DELETE FROM clip_audio; DELETE FROM watch_events; DELETE FROM humour_profiles; DELETE FROM profiles; DELETE FROM specials_log; DELETE FROM sets; DELETE FROM characters; DELETE FROM model_versions; DELETE FROM watches; DELETE FROM categories; DELETE FROM category_follows;"`, { stdio: 'ignore' })
 const PORT = 8797, BASE = `http://127.0.0.1:${PORT}`
 const dev = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT), '--ip', '127.0.0.1',
   '--var', `GOOGLE_CLIENT_ID:${CID}`, '--var', 'ALLOW_TEST_JWKS:1', '--var', 'TEST_JWKS_URL:http://127.0.0.1:8798/jwks', '--var', 'SESSION_SECRET:local-test-secret-not-for-prod', '--var', 'EXPORT_SALT:local-export-salt-not-for-prod'], { stdio: ['ignore', 'pipe', 'pipe'], detached: true })
@@ -293,6 +294,32 @@ try {
     ok(A?.finished === true, '>= 90% of the window counts as finished server-side too')
     ok(B && B.first === '2026-10-01T09:00:00.000Z' && B.last === '2026-10-04T10:00:20.000Z' && B.secs === 20 && B.frac === 0.4 && B.shows === 2 && B.passed === 1 && !B.finished, `merge: earliest first, latest last, max measures (${JSON.stringify(B)})`)
     w = await J('GET', '/me/watches', t2); ok(w.s === 200 && !w.j.watches.some((x) => x.clip === 'wclipAAAAAA'), "another user doesn't see your watch log")
+  }
+  { // feeds: region scope + feed on the profile, categories (create / list / follow / delete), trending watch stats
+    let f = await J('PUT', '/me/profile', t1, { scope: 'uk', feed: 'cat:uk-new-indie' }); ok(f.s === 200 && f.j.user.scope === 'uk' && f.j.user.feed === 'cat:uk-new-indie', 'PUT /me/profile saves scope + feed')
+    f = await J('PUT', '/me/profile', t1, { scope: 'UK!!' }); ok(f.s === 400 && f.j.fields?.scope, 'bad scope -> 400')
+    f = await J('PUT', '/me/profile', t1, { feed: 'algorithm' }); ok(f.s === 400 && f.j.fields?.feed, 'unknown feed -> 400')
+    f = await J('GET', '/me', t1); ok(f.j.user.scope === 'uk', 'GET /me returns the scope')
+    f = await J('GET', '/categories', null); ok(f.s === 200 && ['uk-new-indie', 'international', 'underdogs', 'short-and-sharp'].every((k) => f.j.categories.some((c) => c.slug === k && c.curated)), 'GET /categories: the curated four')
+    f = await J('POST', '/categories', null, { title: 'X', filter: {} }); ok(f.s === 401, 'POST /categories needs a session')
+    f = await J('POST', '/categories', t1, { title: 'Hi', filter: { styles: ['dark'] } }); ok(f.s === 400 && f.j.fields?.title, 'too-short title -> 400')
+    f = await J('POST', '/categories', t1, { title: 'Dark One-Liners', prompt: 'dark one-liners', filter: { styles: ['dark', 'one-liners', 'bogus'], evil: 1 } })
+    ok(f.s === 200 && f.j.category.slug === 'dark-one-liners' && f.j.category.filter.styles.join() === 'dark,one-liners' && !f.j.category.filter.evil, `POST /categories cleans the filter (${JSON.stringify(f.j.category?.filter)})`)
+    f = await J('POST', '/categories', t2, { title: 'Dark One Liners', filter: { styles: ['dark'] } }); ok(f.s === 200 && f.j.category.slug === 'dark-one-liners-2', `a taken slug gets a free variant (${f.j.category?.slug})`)
+    f = await J('POST', '/categories', t2, { title: 'UK New Indie', filter: { tier: 'indie' } }); ok(f.s === 200 && f.j.category.slug !== 'uk-new-indie', 'a curated slug is never taken over')
+    f = await J('POST', '/categories', t1, { title: 'Secret Feed', filter: { kw: ['airports'] }, public: false }); ok(f.s === 200 && f.j.category.public === false, 'private category')
+    f = await J('GET', '/categories', null); ok(f.j.categories.some((c) => c.slug === 'dark-one-liners' && c.followers === 1) && !f.j.categories.some((c) => c.slug === 'secret-feed'), 'public list shows public ones with followers, never private')
+    f = await J('POST', '/me/categories/follow', t2, { follows: [{ slug: 'dark-one-liners', on: true }, { slug: 'uk-new-indie', on: true }, { slug: 'BAD SLUG' }] }); ok(f.s === 200 && f.j.saved === 2, 'follow in a batch')
+    f = await J('GET', '/me/categories', t2); ok(f.j.follows.includes('dark-one-liners') && f.j.follows.includes('uk-new-indie') && f.j.own.length === 2, 'GET /me/categories: own + follows')
+    f = await J('DELETE', '/categories/dark-one-liners', t2); ok(f.j.deleted === 0, "can't delete someone else's category")
+    f = await J('DELETE', '/categories/secret-feed', t1); ok(f.j.deleted === 1, 'delete your own')
+    await J('POST', '/me/watches', t2, { watches: [{ clip: 'trclipAAAAA', first: new Date().toISOString(), last: new Date().toISOString(), secs: 60, frac: 1, finished: true, shows: 1 }] })
+    await J('POST', '/me/watches', t1, { watches: [{ clip: 'trclipAAAAA', first: new Date().toISOString(), last: new Date().toISOString(), secs: 5, frac: 0.1, shows: 1 }] })
+    const tr = await fetch(BASE + '/stats/trending?hours=72'), tj = await tr.json()
+    ok(tr.status === 200 && tr.headers.get('access-control-allow-origin') === '*' && tj.clips.trclipAAAAA?.shows === 2 && tj.clips.trclipAAAAA.finished === 1 && !JSON.stringify(tj).includes('user'), `GET /stats/trending: anonymous per-clip completion (${JSON.stringify(tj.clips.trclipAAAAA)})`)
+    await J('POST', '/votes', t2, { votes: [{ a: 'fdclipAAAAA', b: 'fdclipBBBBB', winner: 'fdclipAAAAA', createdAt: new Date().toISOString(), signals: { policy: { m: 'underdog', fd: 'underdog', u: 'fdclipAAAAA', sc: 'uk', cat: 'x', v: 'screen-1' } } }] })
+    const ex = await (await fetch(BASE + '/export/votes?limit=1000')).json(); const fv = ex.votes.find((v) => v.a === 'fdclipAAAAA')
+    ok(fv?.policy?.fd === 'underdog' && fv.policy.u === 'fdclipAAAAA' && fv.policy.sc === 'uk', `vote export carries the feed (${JSON.stringify(fv?.policy)})`)
   }
   { // public anonymised export
     await J('POST', '/votes', t2, { votes: [{ a: 'expclipAAAA', b: 'expclipBBBB', winner: 'expclipAAAA', ms: 1800, createdAt: '2026-10-10T10:00:00.000Z', signals: { leftWatchedSec: 40, policy: { m: 'training', pm: 400, pp: 25000, v: 'screen-1' } } },
