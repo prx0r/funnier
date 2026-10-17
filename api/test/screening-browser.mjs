@@ -93,8 +93,9 @@ async function playThrough(page) {
   ok(rp > 0, `phone: vertical clips still served (${rp} in 200 rounds)`); await ph.ctx.close() }
 // (4) the daily pill: banner play + vote, banner play + Pass, the same pair from a #clash link + vote
 const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })()
-const D = JSON.parse(fs.readFileSync(path.join(SITE, 'daily.json'), 'utf8')).find((x) => x.date === today)
-if (!D) console.log('SKIP daily: no editorial entry today')
+const CHAT = new Set(JSON.parse(fs.readFileSync(path.join(SITE, 'clips.json'), 'utf8')).filter((c) => c.setting === 'chat').map((c) => c.id))
+const D = JSON.parse(fs.readFileSync(path.join(SITE, 'daily.json'), 'utf8')).find((x) => x.date === today && !CHAT.has(x.a) && !CHAT.has(x.b)) // an editorial daily with a chat clip is skipped (src/app.js dailyFor)
+if (!D) console.log('SKIP daily: no usable editorial entry today')
 else for (const how of ['banner+vote', 'banner+pass', 'link+vote']) {
   const { page, errs, ctx } = await open('desktop', { hash: how === 'link+vote' ? `#clash/${D.a}/${D.b}` : '' })
   if (how !== 'link+vote') { ok(await pill(page), `${how}: pill shows before`); await page.click('#daily [data-dh="play"]'); await sleep(400); await page.waitForFunction(() => document.querySelector('.slide:last-child')?.dataset.stage === 'left', { timeout: 8000 }) }

@@ -151,33 +151,73 @@ Portraits are rights-cleared files from Wikimedia Commons (CC BY, CC BY-SA, CC0 
 - **API:** `GET|PUT /me/profile-data` (favs ≤4, pins ≤6, `chart` snapshot sanitised by `cleanChart`, `vis_profile` / `vis_diary` = public | friends | private; defaults public profile + chart, friends-only diary), `PUT /me/specials` (batch, newest `at` wins), `POST /me/og`, `GET /u/:username` (case-insensitive; strangers see what's public, friends also friends-only, owner all; never email or stats), `GET /og/u/:name.png`. Migration `0006_profiles.sql` (tables `profiles`, `specials_log`, `sets`; idempotent). `DELETE /me` removes them too. Browser test: `node test/profile-browser.mjs` (renders every card to PNG in Chromium, checks the `/u/<name>` shell and the OG upload).
 - **Planned (not built):** an MCP server exposing a user's humour profile (chart, Four Favourites, "make me laugh by") so assistants like ChatGPT can use it with consent; TikTok sharing; Year in Review.
 
-## Feeds, region scope and categories (src/feeds.js)
+## Feeds, region scope and categories (src/feeds.js, src/rank.js; v2 2026-10-18)
 
-One slim chip strip floats over the screening's empty intro row (layout unchanged; it hides in the theatre, after a vote,
-and when the intro row shows a challenge or seen note): **Trending · For You · Underdog · Similar Vibes · followed
-categories · +**, plus a compact region select (Global + every funnygraph region with clips). Both are remembered
-(`funnier.feed`, `funnier.scope`) and synced to the account (`users.scope`, `users.feed`, D1 `0010_feeds_categories.sql`).
-Every feed respects the scope (openPair hard filter), seen tracking, two different comics, no vertical clips on desktop,
-fair durations, clips playing to their end and the 10 s ballot. An empty scope shows a "Show everywhere" end card.
+One slim chip strip floats over the screening's empty intro row: **Trending · For You · Underdog · Similar Vibes · followed
+categories · +**, plus one slim region select: **All** (default, value `global`) · **US** · **UK** · **More…** (reveals the
+other regions, with clip counts, in the same select). No Global / Everywhere / International wording; the Charts use the
+same select. Both are remembered (`funnier.feed`, `funnier.scope`) and synced (`users.scope`, `users.feed`).
 
-Architecture (X-algorithm style, every step named, no opaque model): candidate retrieval (the scoped, servable, unseen
-pool) -> hard filters (`openPair`) -> independent scorers -> diversity (different comic, author penalty).
-- **Trending** (default): `trendScore` = data/trending.json momentum (tally `trendingDoc`: decayed win rate 0.45 + vote
-  volume 0.3 + completion from `GET /stats/trending` 0.25 - skips 0.1; 24 h half-life, 72 h window), blended with the
-  bootstrap prior (0.45 funnygraph house percentile + 0.25 spotlight comic + 0.2 crowd BT + 0.15 for a recent
-  "underdog beat legend" clip) by evidence (n/8). It must feel like today's feed: while momentum is sparse only 15% of
-  Trending rounds (rising to 65% as clips gather real votes) come from the Trending scorer; the rest are the usual mix.
-- **For You**: the personal engine mix (For you / Training / Explore), unchanged; the only arm the screening trainer learns.
-- **Underdog**: a lesser-known clip (fame <= 0.4: indie tier, low funnygraph popularity) vs a big comic (fame >= 0.6)
-  with fame gap >= 0.3 (hard rule), ranked by 0.5 struct_sim + 0.5 vibe (funnygraph neighbors + shared style tags +
-  topics). The underdog clip is logged (`policy.u`); wins become `moments` in trending.json.
-- **Similar Vibes**: 0.6 vibe + 0.4 struct_sim, real matches only.
-- **Categories** (`cat:<slug>`): a typed prompt parsed by a named vocabulary (`parsePrompt`: region, indie/legend, recency
-  and decades, talk show/special, vertical, short/long, style tags, leftover title keywords), shown as chips with a live
-  clip count; refused under 6 clips or 2 comics, warned under 20. Saved locally first, `POST /categories` when signed in
-  (public = community category), followed via `POST /me/categories/follow`, listed by `GET /categories` (curated: UK New
-  Indie, International, Underdogs, Short & Sharp). Category boards (Elo over the votes cast in that category) are written
-  by the tally to `data/categories/<slug>.json` (+ index.json) and shown only in the + sheet ("Who's winning", Board).
-- Logged on every vote / pass / skip: `policy.fd` (feed), `cat`, `u`, `sc` (scope), so the trainer separates the arms
-  (train-screening only uses For You rounds).
-- Tests: `node tally/test-feeds.mjs`; smoke `feeds`; API e2e (scope/feed, categories, /stats/trending, export fd).
+**One core pair scorer for every ranking feed** (`corePick`; For You stays the personal humour engine, unchanged, and is
+the only arm the screening trainer learns from). Interpretable, no opaque model:
+- **Posterior** (`src/rank.js`): hierarchical Bradley-Terry (clip = comic + clip offset; a clip is a noisy sample of its
+  comic), prior mean = funnygraph house percentile (`2·(pct/100−0.5)` logits; else tier), MAP + diagonal Laplace sd. The
+  tally publishes `data/posterior.json` (per comic mu/sd/top, per clip offset/sd); the client falls back to fitting
+  `data/votes.json` itself.
+- **score(a,b) = gain × top × quality × (1 + relatedness bonus) × seen/author multipliers × feed bonus**:
+  gain = p(1−p)·(var_a + var_b) with the probit-moderated p (expected information on the crowd ranking; the comic variance
+  is in it, so comic rankings get resolved); top = 0.25 + 0.75·P(either comic in the top K=25) (best-arm identification:
+  "who's the funniest"); quality = 0.75 + 0.5·sigmoid(mean strength) (never two uncertain duds).
+- **Relatedness is a gate**: candidates must share a link: a shared topic (clips.json `topics` + a named title vocabulary,
+  `TITLE_TOPICS`), a funnygraph neighbour, a shared style/theory tag, or struct_sim ≥ 0.5. Bonus: topic 0.6, neighbour
+  0.3+sim, tag 0.25, struct 0.3–0.55. Unrelated pairs only when no linked pair passes the hard rules (logged `fallback`).
+- **Randomised**: anchors are the 24 clips with the highest own uncertainty × top × quality × freshness (deterministic);
+  the pick is random among the top 6 pairs, proportional to score, so the logged propensity `pp` is exact given the set.
+- Hard rules untouched: seen tiers (finished never, glances return, partials only when dry, links replay), never the same
+  comic, desktop never vertical, fair durations, author diversity decay, 10 s ballot / auto-pass.
+- Logged: `pair.why` = `{feed, gain, p, top, q, rel, link: 'topic:dating' | 'nb:0.36' | 'tag:dark' | 'ss:0.62' | 'none', fallback?, s, pp, n}`;
+  `signals.policy` gains `pp`, `g` (terms ×1000), `lk`, `fb` next to `fd`, `cat`, `u`, `sc`.
+
+**Feeds = the scorer + a constraint:**
+- **Trending** (default): core × (1 + 0.75·momentum). `data/trending.json` momentum is opponent-adjusted and per showing:
+  `dm` = posterior strength now − strength from the votes before the 72 h window (beating weak opponents barely moves it),
+  `conv` = votes / showings (capped; raw volume fed on its own exposure), completion, skips; `m` = evidence × clamp(0.65·max(0,dm)/0.5
+  + 0.2·comp + 0.15·conv − 0.1·skip). The old 15%→65% gating is gone: the scorer's quality and top-K terms keep rounds
+  watchable while momentum is sparse.
+- **Underdog**: core restricted to indie vs king (funnygraph tier; every king counts as big, every indie as small: the old
+  fame ≥ 0.6 cutoff excluded 57 of the 282 kings with clips, checked 2026-10-18), × (1 + 0.3·vibe). The indie clip is logged (`policy.u`).
+- **Similar Vibes**: core restricted to 0.6·vibe + 0.4·struct_sim > 0.1 (no unrelated fallback).
+- **Categories** (`cat:<slug>`): core inside the category pool. Category boards are Bradley-Terry (same hierarchy as the main
+  board, order-independent, 95% Laplace interval), not Elo.
+- **Safety rule:** clips with `setting: 'chat'` (podcast / interview / couch / panel) are never served by any feed, category,
+  the daily fallback or the main charts (`isChat`); explicit links still play them.
+- Tests: `node tally/test-feeds.mjs` (gain prefers uncertain + close + top pairs, the gate, fallback logging, title topics,
+  Underdog always indie vs king, chat exclusion, momentum, BT boards); smoke `feeds`.
+- **Simulation** `node tally/sim-feeds.mjs` (synthetic voters from a known truth; same estimator for every policy; 120-comic
+  samples of the real catalogue, 6 seeds × 2000 votes, informed truth):
+
+  | policy | top-10 precision @500 / @1000 / @2000 | Kendall tau @500 / @1000 / @2000 | rounds with a real link |
+  |---|---|---|---|
+  | random pairs | 0.38 / 0.47 / 0.53 | 0.48 / 0.58 / 0.65 | 10% |
+  | core scorer, no gate | 0.52 / 0.62 / 0.72 | 0.47 / 0.57 / 0.66 | 57% |
+  | core scorer + relatedness gate (shipped) | 0.40 / 0.55 / 0.65 | 0.46 / 0.56 / 0.64 | 62% (38% logged fallbacks) |
+
+  Rerun 2026-10-18 after the posterior-fitter fix, on the cleaned and tagged corpus (5fbad86). The gate costs about 7-12
+  points of top-10 precision against the ungated scorer; it is kept because the user wants related pairs. Earlier pre-fix
+  runs (below) are kept for reference only.
+
+  Blind truth (strength unrelated to the funnygraph prior, 4 seeds × 1500): top-10 @500 / @1500: random 0.43 / 0.55, old
+  0.18 / 0.28, core 0.48 / 0.58, core + gate 0.53 / 0.68. The gate costs nothing measurable; the fallbacks are rounds whose
+  most informative clips have no topic, tag or neighbour at all (38% of clips are untagged), which the corpus tags fix. On
+  the full catalogue with no votes yet, the smoke run has 100% linked rounds for Trending / Underdog / Vibes.
+
+## Clips always play on the site (2026-10-18)
+- A YouTube `onError` (2, 5, 100, 101, 150, 153) or a stalled start (no PLAYING and no clock movement 12 s after play, tab
+  visible) swaps that side of the clash in place for the next eligible clip (hard rules against the clip that stays, a linked
+  one when possible), keeps it out of this device's rotation (`funnier.unplayable`) and reports it: `POST /events` kind
+  `unplayable`, stage `err-<code>` | `stall` (signed in, or anonymous with the device id; D1 `0011_unplayable_events.sql`).
+  The tally writes `data/unplayable.json` (reports, distinct reporters, codes) for the corpus to re-check and prune.
+- No tap reaches the YouTube iframe (`pointer-events: none`; the `.shield` handles taps; controls 0, playsinline 1).
+- No outbound youtube.com/watch links: clip tiles and the profile's "Funniest to you" open `#watch/<id>` (the clip plays
+  first on the site against a kindred clip that passes the hard rules). Only the YouTube Terms notice links to YouTube.
+- Smoke `feeds` checks the swap, the report, the rotation exclusion, the shield/playerVars, links and `#watch`.

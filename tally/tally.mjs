@@ -9,13 +9,17 @@ import { resolveParams } from '../src/screening.js'
 import { buildSessions, trainScreening } from './train-screening.mjs'
 import { fetchExport, mergeVotes, eventsForTraining } from './sources.mjs'
 import { fgResolver, arenaPairs, arenaDoc } from './arena.mjs'
-import { trendingDoc, categoryBoard, CURATED, SLUG as CAT_SLUG } from '../src/feeds.js'
+import { trendingDoc, categoryBoard, CURATED, SLUG as CAT_SLUG, comicFacts, isChat } from '../src/feeds.js'
+import { fitPosterior, priorMean } from '../src/rank.js'
 
 const COLLECTION = 'io.github.prx0r.funnier.vote'
 const [, , CLIPS_PATH, OUT] = process.argv
 const DATA = path.join(OUT, 'data')
 fs.mkdirSync(DATA, { recursive: true })
-const clips = JSON.parse(fs.readFileSync(CLIPS_PATH, 'utf8')).filter((c) => c.status !== 'removed')
+const allClips = JSON.parse(fs.readFileSync(CLIPS_PATH, 'utf8')).filter((c) => c.status !== 'removed')
+// podcast / interview / couch clips (setting 'chat') are never served by a feed, so they stay out of the board, the
+// active-sampling pairs and the daily fallback (src/feeds.js isChat)
+const clips = allClips.filter((c) => !isChat(c))
 const byId = Object.fromEntries(clips.map((c) => [c.id, c]))
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 // daily clash schedule: <out>/daily.json (published copy), else funnier/site/daily.json next to clips.json. Missing = fallback only.
@@ -200,10 +204,24 @@ if (process.env.SYNTH) {
   votes.length = 0; votes.push(...m.votes)
   for (const [did, n] of Object.entries(m.d1Voters)) voters.push({ did, handle: null, kind: 'human', votes: n, source: 'd1' })
   for (const vt of voters) if (vt.source !== 'd1') vt.votes = votes.filter((v) => v.did === vt.did).length || vt.votes
+  unplayableDoc(d1Events)
   d1Events = eventsForTraining(d1Events, m.alias)
   console.log('sources: merged', votes.length, 'votes;', Object.keys(m.d1Voters).length, 'D1 voters;', Object.keys(m.alias).length, 'aliased to a DID;', d1Events.length, 'D1 passes/skips')
 }
 votes.sort((x, y) => Date.parse(x.createdAt) - Date.parse(y.createdAt))
+// clips that failed to play on someone's device (YouTube embed error or a stalled start; POST /events kind 'unplayable'):
+// data/unplayable.json for the corpus to re-check and prune. Distinct reporters count, so one device can't condemn a clip.
+function unplayableDoc(evs) {
+  const by = {}
+  for (const e of evs || []) {
+    if (e?.kind !== 'unplayable' || typeof e.clip !== 'string') continue
+    const x = (by[e.clip] = by[e.clip] || { n: 0, who: new Set(), codes: {}, last: null })
+    x.n++; x.who.add(e.voter); const k = e.stage || 'unknown'; x.codes[k] = (x.codes[k] || 0) + 1; if (!x.last || e.createdAt > x.last) x.last = e.createdAt
+  }
+  const rows = Object.entries(by).map(([clip, x]) => ({ clip, reports: x.n, reporters: x.who.size, codes: x.codes, last: x.last, inCatalog: !!allClips.find((c) => c.id === clip) })).sort((a, b) => b.reporters - a.reporters)
+  fs.writeFileSync(path.join(DATA, 'unplayable.json'), JSON.stringify({ updated: new Date().toISOString(), note: 'clips that failed to play in the site player (YouTube onError 2/5/100/101/150/153 or a stalled start); re-check with oEmbed before pruning', clips: rows }, null, 1))
+  console.log('unplayable', rows.length, 'clips reported')
+}
 
 // ---------- Hierarchical Bradley-Terry ----------
 // clip strength = comic strength + clip offset (offset shrunk toward 0); P(a beats b) = sigmoid(s_a - s_b).
@@ -273,6 +291,16 @@ const board = {
 // The length band stays a hard rule (pairs only within a band).
 const band = (c) => (c.sec == null ? null : c.sec < 120 ? 'short' : c.sec < 480 ? 'mid' : 'long')
 const allBoard = board.boards.all
+// ---------- the crowd ranking's posterior for the core pair scorer (src/rank.js): per-comic and per-clip mu / sd ----------
+// Prior mean from funnygraph's house percentile (cold start), else its tier; the same hierarchy as the board. The client
+// reads data/posterior.json and falls back to fitting the public votes itself.
+const FGB = (() => { try { return JSON.parse(fs.readFileSync(path.join(DATA, 'funnygraph', 'boards.json'), 'utf8')) } catch { return null } })()
+const COMICSJ = (() => { for (const p of [path.join(OUT, 'comics.json'), path.join(path.dirname(CLIPS_PATH), 'site', 'comics.json')]) { try { return JSON.parse(fs.readFileSync(p, 'utf8')).comics || {} } catch {} } return {} })()
+const firstClip = {}; for (const c of clips) if (!firstClip[c.comic]) firstClip[c.comic] = c
+const comicPrior = (comic) => { const f = comicFacts(firstClip[comic] || { comic }, COMICSJ, FGB?.people || {}); return priorMean(f.g, f.tier) }
+const POST = fitPosterior(clips, votes.filter((v) => v.voter !== 'agent'), { prior: comicPrior, iters: 80 })
+fs.writeFileSync(path.join(DATA, 'posterior.json'), JSON.stringify({ updated: board.updated, method: 'hierarchical Bradley-Terry posterior (MAP + diagonal Laplace), logits; prior mean = funnygraph house percentile (2 x (pct/100 - 0.5)), else tier; human votes', funnygraph: !!FGB, ...POST }))
+console.log('posterior', Object.keys(POST.comics).length, 'comics; top-K', POST.K, 'thr', POST.thr)
 const stat = Object.fromEntries(allBoard.clips.map((c) => [c.id, c]))
 const pairCount = {}
 for (const v of votes) { const k = [v.a, v.b].sort().join('|'); pairCount[k] = (pairCount[k] || 0) + 1 }
@@ -385,14 +413,14 @@ console.log('daily results', Object.keys(dailyOut.days).length, 'days')
     try { const r = await fetch(base.replace(/\/$/, '') + '/categories', { signal: AbortSignal.timeout(15000) }); if (r.ok) { const j = await r.json(); for (const c of j.categories || []) if (c && CAT_SLUG.test(c.slug || '') && !cats.some((x) => x.slug === c.slug)) cats.push({ slug: c.slug, title: String(c.title || c.slug).slice(0, 40), filter: c.filter }) } } catch (e) { console.warn('categories skipped:', e?.message || e) }
   }
   const evs = d1Events.map((e) => ({ kind: e.kind, a: e.a, b: e.b, at: e.at, clip: e.clip || null, signals: e.signals }))
-  const T = trendingDoc(human, evs, watch, byId)
+  const T = trendingDoc(human, evs, watch, byId, { prior: comicPrior, clips })
   fs.writeFileSync(path.join(DATA, 'trending.json'), JSON.stringify(T))
   const CDIR = path.join(DATA, 'categories'); fs.mkdirSync(CDIR, { recursive: true })
   const index = []
   for (const c of cats) {
     const vs = human.filter((v) => v.signals?.policy?.fd === 'cat' && v.signals.policy.cat === c.slug)
     const b = categoryBoard(vs, byId)
-    fs.writeFileSync(path.join(CDIR, c.slug + '.json'), JSON.stringify({ slug: c.slug, title: c.title, filter: c.filter || null, updated: board.updated, method: 'Elo (K=24) over the votes cast inside this category, in time order', ...b }))
+    fs.writeFileSync(path.join(CDIR, c.slug + '.json'), JSON.stringify({ slug: c.slug, title: c.title, filter: c.filter || null, updated: board.updated, method: 'Bradley-Terry (MAP, same hierarchy as the main board) over the votes cast inside this category; 95% Laplace interval', ...b }))
     index.push({ slug: c.slug, title: c.title, votes: b.votes, leader: b.comics[0]?.comic || null })
   }
   fs.writeFileSync(path.join(CDIR, 'index.json'), JSON.stringify({ updated: board.updated, categories: index }))

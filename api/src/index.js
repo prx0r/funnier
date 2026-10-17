@@ -214,19 +214,26 @@ app.post('/votes', auth, async (c) => {
 
 // ---------- watch events: skips ("Not funny", swipe away) and passes, with their signals (the swipe labels, §4c) ----------
 const STAGES = ['intro', 'left', 'right', 'vote', 'done', 'left-skip', 'right-skip']
-app.post('/events', auth, async (c) => {
-  const u = c.get('user'), b = await body(c), list = Array.isArray(b?.events) ? b.events : []
+// kind 'unplayable' (a YouTube embed error or a stalled start; stage = 'err-<code>' | 'stall'): the client swapped the clip
+// on the site and reports it so the tally can list it (data/unplayable.json) for the corpus to prune. Anonymous devices may
+// send these (and only these) with their random device id; skips and passes still need a session.
+const UNPLAY_STAGE = /^(err-\d{1,3}|stall)$/
+app.post('/events', async (c) => {
+  const b = await body(c), list = Array.isArray(b?.events) ? b.events : []
   if (!list.length) return c.json({ error: 'no_events' }, 400)
+  const su = await currentUser(c), anonOK = list.every((e) => e && e.kind === 'unplayable')
+  if (!su && !(anonOK && DEVICE.test(String(b?.device || '')))) return c.json({ error: 'unauthorized' }, 401)
+  const u = su || { id: 'd:' + b.device }
   if (list.length > 200) return c.json({ error: 'too_many', max: 200 }, 400)
   const DB = c.env.DB, stmts = []
   let skipped = 0
   for (const e of list) {
-    if (!e || !['skip', 'pass'].includes(e.kind) || !CLIP.test(e.a || '') || !CLIP.test(e.b || '') || e.a === e.b || (e.clip != null && !CLIP.test(e.clip)) ||
+    if (!e || !['skip', 'pass', 'unplayable'].includes(e.kind) || !CLIP.test(e.a || '') || !CLIP.test(e.b || '') || (e.a === e.b && e.kind !== 'unplayable') || (e.clip != null && !CLIP.test(e.clip)) ||
       typeof e.createdAt !== 'string' || isNaN(Date.parse(e.createdAt))) { skipped++; continue }
     const t = new Date(Math.min(Date.parse(e.createdAt), Date.now())).toISOString()
     const ws = Number(e.watchedSec), ms = Number(e.ms)
     stmts.push(DB.prepare(`INSERT OR IGNORE INTO watch_events (user_id, kind, a, b, stage, clip, watched_sec, ms, daily, signals, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(u.id, e.kind, e.a, e.b, STAGES.includes(e.stage) ? e.stage : null, e.clip || null, Number.isFinite(ws) && ws >= 0 ? Math.min(36000, Math.round(ws)) : null,
+      .bind(u.id, e.kind, e.a, e.b, STAGES.includes(e.stage) || (e.kind === 'unplayable' && UNPLAY_STAGE.test(e.stage || '')) ? e.stage : null, e.clip || null, Number.isFinite(ws) && ws >= 0 ? Math.min(36000, Math.round(ws)) : null,
         Number.isInteger(ms) && ms >= 0 && ms < 3600e3 ? ms : null, typeof e.daily === 'string' && DAY.test(e.daily) ? e.daily : null, cleanSignals(e.signals), t))
   }
   if (stmts.length) await DB.batch(stmts)

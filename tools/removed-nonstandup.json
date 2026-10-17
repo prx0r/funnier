@@ -1,0 +1,1326 @@
+{
+ "note": "Not stand-up: removed from clips.json by tools/talkshow-lane.mjs; discovery treats these ids as known.",
+ "removed": [
+  {
+   "id": "WepSp0jYxBQ",
+   "comic": "Mark Normand",
+   "title": "Skating before a show on the road - mark normand #comedy #skating",
+   "channel": "mark normand",
+   "why": "Mark Normand skating before a show (vlog)",
+   "at": "2026-10-17"
+  },
+  {
+   "id": "EwtBIr3-L-Q",
+   "comic": "Mark Normand",
+   "title": "Rimshot - A Mark Normand Comedy Sketch",
+   "channel": "mark normand",
+   "why": "Rimshot - A Mark Normand Comedy Sketch (sketch)",
+   "at": "2026-10-17"
+  },
+  {
+   "id": "vdP-WWLdoTw",
+   "comic": "Mark Normand",
+   "title": "\"Brightside\" - An Artsy Fartsy Comedy Sketch",
+   "channel": "mark normand",
+   "why": "\"Brightside\" - An Artsy Fartsy Comedy Sketch (sketch)",
+   "at": "2026-10-17"
+  },
+  {
+   "id": "hxBzR6iZ0hE",
+   "comic": "Ron White",
+   "title": "“NO PANTS PARTY”?! 🤣😂 | First Date ft. Ron White",
+   "channel": "Comedy Clips Central",
+   "why": "First Date ft. Ron White (TV show scene)",
+   "at": "2026-10-17"
+  },
+  {
+   "id": "EuPDb9r4Gqw",
+   "comic": "Ron White",
+   "title": "Your Fav TV Show Is WHAT?!?!🤣😂 | First Date fr. Ron White",
+   "channel": "Comedy Clips Central",
+   "why": "First Date ft. Ron White (TV show scene)",
+   "at": "2026-10-17"
+  },
+  {
+   "id": "ABml9AvVXQ4",
+   "comic": "Les Dawson",
+   "title": "Les Dawson - Cissie & Ada - Chatting on the Doorstep",
+   "channel": "gorlestonguy",
+   "why": "Les Dawson: Cissie & Ada (sketch)",
+   "at": "2026-10-17"
+  },
+  {
+   "id": "JA0BXcIeN0w",
+   "comic": "Lee Hurst",
+   "title": "Lee Hurst Stand Up Special Advert - Live At Her Majesty's Theatre London | 1997",
+   "channel": "80s, 90s, 00s TV from VHS",
+   "why": "Lee Hurst Stand Up Special Advert (VHS advert)",
+   "at": "2026-10-17"
+  },
+  {
+   "id": "XpTmjt3Sd9c",
+   "comic": "Byron Trimble",
+   "title": "THE GUY BEHIND TITANIC DISASTER - This Day in History - Hindsight Humor",
+   "channel": "Byron Trimble",
+   "why": "Byron Trimble: Titanic disaster / Hindsight Humor (history explainer)",
+   "at": "2026-10-17"
+  },
+  {
+   "id": "klps41AX9a8",
+   "comic": "Byron Trimble",
+   "title": "10/13/1792- White House Construction Begins - Hindsight Humor",
+   "channel": "Byron Trimble",
+   "why": "Byron Trimble: White House construction / Hindsight Humor (history explainer)",
+   "at": "2026-10-17"
+  },
+  {
+   "id": "fVmIEgZMz6c",
+   "comic": "Chic Murray",
+   "title": "Chic Murray's Funnyosities - TV Ad",
+   "channel": "Birlinn",
+   "why": "Chic Murray's Funnyosities - TV Ad (book advert)",
+   "at": "2026-10-17"
+  },
+  {
+   "id": "6ul1Fgg2jmw",
+   "comic": "Nick Offerman",
+   "title": "The Son of Notorious Arsonist Johnny Cool Tells His Story (feat. Nick Offerman) - Drunk History",
+   "channel": "Comedy Central",
+   "why": "Drunk History feat. Nick Offerman (scripted sketch show)",
+   "at": "2026-10-17"
+  },
+  {
+   "id": "-skA4GhVX7k",
+   "comic": "Norm Macdonald",
+   "title": "Stand-up about coronavirus",
+   "channel": "Norm Macdonald",
+   "why": "no-audience (home recording)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "hoYUX3gqZs4",
+   "comic": "Norm Macdonald",
+   "title": "Stand-up about coronavirus pt. 2",
+   "channel": "Norm Macdonald",
+   "why": "no-audience (home recording)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "7f0ZFu0iMqs",
+   "comic": "Casey Rocket",
+   "title": "Football Is Wife (I Want To Marry A Football)",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "ayP1_wWvcvk",
+   "comic": "Casey Rocket",
+   "title": "Unfathomable riffs 🐎🌅 This Thursday at Creek & Cave 🐻#standup #austin #standupcomedy #texas",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "O6-E2tvLpyc",
+   "comic": "Casey Rocket",
+   "title": "The Riff Goose Returns 🦀 This Friday 🦆 #standup #austin #texas #standupcomedy #crab",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "zNjYfz-qk9k",
+   "comic": "Casey Rocket",
+   "title": "Athens 🐶 2nite 🦀 Riff walls will fall 🫂 #standup #georgia #comedy #athens",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "gCPlwd9ePhE",
+   "comic": "Casey Rocket",
+   "title": "Houston: Big Riffs Academy 🦀 2nite",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "udLWVzmk5sI",
+   "comic": "Casey Rocket",
+   "title": "2nite 🌀 The Riff Coven begins their final transformation 🎃 #standupcomedy #comedy #austin #texas",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "nXavCUcL7NY",
+   "comic": "Casey Rocket",
+   "title": "You can’t spell Thursday without Dallas! (& Fort Worth) #standup #standupcomedy #dallas #comedy 🦀",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "hmqXxzemRis",
+   "comic": "Casey Rocket",
+   "title": "You already know what the score is pal 🙄 #austin #comedy #standup #texas #caseyrocket",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "UkRAI4eWFhQ",
+   "comic": "Casey Rocket",
+   "title": "The Crab 🦀 June 16th at Creek & Cave #comedy #texas #standupcomedy #caseyrocket #austin",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "QBr30J_vuEg",
+   "comic": "Casey Rocket",
+   "title": "A Home-Cooked Grimace Beatdown",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "j7OE-p8QfDo",
+   "comic": "Casey Rocket",
+   "title": "Top 4 Grimace Saw Traps",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "9fDdyzt_CFY",
+   "comic": "Casey Rocket",
+   "title": "The Riff Gauntlet: Circle of Tuss",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "yzFmHUXDL9Y",
+   "comic": "Casey Rocket",
+   "title": "The Mummy's Promise",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "723xrxG12GE",
+   "comic": "Casey Rocket",
+   "title": "A Walk Amongst The Riff Gardens",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "Jh1GwzuYkek",
+   "comic": "Casey Rocket",
+   "title": "My Ideal Relapse",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "DpcBAJ3eMK8",
+   "comic": "Casey Rocket",
+   "title": "🦀 Big Benadryl Crowd 🦀",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "FVVQXj6Ymso",
+   "comic": "Casey Rocket",
+   "title": "Crab Doctor Roasts Suspected Stink Mercenary",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "DcLeSQECCLQ",
+   "comic": "Casey Rocket",
+   "title": "Worm Report: A Sincere Apology ⚾️",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "nQDBwPTZvDw",
+   "comic": "Casey Rocket",
+   "title": "1-800-Riffs-4-Jar-Jar",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "bNpggSlk6S0",
+   "comic": "Casey Rocket",
+   "title": "Dancing King: A Seal Team 6 Flags Story 🇺🇸",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "7qde2ieLXIk",
+   "comic": "Casey Rocket",
+   "title": "*Leaked Footage* Busty Crab Sets North American Land Speed Record 😱",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "bfkVV22QqKw",
+   "comic": "Casey Rocket",
+   "title": "The Riff Martyr: Judgement Day",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "4dve41SHnKE",
+   "comic": "Casey Rocket",
+   "title": "~ Pumpkin Set ~",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "sd2Qc_--UOA",
+   "comic": "Casey Rocket",
+   "title": "Mommas Don’t Let Your Babies Grow Up To Be Riff Cowboys 🐎",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "0nXq7ptrQ4Q",
+   "comic": "Casey Rocket",
+   "title": "BLOOD MOON: The Most Erotic of Prophecies 🙏",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "2RE4mGM5RuY",
+   "comic": "Casey Rocket",
+   "title": "Taking a ride on the riff express, all aboard for Laughsville",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "9we8zFqR17o",
+   "comic": "Casey Rocket",
+   "title": "The Doc’s Diaries: Coins Is Food",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "oS9I8LBqM6c",
+   "comic": "Casey Rocket",
+   "title": "Boise’s Dogshit Science Center",
+   "channel": "Casey Rocket",
+   "why": "not-standup (riff promos/sketches; replaced by Kill Tony sets)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "HXtHOjH4xMU",
+   "comic": "Louis C.K.",
+   "title": "Louis CK at the Improv in Louisville KY 1/22-24",
+   "channel": "Louis C.K.",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "uYi77GN1px8",
+   "comic": "Mark Normand",
+   "title": "Mark Normand BREAKS DOWN His SECRET to Writing a Joke!! #shorts",
+   "channel": "mark normand",
+   "why": "commentary",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "Zv9NWSzLG0c",
+   "comic": "Mark Normand",
+   "title": "Big Fan! Mark meets a super fan in Jersey. #comedy #marknormand #funny #shorts",
+   "channel": "mark normand",
+   "why": "vlog",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "G4UMa-0YUYY",
+   "comic": "Mark Normand",
+   "title": "Mark normand & ishowspeed collabing?? Wild! #comedy #marknormand #shorts #twitch",
+   "channel": "mark normand",
+   "why": "vlog",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "3mfp-om_zWM",
+   "comic": "Mark Normand",
+   "title": "Critic Breaks Down Mark Normand's Joke Writing Secrets & Techniques #shorts",
+   "channel": "mark normand",
+   "why": "commentary",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "3ttcCK32clg",
+   "comic": "Mark Normand",
+   "title": "Mark Normand's Kobe Bryant Joke | Animated #shorts",
+   "channel": "mark normand",
+   "why": "animation",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "-6qISjhJCaE",
+   "comic": "Mark Normand",
+   "title": "Mark Normand | The Evolution of a Bit | Weed vs. Cigarettes #shorts",
+   "channel": "mark normand",
+   "why": "commentary",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "sWbdnZeBDnA",
+   "comic": "Mark Normand",
+   "title": "Joke-ology: Mark Normand",
+   "channel": "mark normand",
+   "why": "commentary",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "EyX3IEIfVIE",
+   "comic": "Mark Normand",
+   "title": "Making The Joke with Mark Normand - Selfies and Lady Detectives",
+   "channel": "mark normand",
+   "why": "commentary",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "_GOebANEiDU",
+   "comic": "Mark Normand",
+   "title": "Skateboarding is like comedy - Mark Normand #shorts",
+   "channel": "mark normand",
+   "why": "vlog",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "T7TPvupWuk4",
+   "comic": "Mark Normand",
+   "title": "MARK NORMAND - Rhythms of Comedy #shorts",
+   "channel": "mark normand",
+   "why": "vlog",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "EfAU2H2I4Xs",
+   "comic": "Mark Normand",
+   "title": "Mopeds and Comedy! #shorts",
+   "channel": "mark normand",
+   "why": "vlog",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "f3PJF0YE-x4",
+   "comic": "Chris Rock",
+   "title": "Chris Rock - Black People VS. Niggaz (Bring the Pain 1996)",
+   "channel": "SatiricalGameReviews",
+   "why": "embed-fail: Sorry, this content is age-restricted",
+   "at": "2026-10-18",
+   "by": "standup-audit:rule"
+  },
+  {
+   "id": "koSiuJRoOmg",
+   "comic": "Chris Rock",
+   "title": "Chris rock destroys will smith",
+   "channel": "VIP BARBERS",
+   "why": "embed-fail: Sorry, this content is age-restricted",
+   "at": "2026-10-18",
+   "by": "standup-audit:rule"
+  },
+  {
+   "id": "9AqeGogHetw",
+   "comic": "Louis C.K.",
+   "title": "Louis C.K. - Gay Marriage, Ewan McGregor (한글자막) (Shameless, 2007, HBO)",
+   "channel": "JB2031",
+   "why": "embed-fail: Sorry, this content is age-restricted",
+   "at": "2026-10-18",
+   "by": "standup-audit:rule"
+  },
+  {
+   "id": "-LlydlYTcsI",
+   "comic": "Louis C.K.",
+   "title": "Louis CK 2015 - SNL Monologue, greek subs ( ελληνικοί υπότιτλοι)",
+   "channel": "stand up comedy with greek subs",
+   "why": "embed-fail: Video unavailable",
+   "at": "2026-10-18",
+   "by": "standup-audit:rule"
+  },
+  {
+   "id": "6ZD17i3N42k",
+   "comic": "Louis C.K.",
+   "title": "How You Like Them Apples?",
+   "channel": "Louis C.K. - Topic",
+   "why": "audio-only (auto-generated album track, static image)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "i3TBNkbftGQ",
+   "comic": "Louis C.K.",
+   "title": "Everybody Has Their Time",
+   "channel": "Louis C.K. - Topic",
+   "why": "audio-only (auto-generated album track, static image)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "O1eKLltGLt0",
+   "comic": "Louis C.K.",
+   "title": "Louis CK's Marijuana Mistake",
+   "channel": "Gary Enwards",
+   "why": "embed-fail: Sorry, this content is age-restricted",
+   "at": "2026-10-18",
+   "by": "standup-audit:rule"
+  },
+  {
+   "id": "xq_QqC2Nkqo",
+   "comic": "Louis C.K.",
+   "title": "Intro / Dead People",
+   "channel": "Louis C.K. - Topic",
+   "why": "audio-only (auto-generated album track, static image)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "roRtGd4HMpg",
+   "comic": "Louis C.K.",
+   "title": "Other People's Kids",
+   "channel": "Louis C.K. - Topic",
+   "why": "audio-only (auto-generated album track, static image)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "zuLrBLxbLxw",
+   "comic": "Louis C.K.",
+   "title": "Louis C.K - Cunt & Nigger",
+   "channel": "JhonnyC323",
+   "why": "embed-fail: Sorry, this content is age-restricted",
+   "at": "2026-10-18",
+   "by": "standup-audit:rule"
+  },
+  {
+   "id": "3l09rmSs9p0",
+   "comic": "Louis C.K.",
+   "title": "Processing Shame",
+   "channel": "Louis C.K. - Topic",
+   "why": "audio-only (auto-generated album track, static image)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "0720ucDf9JY",
+   "comic": "Louis C.K.",
+   "title": "Melania Trump - Louis CK - Racism",
+   "channel": "c2prusa",
+   "why": "wrong-comic",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "vbLf9Ixf7Z8",
+   "comic": "Louis C.K.",
+   "title": "Louis CK Ghostbusters",
+   "channel": "Owen Fitzgerald",
+   "why": "wrong-comic",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "sePS8-J0zaM",
+   "comic": "Louis C.K.",
+   "title": "Louis C. K. At #InnerCircle with Bill de Blasio",
+   "channel": "Azi Paybarah",
+   "why": "sketch-show",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "MEYbL1-62Zk",
+   "comic": "Norm Macdonald",
+   "title": "Norm Macdonald Most Brutal Jokes as the Weekend Update Host",
+   "channel": "Norm Macdonald Video Archive",
+   "why": "sketch-show (SNL Weekend Update)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "OtpJzZJ-BNM",
+   "comic": "Norm Macdonald",
+   "title": "Norm MacDonald on Women Drivers #normmacdonaldsnl #snl #normmacdonald",
+   "channel": "TheNormExperience",
+   "why": "sketch-show (SNL Weekend Update)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "Pt9F1ADNfsg",
+   "comic": "Norm Macdonald",
+   "title": "I’ve watched this clip an unhealthy amount of times- Norm Macdonald- SNL",
+   "channel": "Chairman of the Bored",
+   "why": "sketch-show (SNL Weekend Update)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "r7drK5-sMns",
+   "comic": "Michael Che",
+   "title": "Weekend Update: Colin Jost and Michael Che Swap Jokes for Season 46 Finale - SNL",
+   "channel": "Saturday Night Live",
+   "why": "sketch-show (SNL Weekend Update)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "HPH0HgotIE4",
+   "comic": "Michael Che",
+   "title": "Weekend Update: Colin Jost and Michael Che Swap Jokes for Season 49 Finale - SNL",
+   "channel": "Saturday Night Live",
+   "why": "sketch-show (SNL Weekend Update)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "KX5Z-HpHH9g",
+   "comic": "Adam Sandler",
+   "title": "Weekend Update: Adam Sandler on Hanukkah - SNL",
+   "channel": "Saturday Night Live",
+   "why": "sketch-show (SNL Weekend Update)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "NN3xASDMwO8",
+   "comic": "Uncle Lazer",
+   "title": "Joke Wrld use to do comedy!?",
+   "channel": "Uncle Lazer",
+   "why": "commentary (about other comics)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "4N35gC6RW64",
+   "comic": "Jerry Sadowitz",
+   "title": "Jerry Sadowitz in  Edinburgh International Comedy Festival. 2022 . Copyright - Great Glasgow Humour",
+   "channel": "jack elliot",
+   "why": "news",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "ABTYH5RIjWU",
+   "comic": "Jo Brand",
+   "title": "Jo Brand does Britney Spears - Let's Dance for Comic Relief - BBC",
+   "channel": "BBC",
+   "why": "dance-performance",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "NTnB4ohig-c",
+   "comic": "Mark Thomas",
+   "title": "Mark Thomas: Gaffa Tapes",
+   "channel": "Cambridge Junction",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "zOV2M42e85o",
+   "comic": "Mark Thomas",
+   "title": "Mark Thomas - I must not chalk the Pavement",
+   "channel": "Voices from Oxford",
+   "why": "news",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "Bl9LEbussr8",
+   "comic": "Jerry Sadowitz",
+   "title": "Jerry Sadowitz copyright strike- part 4/1- The Sad-o-wakens",
+   "channel": "Blind Tube Mare",
+   "why": "commentary",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "K2nzSLhYfxI",
+   "comic": "David Baddiel",
+   "title": "David Baddiel Trolls: Not the Dolls | THU 28 OCTOBER 2021",
+   "channel": "G Live",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "-1E9PZQKklQ",
+   "comic": "Rob Newman",
+   "title": "Rob Newman--Jarvis",
+   "channel": "KiruBanzai",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "O8WhP49UCfc",
+   "comic": "Rob Newman",
+   "title": "Rob Newman as \"Jarvis\" - '93, stereo",
+   "channel": "RJBinghamesq",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "da7TEq-JUuk",
+   "comic": "Dave Spikey",
+   "title": "Dave Spikey's monologue after being dropped.",
+   "channel": "EmilyFeller",
+   "why": "sitcom",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "8woKRDKHHKw",
+   "comic": "Dave Spikey",
+   "title": "Dave Spikey - He Took My Kidney",
+   "channel": "Michael O'Mara Books",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "dCRjgQjT2CQ",
+   "comic": "Lee Hurst",
+   "title": "Alternative Name Game with Lee Hurst - BBC sports comedy",
+   "channel": "BBC Studios",
+   "why": "panel-show",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "jarGczTCm_c",
+   "comic": "Rhona Cameron",
+   "title": "Rhona Cameron backstage at Stand Up For Freedom",
+   "channel": "Amnesty International UK",
+   "why": "backstage",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "kZWcaxYNKIM",
+   "comic": "Mike Reid",
+   "title": "Mike Reid - Walk On Faith",
+   "channel": "MikeReidVEVO",
+   "why": "music (different Mike Reid)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "hg8pkF0l7AA",
+   "comic": "John Thomson",
+   "title": "John Thomson and Fay Ripley at British Comedy Awards 2009",
+   "channel": "British Comedy Awards",
+   "why": "awards-presenting",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "cpr_RfcM3AY",
+   "comic": "John Thomson",
+   "title": "John Thomson (Comedian)",
+   "channel": "Wiki4All",
+   "why": "filler",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "7l1Xy4FJ_vY",
+   "comic": "Arthur Smith",
+   "title": "Arthur Smith....Joke of theweek... BBC Radio 4.",
+   "channel": "allsortstogo",
+   "why": "audio-only",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "jwEFDog9kzk",
+   "comic": "Arthur Smith",
+   "title": "Arthur Smith: My First 75 Years in Comedy",
+   "channel": "The Pleasance",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "ZQGWr8bdFC4",
+   "comic": "Arthur Smith",
+   "title": "ARTURART at the Bath Comedy Festival with Arthur Smith",
+   "channel": "Bath Comedy",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "UKeOLOJ6xxw",
+   "comic": "Frank Carson",
+   "title": "Frank Carson: A Rebel Without A Pause at the Grand Opera House",
+   "channel": "Grand Opera House",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "LS37SNYjg8w",
+   "comic": "Harry Enfield",
+   "title": "Women: Know Your Limits! Harry Enfield - BBC comedy",
+   "channel": "BBC Studios",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "IRfluaMKoOY",
+   "comic": "Harry Enfield",
+   "title": "Police in Amsterdam - Harry Enfield and Chums - BBC comedy",
+   "channel": "BBC Studios",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "ULeDlxa3gyc",
+   "comic": "Harry Enfield",
+   "title": "Harry Enfield - Loadsamoney (Doin' Up the House)",
+   "channel": "ohnoitisnathan54",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "jY4tD2Hbg_A",
+   "comic": "Harry Enfield",
+   "title": "HARRY ENFIELD- THE YORKSHIREMAN",
+   "channel": "musoneil",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "EbWLlqCCl9s",
+   "comic": "Harry Enfield",
+   "title": "The Old Gits - Harry Enfield & Chums - Comedy TV",
+   "channel": "KEEP LAUGHING - Comedy TV",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "haDeQpbk3l0",
+   "comic": "Tommy Trinder",
+   "title": "Tommy Trinder Features: Remote Selling",
+   "channel": "TommyTrinder.com",
+   "why": "wrong-entity (window company)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "7swCXcYGWTc",
+   "comic": "Tommy Trinder",
+   "title": "Beat The Clock Special - Sunday Night at London Palladium 1958 with host Tommy Trinder!",
+   "channel": "Pal Joey",
+   "why": "game-show",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "2L8iIjcISDM",
+   "comic": "Joe Pasquale",
+   "title": "Joe Pasquale - First Ever Magic and Illusions Act",
+   "channel": "Jackpot ButtonLewis",
+   "why": "magic-act",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "Rkm5qLCcBEY",
+   "comic": "Paul Merton",
+   "title": "Paul Merton The Series - The Whole Truth",
+   "channel": "getoffmysteps",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "N1vOEWAN-xg",
+   "comic": "Helen Bauer",
+   "title": "‘Downward Facing Dog Isn’t Mental Health Treatment’ - Helen Bauer | Pep Talk",
+   "channel": "Comedy Central UK",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "hXRqjw98tHs",
+   "comic": "Sara Pascoe",
+   "title": "The best way to kill someone... | Sara Pascoe LadsLadsLads - BBC",
+   "channel": "BBC",
+   "why": "sitcom",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "uESxzK_kuRg",
+   "comic": "Barry Humphries",
+   "title": "Barry Humphries: Behind the Mask",
+   "channel": "Arts Theatre Cambridge",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "1LaOl_PKmbg",
+   "comic": "AY Makun",
+   "title": "THE STANDUP | Latest Nollywood cinema release 2026 | Richard Mofe-Damijo | AY Makun | Eso Dike",
+   "channel": "The Trendsz",
+   "why": "film",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "nr0RPVvKWDI",
+   "comic": "Fary",
+   "title": "Fary - Faciès | A COLORS SHOW",
+   "channel": "COLORS",
+   "why": "music",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "DX61IsYItRw",
+   "comic": "He Guangzhi",
+   "title": "The famous Chinese stand-up comedian He Guangzhi said happy new year to his fellowmen",
+   "channel": "会做饭的萨摩耶",
+   "why": "filler",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "tg-4sLzqv6M",
+   "comic": "Malena Pichot",
+   "title": "Malena Pichot: Estupidez compleja | Tráiler oficial | Netflix",
+   "channel": "Netflix Latinoamérica",
+   "why": "trailer",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "McVkOw3Y8IM",
+   "comic": "Malena Pichot",
+   "title": "MALENA PICHOT - Enojate Hermana",
+   "channel": "Futurock FM",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "ogBft2PZgcc",
+   "comic": "Seyi Law",
+   "title": "Orijin Comedy Skit with Seyi Law",
+   "channel": "Lucid AV",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "CVOJLbkmOC4",
+   "comic": "Whindersson Nunes",
+   "title": "Adulto | Especial de comédia do Whindersson Nunes | Netflix",
+   "channel": "Netflix Brasil",
+   "why": "trailer",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "tnX6jwLFEJ8",
+   "comic": "Marlon Wayans",
+   "title": "Marlon Wayans | March 19, 2026 at The Hanover Theatre",
+   "channel": "The Hanover Theatre and Conservatory for the Performing Arts",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "-synDIbJdz8",
+   "comic": "Reggie Watts",
+   "title": "Reggie Watts Stand Up Reel",
+   "channel": "Avalon Comedy NYC",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "0q08N63z-N8",
+   "comic": "Mort Sahl",
+   "title": "Mort Sahl - Changed The History Of Comedy",
+   "channel": "Woody Allen - Topic",
+   "why": "audio-only (auto-generated album track, static image)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "7Xybtb4Aasc",
+   "comic": "Mort Sahl",
+   "title": "Mort Sahl Q And A | Rowan & Martin's Laugh-In | George Schlatter",
+   "channel": "Rowan & Martin's Laugh-In",
+   "why": "sketch-show",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "fW4lZyMPs0g",
+   "comic": "Roseanne Barr",
+   "title": "Roseanne Barr's Stand Up Comedy Comeback | Fox Nation Exclusive",
+   "channel": "Fox Nation",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "PDBHM9LCPEw",
+   "comic": "Woody Allen",
+   "title": "Woody Allen - Annie Hall (Funniest Scene)",
+   "channel": "_Thanos:TheHandsOfFate _",
+   "why": "film",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "bmRQ4lHrpRw",
+   "comic": "George Burns",
+   "title": "Jack Benny and George Burns | Take A Nap | The Smothers Brothers Comedy Hour",
+   "channel": "The Smothers Brothers",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "0RrHyClw9e0",
+   "comic": "Lily Tomlin",
+   "title": "Lily Tomlin | Highlights | Rowan & Martin's Laugh-In",
+   "channel": "Rowan & Martin's Laugh-In",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "TtC7-bdSYBo",
+   "comic": "Jak Knight",
+   "title": "Remembering Jak Knight",
+   "channel": "Comedy Central Stand-Up",
+   "why": "tribute",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "lPCWcyRLt2A",
+   "comic": "Brendan Schaub",
+   "title": "Brendan Schaub Gets Caught Stealing Jokes from Popular TV show",
+   "channel": "American Redact",
+   "why": "commentary",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "txrACt6gBwY",
+   "comic": "Brendan Schaub",
+   "title": "Brendan Schaub's DELUSIONAL Take On Why His Comedy Special Is Hated!!!",
+   "channel": "Yew Neek Entertainment",
+   "why": "commentary",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "16pyTCKKNLY",
+   "comic": "Jeff Garlin",
+   "title": "Jeff Garlin stands up in new special",
+   "channel": "Associated Press",
+   "why": "news",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "pcwlsVBPe-M",
+   "comic": "Wheeler Walker",
+   "title": "Wheeler Walker Jr. - Puss in Boots",
+   "channel": "WheelerWalkerJrVEVO",
+   "why": "music",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "osLTSjP7gw8",
+   "comic": "Wheeler Walker",
+   "title": "Wheeler Walker, Jr. - F*cked By A Country Boy",
+   "channel": "Wheeler Walker Jr.",
+   "why": "music",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "V7FPMk6tiQ4",
+   "comic": "Drew Michael",
+   "title": "Meet Drew Michael | Stand-Up Special | HBO",
+   "channel": "HBO",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "RYH3_SS_4LA",
+   "comic": "Moses Storm",
+   "title": "How to make your own HBO standup comedy special- Moses Storm: Trash White",
+   "channel": "Moses Storm",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "i4xCTFxLNh0",
+   "comic": "Chelsea Peretti",
+   "title": "Kroll Show - Look Like Dis (ft. Chelsea Peretti and Jenny Slate)",
+   "channel": "Comedy Central",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "xF5-VGxDh1E",
+   "comic": "Chelsea Peretti",
+   "title": "Chelsea Peretti Prank Calls a Hat Store - Crank Yankers (NEW)",
+   "channel": "Comedy Central",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "hYVuc9YnXwI",
+   "comic": "Dave Attell",
+   "title": "Dave Attell - Jagermeister Ads",
+   "channel": "Tim Miller",
+   "why": "ad",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "shgU5Yh8Srs",
+   "comic": "Adam Devine",
+   "title": "Adam Devine | If Adults Reacted Like Kids | Netflix Is A Joke",
+   "channel": "Netflix Is A Joke",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "f4TdKezuIm0",
+   "comic": "Fred Armisen",
+   "title": "fred armisen being iconic for 8 minutes straight | Brooklyn Nine-Nine VS Parks & Rec | Comedy Bites",
+   "channel": "Comedy Bites",
+   "why": "sitcom",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "Ra8yAg6T3-s",
+   "comic": "Kate Berlant",
+   "title": "Netflix Presents: The Characters | Kate Berlant | Netflix",
+   "channel": "Netflix",
+   "why": "sketch",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "Q9jqoBL5KPU",
+   "comic": "Arsenio Hall",
+   "title": "Michael Blackson Standup on The Arsenio Hall Show",
+   "channel": "Michael Blackson",
+   "why": "wrong-comic",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "x2QXyvS7egU",
+   "comic": "Andy Hendrickson",
+   "title": "Andy Hendrickson TV, Film and Stand-up REEL",
+   "channel": "Andy Hendrickson",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "CcKYEAWD1yc",
+   "comic": "Ania Magliano",
+   "title": "Weekend Update: Hand In Hand with Ania Magliano and Paddy Young | SNL UK",
+   "channel": "Saturday Night Live UK",
+   "why": "sketch-show (SNL Weekend Update)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "C4u_CQWuHHM",
+   "comic": "Ania Magliano",
+   "title": "Saturday Night Live UK: Ania Magliano & Paddy Young on Weekend Update | Today Show Australia",
+   "channel": "TODAY",
+   "why": "sketch-show (SNL Weekend Update)",
+   "at": "2026-10-18",
+   "by": "standup-audit:title"
+  },
+  {
+   "id": "nHNhkeQDBBs",
+   "comic": "Eric Tartaglione",
+   "title": "The Prime Time Comedy Club presents Eric Tartaglione on July 11, 2025.",
+   "channel": "FamousVisions Marketing",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "T4FX2rGAAaM",
+   "comic": "Hollie Harper",
+   "title": "The \"Hella Late! with Hollie Harper \" Comedian Playlist",
+   "channel": "Hella Hollie!",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "yQu-0oVTtWE",
+   "comic": "Jayson Thibault",
+   "title": "Riddles Comedy club August 29th Jayson Thibault with Koffe Black and Billy Dodaor",
+   "channel": "I Hate Billy D",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "j3dWH0KDKRM",
+   "comic": "Kam Patterson",
+   "title": "Weekend Update: Kam Patterson on Megan Thee Stallion and Klay Thompson's Breakup - SNL",
+   "channel": "Saturday Night Live",
+   "why": "sketch-show (SNL Weekend Update)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "L50W0393rOc",
+   "comic": "Kam Patterson",
+   "title": "Weekend Update: Kam Patterson Gives His Thoughts on the Glee Reboot - SNL",
+   "channel": "Saturday Night Live",
+   "why": "sketch-show (SNL Weekend Update)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "B-HRwYpicmo",
+   "comic": "Liv Taylor",
+   "title": "Liv Taylor - Fergie - Big girls don´t cry",
+   "channel": "LoisPrincessVertigo",
+   "why": "music",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "VWAhbaQFzRw",
+   "comic": "Marcello Hernandez",
+   "title": "Weekend Update: Marcello Hernández on Depression in Men - SNL",
+   "channel": "Saturday Night Live",
+   "why": "sketch-show (SNL Weekend Update)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "dw0ifECyfPI",
+   "comic": "Marcello Hernandez",
+   "title": "Weekend Update: Marcello Hernández Translates Gen Z Terms - SNL",
+   "channel": "Saturday Night Live",
+   "why": "sketch-show (SNL Weekend Update)",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "AjtCNUGcnr8",
+   "comic": "Willie Hunter",
+   "title": "Willie Hunter Show - Italian Christmas '13",
+   "channel": "Sandro",
+   "why": "wrong-comic",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  },
+  {
+   "id": "xDwV2dqj70A",
+   "comic": "Paul O'Grady",
+   "title": "Paul O'Grady Live - ITV",
+   "channel": "Tim Millard",
+   "why": "promo",
+   "at": "2026-10-18",
+   "by": "standup-audit:manual"
+  }
+ ]
+}

@@ -1,0 +1,43 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://www.funnier.si/schema/clip-tags.schema.json",
+ "title": "Funnier clip tags v1",
+ "description": "clip.tags in clips.json. Granular, metadata-only tags for topic heats (3/4-way) and topic compilations. Every inferred value is a triple [value, confidence 0..1, source]. Source: rule (derived from other clip fields / channel lists), title (YouTube title), desc (YouTube description snippet, Shorts description/keywords), manual (human-reviewed; never overwritten by tools/tag-clips.py). No transcripts or bit text are ever stored. format, region, carrier and sec stay top-level clip fields (see TAGS.md).",
+ "type": "object",
+ "required": ["v", "topics", "premise", "style", "setting", "crowdwork", "lang", "year", "era", "band", "rating"],
+ "additionalProperties": false,
+ "$defs": {
+  "src": {"enum": ["rule", "title", "desc", "manual"]},
+  "conf": {"type": "number", "minimum": 0, "maximum": 1},
+  "topicId": {"type": "string", "pattern": "^[a-z0-9-]+(/[a-z0-9-]+)*$", "description": "Slash path into schema/topics.json (root/branch/leaf). Ancestors are implied, never stored."},
+  "style": {"enum": ["one-liners", "storytelling", "observational", "absurd", "dark", "deadpan", "crowd-work", "self-deprecating", "rant", "physical", "act-out", "impressions", "musical"]},
+  "setting": {"enum": ["stand-up", "club", "special", "tv-showcase", "festival", "talk-show-spot", "kill-tony", "roast", "competition", "awards-show", "chat"]}
+ },
+ "properties": {
+  "v": {"const": 1},
+  "topics": {
+   "type": "array",
+   "description": "Most specific matching nodes, highest confidence first. title matches 0.8 (leaf) / 0.7 (inner node); desc matches 0.4.",
+   "items": {"type": "array", "prefixItems": [{"$ref": "#/$defs/topicId"}, {"$ref": "#/$defs/conf"}, {"$ref": "#/$defs/src"}], "minItems": 3, "maxItems": 3}
+  },
+  "premise": {
+   "description": "Short bit label in our own words (cleaned from the upload title; comic name, channel and special names removed). null when the title carries no bit (e.g. 'Stand Up - 2009', Kill Tony episode numbers).",
+   "oneOf": [{"type": "null"}, {"type": "array", "prefixItems": [{"type": "string", "maxLength": 90}, {"$ref": "#/$defs/conf"}, {"$ref": "#/$defs/src"}], "minItems": 3, "maxItems": 3}]
+  },
+  "style": {
+   "type": "array",
+   "description": "Clip-level style evidence only. The comic-level persona prior (funnygraph) stays in the top-level clip.style.",
+   "items": {"type": "array", "prefixItems": [{"$ref": "#/$defs/style"}, {"$ref": "#/$defs/conf"}, {"$ref": "#/$defs/src"}], "minItems": 3, "maxItems": 3}
+  },
+  "setting": {"type": "array", "prefixItems": [{"$ref": "#/$defs/setting"}, {"$ref": "#/$defs/conf"}, {"$ref": "#/$defs/src"}], "minItems": 3, "maxItems": 3},
+  "crowdwork": {"type": "boolean"},
+  "lang": {"type": "array", "prefixItems": [{"type": "string", "pattern": "^[a-z]{2}$"}, {"$ref": "#/$defs/conf"}, {"$ref": "#/$defs/src"}], "minItems": 3, "maxItems": 3},
+  "year": {
+   "description": "Best estimate of the performance year. src desc = upload year (an upper bound), low confidence.",
+   "oneOf": [{"type": "null"}, {"type": "array", "prefixItems": [{"type": "integer", "minimum": 1940, "maximum": 2100}, {"$ref": "#/$defs/conf"}, {"$ref": "#/$defs/src"}], "minItems": 3, "maxItems": 3}]
+  },
+  "era": {"oneOf": [{"type": "null"}, {"type": "string", "pattern": "^(19|20)[0-9]0s$"}]},
+  "band": {"oneOf": [{"type": "null"}, {"enum": ["short", "mid", "long", "xl"]}], "description": "short <=75 s, mid <=180 s, long <=420 s, xl >420 s"},
+  "rating": {"type": "array", "prefixItems": [{"enum": ["clean", "explicit", "unknown"]}, {"$ref": "#/$defs/conf"}, {"$ref": "#/$defs/src"}], "minItems": 3, "maxItems": 3}
+ }
+}

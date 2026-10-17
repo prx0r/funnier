@@ -10,6 +10,9 @@
 //   fd the feed the round came from: trending | foryou | underdog | vibes | cat (src/feeds.js), so the trainer separates the arms
 //   cat the category slug when fd = cat;  u the underdog clip id when fd = underdog ("underdog beat legend" moments)
 //   sc the region scope in force (funnygraph region key or global)
+//   g  the core pair scorer's terms x1000 (src/feeds.js corePick, every ranking feed): [gain, top, quality, rel, feed bonus]
+//      with pp = P(this pair | the candidate set) x1e6 (randomised choice among the top N by score)
+//   lk the link that joined the pair ('topic:dating', 'nb:0.36', 'tag:dark', 'ss:0.62', 'none');  fb 1 = unrelated fallback
 export const POLICY_MODES = ['foryou', 'training', 'explore', 'shared', 'daily', 'rewatch', 'trending', 'underdog', 'vibes', 'category']
 export const POLICY_FEEDS = ['trending', 'foryou', 'underdog', 'vibes', 'cat']
 const int = (x, a, b) => { const n = Number(x); return Number.isFinite(n) ? Math.max(a, Math.min(b, Math.round(n))) : null }
@@ -24,6 +27,9 @@ export function cleanPolicy(p) {
   if (typeof p.cat === 'string' && /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(p.cat)) o.cat = p.cat
   if (typeof p.u === 'string' && /^[A-Za-z0-9_-]{6,20}$/.test(p.u)) o.u = p.u
   if (typeof p.sc === 'string' && /^[a-z][a-z-]{1,24}$/.test(p.sc)) o.sc = p.sc
+  if (Array.isArray(p.g) && p.g.length === 5) { const a = p.g.map((x) => int(x, 0, 1e8)); if (a.every((x) => x != null)) o.g = a }
+  if (typeof p.lk === 'string' && /^(none|[a-z]{2,5}:[a-z0-9.-]{1,24})$/.test(p.lk)) o.lk = p.lk
+  if (p.fb === 1 || p.fb === true) o.fb = 1
   if (typeof p.v === 'string' && /^[a-z0-9.-]{1,40}$/i.test(p.v)) o.v = p.v
   return o
 }

@@ -305,6 +305,7 @@ body.screening #stage{touch-action:none}
 .theatre .screen.small.gone{transform:translate3d(-28%,0,0) scale(.3)}
 .theatre .frame{border-radius:0;box-shadow:none;background:#000}
 .shield{position:absolute;inset:0;z-index:3;background:transparent;cursor:pointer;touch-action:none}
+.frame iframe{pointer-events:none} /* taps never reach the YouTube player (no link out to YouTube); the shield handles them */
 .theatre .label{position:absolute;left:0;right:0;bottom:0;z-index:4;margin:0;display:flex;align-items:flex-end;gap:12px;
   padding:clamp(36px,10%,96px) calc(clamp(6px,1.4vw,16px) + 96px) clamp(16px,2.8vw,32px) clamp(14px,2.6vw,36px); /* right: room for the speaker + fullscreen buttons */
   background:linear-gradient(to top,rgba(0,0,0,.66),rgba(0,0,0,.28) 55%,rgba(0,0,0,0));pointer-events:none;transition:opacity .35s ease}

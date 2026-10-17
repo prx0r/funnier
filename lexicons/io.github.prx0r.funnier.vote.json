@@ -278,6 +278,26 @@
           "type": "string",
           "maxLength": 25,
           "description": "Region scope in force (funnygraph region key or global)."
+        },
+        "g": {
+          "type": "array",
+          "maxLength": 5,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "Core pair scorer terms x1000 (src/feeds.js corePick): gain, top, quality, relatedness bonus, feed bonus"
+        },
+        "lk": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "The link that joined the pair: topic:<t> | nb:<sim> | tag:<t> | ss:<sim> | none"
+        },
+        "fb": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "1 = no related opponent passed the hard rules (unrelated fallback)"
         }
       }
     }

@@ -56,6 +56,7 @@ try { execSync('npx wrangler d1 execute funnier --local --file migrations/0007_h
 execSync('npx wrangler d1 execute funnier --local --file migrations/0008_characters_versions.sql', { stdio: 'ignore' }) // idempotent
 execSync('npx wrangler d1 execute funnier --local --file migrations/0009_watches.sql', { stdio: 'ignore' }) // idempotent
 try { execSync('npx wrangler d1 execute funnier --local --file migrations/0010_feeds_categories.sql', { stdio: 'ignore' }) } catch {} // already applied -> duplicate column
+execSync('npx wrangler d1 execute funnier --local --file migrations/0011_unplayable_events.sql', { stdio: 'ignore' }) // idempotent (table rebuild)
 execSync(`npx wrangler d1 execute funnier --local --command "DELETE FROM votes; DELETE FROM friends; DELETE FROM invites; DELETE FROM invite_opens; DELETE FROM users; DELETE FROM laughs; DELETE FROM clip_durations; DELETE FROM clip_audio; DELETE FROM watch_events; DELETE FROM humour_profiles; DELETE FROM profiles; DELETE FROM specials_log; DELETE FROM sets; DELETE FROM characters; DELETE FROM model_versions; DELETE FROM watches; DELETE FROM categories; DELETE FROM category_follows;"`, { stdio: 'ignore' })
 const PORT = 8797, BASE = `http://127.0.0.1:${PORT}`
 const dev = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT), '--ip', '127.0.0.1',
@@ -170,6 +171,13 @@ try {
   row = sql(`SELECT stage, clip, watched_sec, signals FROM watch_events WHERE kind = 'skip' AND a = '${SA}'`)[0]
   ok(row.stage === 'right-skip' && row.clip === SB && row.watched_sec === 12 && JSON.parse(row.signals).rightSkippedAt === 95, 'skip event stores clip, stage, skippedAt')
   r = await J('POST', '/events', null, { events: evs }); ok(r.s === 401, 'POST /events needs a session')
+  { // unplayable: an embed error / stalled start, reported anonymously with the device id (and only that kind)
+    const now2 = new Date().toISOString()
+    r = await J('POST', '/events', null, { device: 'devUnplay01', events: [{ kind: 'unplayable', a: 'unplayAAAAA', b: 'unplayBBBBB', clip: 'unplayAAAAA', stage: 'err-150', createdAt: now2 }] })
+    const row = sql(`SELECT user_id, kind, stage, clip FROM watch_events WHERE clip = 'unplayAAAAA'`)[0]
+    ok(r.s === 200 && r.j.saved === 1 && row?.kind === 'unplayable' && row.stage === 'err-150' && row.user_id === 'd:devUnplay01', `POST /events kind unplayable, anonymous with a device id (${JSON.stringify(row)})`)
+    r = await J('POST', '/events', null, { device: 'devUnplay01', events: [{ kind: 'skip', a: 'unplayAAAAA', b: 'unplayBBBBB', createdAt: now2 }] }); ok(r.s === 401, 'anonymous: only unplayable reports, never skips/passes')
+  }
   // ---- daily clash done on any device ----
   r = await J('GET', '/me/daily/2026-10-16', t2); ok(r.s === 200 && r.j.done === false, `GET /me/daily before watching -> not done (${JSON.stringify(r.j)})`)
   r = await J('POST', '/events', t2, { events: [{ kind: 'pass', a: 'dlyAAAAAAAA', b: 'dlyBBBBBBBB', stage: 'vote', daily: '2026-10-16', createdAt: new Date().toISOString() }] })

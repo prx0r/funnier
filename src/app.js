@@ -10,7 +10,8 @@ import { handoff } from './handoff.js' // characters2 handoff export
 import { resolveParams } from './screening.js'
 import { recordWatch, mergeLogs, migrateLegacy, tierOf, eligible, freshness, authorMult, seenDate, cleanEntry, FINISH_FRAC, GLANCE_FRAC, GLANCE_SEC } from './seen.js' // seen tracking + the rotation's never-again rule
 import { cleanPolicy } from './policy.js'
-import { FEEDS, isFeed, GLOBAL, comicFacts, scopeOK, cleanScope, parsePrompt, chipLabel, cleanFilter, matchFilter, filterVerdict, slugify, CURATED, pickTrending, pickUnderdog, pickVibes } from './feeds.js' // feeds, region scope, categories // the screening's constants (learned values only when the gate passed)
+import { fitPosterior, priorMean } from './rank.js' // the crowd ranking's posterior (core pair scorer)
+import { FEEDS, isFeed, GLOBAL, comicFacts, scopeOK, cleanScope, parsePrompt, chipLabel, cleanFilter, matchFilter, filterVerdict, slugify, CURATED, pickTrending, pickUnderdog, pickVibes, pickCategory, isChat, relLink } from './feeds.js' // feeds, region scope, categories // the screening's constants (learned values only when the gate passed)
 import { createEngine, basePrior, mergePrior, readout, deltas, deltaText, FEATURES, ENGINE_MODEL } from './engine.js' // humour engine v2 (handwired)
 
 // www.funnier.si/u/<username> (served by funnier-web with <base href="/">) -> the in-app route #u/<username>
@@ -52,7 +53,7 @@ let COMICSRC = null, FG = null, FGP = null, LENS = 'crowd', FGBOARD = 'house', R
 // candidate pool (and openPair) is filtered by it. Both remembered on the device and synced to the account (users.scope/feed).
 let FEED = isFeed(LS.get('feed', 'trending')) ? LS.get('feed', 'trending') : 'trending'
 let SCOPE = cleanScope(LS.get('scope', GLOBAL)) || GLOBAL
-let TRENDING = null, COMMUNITY = null, CATBOARDS = {}, CATINDEX = null
+let TRENDING = null, COMMUNITY = null, CATBOARDS = {}, CATINDEX = null, POSTERIOR = null // data/posterior.json (tally)
 // ---------- device-aware clips (tunable) ----------
 // mobile = coarse pointer in portrait, or a narrow viewport. Each device prefers one clip format (clips.json `format`:
 // vertical = YouTube Shorts, horizontal = everything else; tools/detect-format.mjs sets it) for `share` of its rounds,
@@ -126,6 +127,7 @@ async function loadData() {
   try { const d = await (await fetch('daily.json', { cache: 'no-cache' })).json(); DAILY = Array.isArray(d) ? d : [] } catch { DAILY = [] }
   try { const r = await fetch('data/screening-params.json', { cache: 'no-cache' }); applyScreen(r && r.ok !== false ? await r.json() : null) } catch { applyScreen(null) }
   try { const r = await fetch('data/engine-prior.json', { cache: 'no-cache' }); const j = r && r.ok !== false ? await r.json() : null; CROWD_TASTE = j && j.weights && typeof j.weights === 'object' ? j : null } catch { CROWD_TASTE = null }
+  try { const r = await fetch('data/posterior.json', { cache: 'no-cache' }); const j = r && r.ok !== false ? await r.json() : null; POSTERIOR = j && j.comics && j.clips ? j : null } catch { POSTERIOR = null }
   try { const r = await fetch('data/trending.json', { cache: 'no-cache' }); const j = r && r.ok !== false ? await r.json() : null; TRENDING = j && j.clips && typeof j.clips === 'object' ? j : null } catch { TRENDING = null }
   await Promise.race([loadFG(), new Promise((r) => setTimeout(r, 2500))]) // region + tier + fame for the feeds
   await loadDailyResults()
@@ -230,7 +232,7 @@ function watches() {
 const watchOf = (id) => watches()[id] || null
 const SESSION_COMIC = {} // author diversity: how often each comic was on screen in THIS session (page load)
 let SEEN_LEVEL = 0 // 0: unseen + glance clips only; 1: partial clips too (the unseen pool ran dry). finished: never.
-const rotOK = (c) => !!c && eligible(watchOf(c.id), SEEN_LEVEL)
+const rotOK = (c) => !!c && eligible(watchOf(c.id), SEEN_LEVEL) && !isUnplayable(c.id) // an unplayable clip never comes back on this device
 const rotMult = (c, nowMs) => freshness(watchOf(c.id), nowMs) * authorMult(SESSION_COMIC[c.comic] || 0) // each candidate scored on its own
 const explicitMode = () => ['shared', 'daily', 'rewatch'].includes(current?.mode)
 // fold one screen's playback into the log (idempotent per mount: shows counts once)
@@ -527,7 +529,7 @@ function contentSim(c, liked) {
   for (const { c: x, k } of liked) if (x.id !== c.id) { s += k * structSim(c, x, THEORY); n += k }
   return n ? s / n : 0
 }
-if (typeof window !== 'undefined') window.__funnierTest = { pickPair: () => pickPair(), openPair: (a, b) => openPair(a, b), contentSim: (id) => contentSim(BYID[id], likedClips()), pickForYou: () => pickForYou(), pickTraining: () => pickTraining(), pickExplore: () => pickExplore(), watches: () => watches(), setWatches: (W) => saveWatches(W), pool: () => pool(), tierOf, rotOK: (id) => rotOK(BYID[id]), seenLevel: () => SEEN_LEVEL, sessionComic: SESSION_COMIC, skipClash: () => skipClash(), setPairs: (P) => { PAIRS = P }, mode: () => current?.mode || null, policy: () => current?.policy || null, setFeed: (k) => setFeed(k, true), setScope: (s) => setScope(s, true), feed: () => FEED, scope: () => SCOPE, facts: (id) => factsOf(BYID[id]), feedOK: (id) => feedOK(BYID[id]), pickFeed: () => pickFeed(), parse: (t) => parsePrompt(t), saveCat: (c) => saveCat(c), cats: () => followedCats().map((c) => c.slug), setFG: (j) => { FG = j }, setTrending: (j) => { TRENDING = j } } // smoke tests sample rounds
+if (typeof window !== 'undefined') window.__funnierTest = { pickPair: () => pickPair(), openPair: (a, b) => openPair(a, b), contentSim: (id) => contentSim(BYID[id], likedClips()), pickForYou: () => pickForYou(), pickTraining: () => pickTraining(), pickExplore: () => pickExplore(), watches: () => watches(), setWatches: (W) => saveWatches(W), pool: () => pool(), tierOf, rotOK: (id) => rotOK(BYID[id]), seenLevel: () => SEEN_LEVEL, sessionComic: SESSION_COMIC, skipClash: () => skipClash(), setPairs: (P) => { PAIRS = P }, mode: () => current?.mode || null, policy: () => current?.policy || null, setFeed: (k) => setFeed(k, true), setScope: (s) => setScope(s, true), feed: () => FEED, scope: () => SCOPE, facts: (id) => factsOf(BYID[id]), feedOK: (id) => feedOK(BYID[id]), pickFeed: () => pickFeed(), parse: (t) => parsePrompt(t), saveCat: (c) => saveCat(c), cats: () => followedCats().map((c) => c.slug), setFG: (j) => { FG = j }, setTrending: (j) => { TRENDING = j }, current: () => (current ? current.map((c) => c.id) : null), why: () => current?.why || null, stage: () => stage, unplayable: () => unplayable() } // smoke tests sample rounds
 function pickForYou() {
   // your model's favourite unseen matchup: its top clip vs the clip it knows least about
   const P = pool(); if (P.length < 2) return null
@@ -582,11 +584,24 @@ const MODES = {
 function feedCtx() {
   const t0 = Date.now(), crowd = {}
   for (const k of BOARD?.boards?.all?.clips || []) if (k.bouts) crowd[k.id] = (k.elo - 1500) / SCALE
-  return { facts: factsOf, open: openPair, sim: pairSim, lm: (c) => Math.log(Math.max(1e-3, rotMult(c, t0))), rnd: Math.random, trending: TRENDING, crowd: (c) => crowd[c.id] || 0, spotlight: FG?.spotlight || {} }
+  return { facts: factsOf, open: openPair, sim: pairSim, lm: (c) => Math.log(Math.max(1e-3, rotMult(c, t0))), rnd: Math.random, trending: TRENDING, crowd: (c) => crowd[c.id] || 0, spotlight: FG?.spotlight || {}, post: crowdPosterior() }
+}
+// the crowd ranking's posterior (src/rank.js): data/posterior.json from the tally; else fitted here from the public votes
+// with funnygraph's house percentile as the cold-start prior mean (memoised until funnygraph or the votes change)
+let POST_MEMO = null, POST_KEY = ''
+function crowdPosterior() {
+  if (POSTERIOR) return POSTERIOR
+  const key = (FG ? 1 : 0) + ':' + PUBVOTES.length + ':' + CLIPS.length
+  if (POST_MEMO && POST_KEY === key) return POST_MEMO
+  const people = FG?.people || {}, firstClip = {}
+  for (const c of CLIPS) if (!firstClip[c.comic]) firstClip[c.comic] = c
+  const main = CLIPS.filter((c) => !isChat(c))
+  POST_MEMO = fitPosterior(main, PUBVOTES, { prior: (comic) => { const f = factsOf(firstClip[comic] || { comic }); return priorMean(f.g || people[f.id], f.tier) } }); POST_KEY = key
+  return POST_MEMO
 }
 const FEED_MODE = { trending: ['trending', pickTrending], underdog: ['underdog', pickUnderdog], vibes: ['vibes', pickVibes] }
 function pickFeed() {
-  const [mode, fn] = FEED.startsWith('cat:') ? ['category', pickTrending] : FEED_MODE[FEED] || []
+  const [mode, fn] = FEED.startsWith('cat:') ? ['category', pickCategory] : FEED_MODE[FEED] || []
   if (!fn) return null
   roundFormat(); const F0 = ROUND_FMT, ctx = feedCtx()
   try {
@@ -594,17 +609,22 @@ function pickFeed() {
       ROUND_FMT = fmt
       for (PAIR_LEVEL = 0; PAIR_LEVEL < 3; PAIR_LEVEL++) {
         const p = fn(pool(), ctx)
-        if (p) { const pair = Math.random() < 0.5 ? [p[0], p[1]] : [p[1], p[0]]; pair.mode = mode; pair.why = p.why; pair.policy = { m: mode, ...(p.under ? { u: p.under } : {}), v: SCREEN.version }; return pair }
+        if (p) {
+          const pair = Math.random() < 0.5 ? [p[0], p[1]] : [p[1], p[0]]; pair.mode = mode; pair.why = p.why
+          // the core scorer's terms + the propensity (exact given the candidate set: random among the top N by score)
+          pair.policy = { m: mode, ...(p.under ? { u: p.under } : {}), ...(Number.isFinite(p.pp) ? { pp: Math.round(1e6 * p.pp) } : {}), ...(p.terms ? { g: p.terms.map((x) => Math.round(1000 * x)) } : {}), ...(p.why?.link ? { lk: p.why.link } : {}), ...(p.why?.fallback ? { fb: 1 } : {}), v: SCREEN.version }
+          return pair
+        }
       }
     }
   } finally { PAIR_LEVEL = 0; ROUND_FMT = null; SEEN_LEVEL = 0 }
   return null
 }
-// Trending must feel like today's feed: while crowd momentum is sparse, most Trending rounds are the usual mix and only a
-// share (15% + up to 50% as data/trending.json fills with clips that have real votes) comes from the Trending scorer.
-const trendShare = () => Math.min(0.65, 0.15 + Object.values(TRENDING?.clips || {}).filter((x) => (x.n || 0) >= 3).length / 100)
+// Every ranking feed (Trending included) is the core pair scorer + its constraint: the old 15%->65% Trending gating is
+// gone because the scorer's own quality and top-K terms keep rounds watchable while momentum is sparse. A feed with
+// nothing to pair falls back to the For You mix inside the same scope.
 function pickPair() {
-  if (FEED !== 'foryou' && (FEED !== 'trending' || Math.random() < trendShare())) { const p = pickFeed(); if (p) return p }
+  if (FEED !== 'foryou') { const p = pickFeed(); if (p) return p }
   const n = LS.get('votes', []).length
   const w = n < 6 ? { training: SP.coldTraining, explore: SP.coldExplore, foryou: 0 } : { foryou: SP.mixForyou, training: SP.mixTraining, explore: SP.mixExplore }
   let x = Math.random(), mode = 'explore'
@@ -697,6 +717,51 @@ function paintSnd() {
   const off = soundPref() === 'off' || isMutedNow(liveScreen())
   document.querySelectorAll('.vsnd').forEach((b) => { b.innerHTML = off ? SND_OFF : SND_ON; b.setAttribute('aria-pressed', String(off)); const l = off ? 'Unmute (M)' : 'Mute (M)'; b.setAttribute('aria-label', l); b.title = l })
 }
+const STALL_MS = 12000
+// ---------- unplayable clips: an embed error or a stalled start swaps the clip on the site and reports it ----------
+// funnier.unplayable {clip: {at, code}} keeps it out of this device's rotation; POST /events kind 'unplayable' (signed in or
+// anonymous with the device id) lets the tally list it (data/unplayable.json) for the corpus to prune.
+const unplayable = () => { const m = LS.get('unplayable', {}); return m && typeof m === 'object' && !Array.isArray(m) ? m : {} }
+const isUnplayable = (id) => !!unplayable()[id]
+function reportUnplayable(clip, other, code) {
+  const m = unplayable(); m[clip.id] = { at: new Date().toISOString(), code }; LS.set('unplayable', m)
+  if (!CFG.apiBase) return
+  api('/events', { method: 'POST', body: { device: deviceId(), events: [{ kind: 'unplayable', a: clip.id, b: other?.id || clip.id, clip: clip.id, stage: code, createdAt: new Date().toISOString() }] } }).catch(() => {})
+}
+// the replacement: an eligible clip that passes every hard rule against the clip that stays, linked to it when possible
+function replacementFor(keep, gone) {
+  const P = pool().filter((c) => c.id !== gone.id && c.id !== keep.id && !isUnplayable(c.id))
+  const ok = P.filter((c) => openPair(keep.id, c.id))
+  if (!ok.length) return null
+  const fk = factsOf(keep), scored = ok.map((c) => [(relLink(keep, c, fk, factsOf(c), null, 0) ? 1 : 0) + Math.random(), c]).sort((x, y) => y[0] - x[0])
+  return scored[0][1]
+}
+function clipFailed(sc, code) {
+  if (!cur || !screens[sc.side] || screens[sc.side] !== sc) return
+  const side = sc.side, keep = side === 'L' ? cur.b : cur.a
+  reportUnplayable(sc.clip, keep, code)
+  if (stage === 'done' || stage === 'vote') return // already past it
+  const rep = explicitMode() ? null : replacementFor(keep, sc.clip)
+  if (!rep) { goNext(null); return } // nothing fits: move on silently (never a broken player, never YouTube)
+  swapSide(side, rep)
+}
+// replace one side of the live clash in place: its theatre screen, ballot thumbnail and face-off card, and a new player
+function swapSide(side, clip) {
+  const el = cur.el, n = cur.n, a = side === 'L' ? clip : cur.a, b = side === 'R' ? clip : cur.b
+  const tmp = document.createElement('div'); tmp.innerHTML = slideHTML(a, b, n, false)
+  const fresh = []
+  for (const sel of [`.screen.${side}`, `.pick.${side}`, `.faceoff .face.${side}`]) {
+    const o = el.querySelector(sel), nw = tmp.querySelector(sel); if (o && nw) { if (o.classList.contains('big')) { nw.classList.add('big'); nw.classList.remove('small') } o.replaceWith(nw); fresh.push(nw) }
+  }
+  try { screens[side].destroy() } catch {}
+  if (side === 'L') { cur.a = clip; current[0] = clip } else { cur.b = clip; current[1] = clip }
+  if (current?.policy) current.policy.sw = 1
+  const s2 = new Screen(side, clip, 'p' + side + n); screens[side] = s2
+  s2.mate = screens[side === 'L' ? 'R' : 'L']; s2.mate.mate = s2
+  s2.mount(); prefetchLaughs(s2)
+  for (const r of fresh) bindSlide(el, r)
+  if ((stage === 'left' && side === 'L') || (stage === 'right' && side === 'R')) startClip(side)
+}
 class Screen {
   constructor(side, clip, hostId) { this.side = side; this.clip = clip; this.hostId = hostId; this.started = false; this.view = Date.now().toString(36) + side + Math.random().toString(36).slice(2, 6); this.ready = new Promise((res) => (this._ready = res)) }
   async mount() {
@@ -717,8 +782,13 @@ class Screen {
       host: 'https://www.youtube-nocookie.com', videoId: c.id,
       // our own chrome (thin progress line, name overlay, tap to pause, F for fullscreen) replaces YouTube's control bar
       playerVars: { rel: 0, playsinline: 1, start: this.start, controls: 0, modestbranding: 1, iv_load_policy: 3, fs: 0, disablekb: 1 },
-      events: { onReady: () => { this.setVol(this.started && this.fadeT == null ? clipVol(this.clip) : 0); res() }, onStateChange: (e) => { if (e.data === 0) this.ended = true } },
+      events: { onReady: () => { this.setVol(this.started && this.fadeT == null ? clipVol(this.clip) : 0); res() }, onStateChange: (e) => { if (e.data === 0) this.ended = true; if (e.data === 1) this.everPlayed = true },
+        // 2 bad id, 5 HTML5 error, 100 gone/private, 101/150 embedding refused, 153 missing referrer: never send anyone to
+        // YouTube; this clip is swapped for the next eligible one and reported as unplayable (src/app.js clipFailed)
+        onError: (e) => this.fail('err-' + (Number(e?.data) || 0)) },
     })
+    // the iframe never takes a tap (the .shield over it does): no "Watch on YouTube" link, title or logo can open YouTube
+    try { const f = this.p.getIframe?.() || document.getElementById(this.hostId); if (f?.style) { f.style.pointerEvents = 'none'; f.setAttribute?.('tabindex', '-1') } } catch {}
   }
   // ---- volume: every clip fades in from 0 to its level (editorial vol x crowd offset x your offset) over FADE_IN_MS
   // and out over FADE_OUT_MS on skip / clip change, with player.setVolume steps (the iframe's audio can't be measured)
@@ -810,6 +880,7 @@ class Screen {
     this.p.playVideo()
     this.armFade()
     paintSnd()
+    this.watchStall()
     if (muted) return
     // sound refused -> play muted, silently (the next interaction unmutes). Checked ~500ms in; a player still loading
     // (unstarted/cued/buffering) gets a few more looks before we decide.
@@ -823,6 +894,18 @@ class Screen {
     }
     setTimeout(() => check(0), 500)
   }
+  // a stalled start (never reached PLAYING, the clock never moved, the tab visible) = unplayable here: swap it
+  watchStall() {
+    clearTimeout(this.stallT); const t0 = this.t()
+    this.stallT = setTimeout(() => {
+      if (this.dead || !this.wantPlay || this.everPlayed || this.failed) return
+      if (typeof document !== 'undefined' && document.hidden) { this.watchStall(); return }
+      let st = -1; try { st = this.p?.getPlayerState?.() } catch {}
+      if (st === 1 || Math.abs(this.t() - t0) > 0.5) { this.everPlayed = true; return }
+      this.fail('stall')
+    }, STALL_MS)
+  }
+  fail(code) { if (this.failed || this.dead) return; this.failed = true; clearTimeout(this.stallT); clipFailed(this, code) }
   // inside a user gesture: play this not-yet-started clip silently for a moment and pause it again, so the browser
   // lets it start with sound later without another tap (iOS treats each player separately)
   prime() {
@@ -873,7 +956,7 @@ class Screen {
   pause() { this.wantPlay = false; clearInterval(this.armT); this.armT = null; try { this.a ? this.a.pause() : this.p?.pauseVideo?.() } catch {} }
   // skip / clip change: stop wanting playback now, fade out over FADE_OUT_MS, then pause
   fadePause() { if (this.wantPlay === false && this.fadeT == null) return this.pause(); this.wantPlay = false; clearInterval(this.armT); this.armT = null; this.fadeOut(() => { if (!this.wantPlay) this.pause() }) }
-  destroy() { if (this.gone) return; this.gone = true; this.dead = true; clearInterval(this.fadeT); clearInterval(this.armT); this.fadeT = this.armT = null; try { this.a?.pause() } catch {} try { this.p?.destroy?.() } catch {} }
+  destroy() { if (this.gone) return; this.gone = true; this.dead = true; clearTimeout(this.stallT); clearInterval(this.fadeT); clearInterval(this.armT); this.fadeT = this.armT = null; try { this.a?.pause() } catch {} try { this.p?.destroy?.() } catch {} }
   // leaving the clash: fade out, then tear the player down (the slide is removed ~520ms later)
   retire() {
     if (this.dead) return
@@ -1112,7 +1195,7 @@ function mountScreening(first, oldEl) {
     host.querySelectorAll('.slide').forEach((x) => x !== oldEl && x.remove())
     // the rotation's end card: never a silent repeat. Everything stays playable from the comic pages, charts and history.
     const scoped = !msg && (SCOPE !== GLOBAL || FEED.startsWith('cat:'))
-    if (scoped) { host.insertAdjacentHTML('beforeend', `<div class="slide empty-slide endcard" data-endcard="scope"><div class="ec"><p class="ec-k">That’s the bill</p><h2 class="ec-h">Nothing left ${FEED.startsWith('cat:') ? 'in ' + esc(activeCat()?.title || 'this feed') : 'from ' + esc(regionName(SCOPE))} for now.</h2><p class="ec-s">New clips arrive daily.</p><p class="ec-a"><button type="button" class="hbtn" data-widen="1">Show everywhere</button></p></div></div>`)
+    if (scoped) { host.insertAdjacentHTML('beforeend', `<div class="slide empty-slide endcard" data-endcard="scope"><div class="ec"><p class="ec-k">That’s the bill</p><h2 class="ec-h">Nothing left ${FEED.startsWith('cat:') ? 'in ' + esc(activeCat()?.title || 'this feed') : 'from ' + esc(regionName(SCOPE))} for now.</h2><p class="ec-s">New clips arrive daily.</p><p class="ec-a"><button type="button" class="hbtn" data-widen="1">Show all regions</button></p></div></div>`)
       const ec = host.lastElementChild; ec.querySelector('[data-widen]').onclick = () => { setScope(GLOBAL, true); if (FEED.startsWith('cat:')) setFeed('trending', true); goNext(null) } }
     else host.insertAdjacentHTML('beforeend', msg ? `<div class="slide empty-slide"><p class="empty">${msg}</p></div>`
       : `<div class="slide empty-slide endcard" data-endcard="1"><div class="ec"><p class="ec-k">That’s the bill</p><h2 class="ec-h">You’ve seen every clip on the bill.</h2><p class="ec-s">New ones arrive daily.</p><p class="ec-a"><a class="hbtn" href="#comics">Browse the comics</a><a class="hbtn" href="#you">Your history</a></p></div></div>`)
@@ -1155,34 +1238,36 @@ function finishSlide(host, oldEl) {
   el.classList.remove('enter')
   setTimeout(() => oldEl.remove(), 520)
 }
-function bindSlide(el) {
-  el.querySelector('.intro').onclick = () => { if (stage === 'intro') { userStarted = true; startClip('L') } }
-  el.querySelectorAll('.pick').forEach((x) => { // pointerup counts at once (touch, pen, mouse), click is the fallback (keyboard, a11y)
+const within = (root, sel) => [...(root.matches?.(sel) ? [root] : []), ...root.querySelectorAll(sel)]
+function bindSlide(el, root = el) {
+  const whole = root === el
+  if (whole) el.querySelector('.intro').onclick = () => { if (stage === 'intro') { userStarted = true; startClip('L') } }
+  within(root, '.pick').forEach((x) => { // pointerup counts at once (touch, pen, mouse), click is the fallback (keyboard, a11y)
     let downAt = 0
     x.addEventListener('pointerdown', (e) => { downAt = now(); e.stopPropagation() })
     x.addEventListener('pointerup', (e) => { if (!downAt || now() - downAt > 1500) return; downAt = 0; e.stopPropagation(); vote(x.dataset.side) })
     x.addEventListener('pointercancel', () => (downAt = 0))
     x.onclick = (e) => { e.stopPropagation(); vote(x.dataset.side) }
   })
-  const bal = el.querySelector('.ballot')
-  const vp = el.querySelector('.vpass')
+  const vp = whole ? el.querySelector('.vpass') : null
   if (vp) { vp.addEventListener('pointerdown', (e) => e.stopPropagation()); vp.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true }); vp.onclick = (e) => { e.stopPropagation(); e.preventDefault(); if (stage === 'vote' && armed) pass() } }
-  el.querySelectorAll('.shield').forEach((sh) => (sh.onclick = () => {
+  within(root, '.shield').forEach((sh) => (sh.onclick = () => {
     if (now() - dragEndAt < 400) return // the tail of a swipe, not a tap
     if (tapRevealed) { tapRevealed = false; return } // chrome was hidden: this tap only brings it back
     screens[sh.closest('.screen').dataset.side]?.toggle()
   }))
-  el.querySelectorAll('.prog').forEach(bindScrub)
-  el.querySelectorAll('.vsnd').forEach((b) => {
+  within(root, '.prog').forEach(bindScrub)
+  within(root, '.vsnd').forEach((b) => {
     b.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true })
     b.addEventListener('pointerdown', (e) => e.stopPropagation())
     b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); toggleSound() }
   })
-  el.querySelectorAll('.vfs').forEach((b) => {
+  within(root, '.vfs').forEach((b) => {
     b.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true }) // a tap on the toggle is never a swipe
     b.addEventListener('pointerdown', (e) => e.stopPropagation())
     b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); toggleFullscreen() }
   })
+  if (!whole) return
   const lb = LAUGHS_ENABLED ? el.querySelector('.laughbtn') : null
   if (lb) {
     lb.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true }) // a laugh is never a swipe
@@ -1636,9 +1721,9 @@ const thumb = (id) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
 function clipTile(c, i, extra) {
   const k = BYID[c.id] || c
   const img = k.media === 'youtube' ? `<img loading="lazy" src="${thumb(k.id)}" alt="">` : `<div class="comicposter" style="aspect-ratio:16/9"><b>${esc(k.comic)}</b></div>`
-  const href = k.media === 'youtube' ? `https://www.youtube.com/watch?v=${k.id}` : '#'
+  const href = '#watch/' + encodeURIComponent(k.id) // plays on the site, never on YouTube
   const wm = watchMark(k.id)
-  return `<a class="tile${wm.cls}" href="${href}" target="_blank" rel="noopener"${wm.title ? ` title="${esc(wm.title)}"` : ''}>${i != null ? `<span class="num">${i + 1}</span>` : ''}
+  return `<a class="tile${wm.cls}" href="${href}"${wm.title ? ` title="${esc(wm.title)}"` : ''}>${i != null ? `<span class="num">${i + 1}</span>` : ''}
     <div class="poster">${img}${wm.html}<div class="cap"><b>${esc(k.title)}</b><span>${esc(k.comic)}${extra ? ' · ' + extra : ''}</span></div></div></a>`
 }
 function comicTile(c, i, extra) {
@@ -1673,7 +1758,7 @@ function paintBoards() {
     metas.forEach((m) => (m.textContent = BOARDKIND === 'agent' ? 'No agent picks yet. Agents vote through the AT Protocol API.' : 'The chart opens with the first published picks. Until then, here is everything in rotation.'))
     const comics = names.filter(inRegion)
     $('#comics').innerHTML = comics.map((k, i) => comicTile({ comic: k }, i, CLIPS.filter((c) => c.comic === k).length + ' shorts')).join('') || '<p class="muted">No comics from here yet.</p>'
-    $('#clips').innerHTML = CLIPS.filter((c) => servable(c) && inRegion(c.comic)).map((c) => clipTile(c, null, c.channel)).join('')
+    $('#clips').innerHTML = CLIPS.filter((c) => servable(c) && !isChat(c) && inRegion(c.comic)).map((c) => clipTile(c, null, c.channel)).join('')
     return
   }
   const ago = Math.max(0, Math.round((Date.now() - Date.parse(BOARD.updated)) / 60000))
@@ -1700,7 +1785,7 @@ function paintFGBoards(metas, bar, repaint) {
   const rows = B.rows.filter(([id]) => FG.people[id] && regionOK(placeOf(null, id))).slice(0, 40)
   $('#comics').innerHTML = rows.map(([id, rank, val], i) => fgTile(id, rank, val, i)).join('') || '<p class="muted">No comics from here on this board yet.</p>'
   const top = rows.map(([id]) => fgName(id)).filter(Boolean)
-  $('#clips').innerHTML = top.flatMap((n) => CLIPS.filter((c) => c.comic === n && servable(c)).slice(0, 2)).slice(0, 16).map((c) => clipTile(c, null, c.comic)).join('') || '<p class="muted">No shorts yet for the comics on this board.</p>'
+  $('#clips').innerHTML = top.flatMap((n) => CLIPS.filter((c) => c.comic === n && servable(c) && !isChat(c)).slice(0, 2)).slice(0, 16).map((c) => clipTile(c, null, c.comic)).join('') || '<p class="muted">No shorts yet for the comics on this board.</p>'
   $('#chartprov') && ($('#chartprov').innerHTML = fgProv((B.label || FGBOARD).toLowerCase()))
 }
 
@@ -1713,12 +1798,14 @@ const followSlugs = () => { const f = LS.get('catFollows', null); return Array.i
 function followedCats() { const seen = new Set(); return [...followSlugs(), ...myCats().map((c) => c.slug)].filter((s) => !seen.has(s) && seen.add(s)).map(catDef).filter(Boolean) }
 const activeCat = () => (FEED.startsWith('cat:') ? catDef(FEED.slice(4)) : null)
 function feedOK(c) {
-  if (SCOPE === GLOBAL && !FEED.startsWith('cat:')) return true
+  if (isChat(c)) return false // safety rule: podcast / interview / couch clips are never served by any feed (explicit links still play)
+  const k = activeCat(), kf = k ? cleanFilter(k.filter) : null
+  if (SCOPE === GLOBAL && !k) return true
   const f = factsOf(c); if (!scopeOK(SCOPE, f)) return false
-  const k = activeCat(); return !k || matchFilter(c, cleanFilter(k.filter), f)
+  return !kf || matchFilter(c, kf, f)
 }
 function feedPolicy() { const cat = FEED.startsWith('cat:') ? FEED.slice(4) : null; return { fd: cat ? 'cat' : FEED, ...(cat ? { cat } : {}), sc: SCOPE } }
-const regionName = (r) => (r === GLOBAL ? 'everywhere' : FG?.regionLabel?.[r] || COMICS && Object.values(COMICS).find((P) => P.region === r)?.regionLabel || r)
+const regionName = (r) => (r === GLOBAL ? 'all regions' : r === 'us' ? 'the US' : r === 'uk' ? 'the UK' : FG?.regionLabel?.[r] || COMICS && Object.values(COMICS).find((P) => P.region === r)?.regionLabel || r)
 function scopeOptions() { // regions that have clips you could be shown here, biggest first
   const n = {}; for (const c of CLIPS) if (servable(c)) { const r = factsOf(c).region; if (r) n[r] = (n[r] || 0) + 1 }
   return Object.entries(n).filter(([, k]) => k >= 2).sort((a, b) => b[1] - a[1])
@@ -1736,16 +1823,28 @@ function setScope(sc, quiet) {
   if (signedIn()) api('/me/profile', { method: 'PUT', body: { scope: sc } }).catch(() => {})
   if (!quiet && arenaOn() && CLIPS.length) { moving = false; goNext(null) }
 }
+// one slim region select, shared by the screening scope and the charts: All (default) · US · UK · More… (reveals the
+// other regions, with counts, in the same select). No continents, no "International", no "everywhere".
+const MORE = '__more'
+let SCOPE_MORE = false, REGION_MORE = false
+const shortRegion = (r) => (r === 'us' ? 'US' : r === 'uk' ? 'UK' : regionName(r))
+function regionSelect(id, cur, allValue, opts, more) { // opts: [[region, count]] biggest first
+  const main = ['us', 'uk'], rest = opts.filter(([r]) => !main.includes(r)), open = more || (cur !== allValue && !main.includes(cur))
+  const o = (v, l) => `<option value="${esc(v)}"${cur === v ? ' selected' : ''}>${esc(l)}</option>`
+  const extra = cur !== allValue && !main.includes(cur) && !rest.some(([r]) => r === cur) ? o(cur, shortRegion(cur)) : ''
+  return `<select id="${id}" aria-label="Where the comics are from">${o(allValue, 'All')}${main.map((r) => o(r, shortRegion(r))).join('')}${open ? `<optgroup label="More">${rest.map(([r, k]) => o(r, shortRegion(r) + ' · ' + k)).join('')}${extra}</optgroup>` : `<option value="${MORE}">More…</option>`}</select>`
+}
+function openSelect(el) { if (!el) return; try { el.focus(); el.showPicker?.() } catch {} }
 function paintFeedbar() {
   const bar = $('#feedbar'); if (!bar) return
   const chips = [...FEEDS.map((f) => [f.k, f.label]), ...followedCats().map((c) => ['cat:' + c.slug, c.title])]
   if (!chips.some(([k]) => k === FEED)) chips.push([FEED, activeCat()?.title || FEED])
   const opts = scopeOptions()
   bar.innerHTML = `<div class="fchips" role="tablist" aria-label="Feeds">${chips.map(([k, l]) => `<button type="button" role="tab" class="fchip${k === FEED ? ' on' : ''}" aria-selected="${k === FEED}" data-feed="${esc(k)}">${esc(l)}</button>`).join('')}<button type="button" class="fchip fadd" data-feedadd="1" aria-label="Make your own feed or browse categories" title="Make a feed">+</button></div>
-    <label class="fscope" title="Where the comics are from"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></svg><select id="scopesel" aria-label="Where the comics are from"><option value="global"${SCOPE === GLOBAL ? ' selected' : ''}>Global</option>${opts.map(([r, k]) => `<option value="${esc(r)}"${SCOPE === r ? ' selected' : ''}>${esc(regionName(r))} · ${k}</option>`).join('')}${SCOPE !== GLOBAL && !opts.some(([r]) => r === SCOPE) ? `<option value="${esc(SCOPE)}" selected>${esc(regionName(SCOPE))}</option>` : ''}</select></label>`
+    <label class="fscope" title="Where the comics are from"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></svg>${regionSelect('scopesel', SCOPE, GLOBAL, opts, SCOPE_MORE)}</label>`
   bar.querySelectorAll('[data-feed]').forEach((b) => (b.onclick = () => { if (b.dataset.feed !== FEED) setFeed(b.dataset.feed) }))
   bar.querySelector('[data-feedadd]').onclick = () => openFeedSheet()
-  bar.querySelector('#scopesel').onchange = (e) => setScope(e.target.value)
+  bar.querySelector('#scopesel').onchange = (e) => { if (e.target.value === MORE) { SCOPE_MORE = true; paintFeedbar(); openSelect(bar.querySelector('#scopesel')) } else setScope(e.target.value) }
   bar.querySelector('.fchip.on')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
 }
 async function loadCatBoard(slug) {
@@ -1876,16 +1975,17 @@ function placeOf(name, id) {
   if (P && (P.region || P.continent)) return { r: P.region || null, c: P.continent || null }
   const g = FG?.people?.[id || P?.fgId]; return g ? { r: g.r || null, c: g.c || null } : { r: null, c: null }
 }
-const regionOK = (pl) => REGION === 'all' || (REGION === 'us' ? pl.r === 'us' : REGION === 'intl' ? !!(pl.r || pl.c) && pl.r !== 'us' : pl.c === REGION)
-function regionBar(places, onPick) {
-  const conts = [...new Set(places.map((p) => p.c).filter((c) => c && CONT_LABEL[c]))].sort((a, b) => places.filter((p) => p.c === b).length - places.filter((p) => p.c === a).length)
-  const sub = conts.filter((c) => places.some((p) => p.c === c && p.r !== 'us')).map((c) => [c, CONT_LABEL[c]])
-  if (REGION !== 'all' && REGION !== 'us' && REGION !== 'intl' && !sub.some(([k]) => k === REGION)) REGION = 'all'
-  // continents only open up under International, so the bar stays one short row
-  const opts = [['all', 'Everywhere'], ['us', 'US'], ['intl', 'International'], ...(REGION === 'intl' || sub.some(([k]) => k === REGION) ? sub : [])]
-  return `<div class="lanes regions" role="group" aria-label="Region">${opts.map(([k, l]) => `<button type="button" data-region="${k}" class="${REGION === k ? 'on' : ''}" aria-pressed="${REGION === k}">${l}</button>`).join('')}</div>`
+const regionOK = (pl) => REGION === 'all' || pl.r === REGION
+function regionBar(places) {
+  const n = {}; for (const p of places) if (p.r) n[p.r] = (n[p.r] || 0) + 1
+  const opts = Object.entries(n).sort((a, b) => b[1] - a[1])
+  if (REGION !== 'all' && !n[REGION]) REGION = 'all'
+  return `<label class="fscope regions" title="Where the comics are from"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></svg>${regionSelect('regionsel', REGION, 'all', opts, REGION_MORE)}</label>`
 }
-function bindRegion(root, repaint) { root.querySelectorAll('[data-region]').forEach((b) => (b.onclick = () => { REGION = b.dataset.region; repaint() })) }
+function bindRegion(root, repaint) {
+  const el = root.querySelector('#regionsel'); if (!el) return
+  el.onchange = () => { if (el.value === MORE) { REGION_MORE = true; repaint(); openSelect(document.querySelector('#regionsel')) } else { REGION = el.value; repaint() } }
+}
 // funnygraph id -> the Funnier comic name (clips.json `comic`), when Funnier has clips for them
 function fgName(id) {
   for (const [n, P] of Object.entries(COMICS)) if (P?.fgId === id || (!P?.fgId && P?.slug === id)) return n
@@ -2431,6 +2531,8 @@ function bindChrome() {
 const SHARE_BASE = 'https://www.funnier.si/' // fallback; site/config.json shareBase wins
 let pendingClash = null, sharedRound = null, sharedDuringBallot = false
 function parseClash(h) {
+  const w = String(h || '').match(/^#watch\/([A-Za-z0-9_-]{6,20})/) // one clip, on the site's own player (never a YouTube link)
+  if (w) return { a: w[1], b: null, pick: null, rewatch: true, watch: true }
   const m = String(h || '').match(/^#clash\/([^/&?]+)\/([^/&?]+)(?:[&?]pick=([ab]))?/)
   if (!m) return null
   const d = (x) => { try { return decodeURIComponent(x) } catch { return x } }
@@ -2440,6 +2542,7 @@ function parseClash(h) {
 function takeClash() {
   const sh = pendingClash; pendingClash = null
   if (!sh) return null
+  if (sh.watch && BYID[sh.a]) { const o = watchOpponent(BYID[sh.a]); if (o) sh.b = o.id }
   const A = BYID[sh.a], B = BYID[sh.b]
   if (!A || !B || sh.a === sh.b) { setTimeout(() => toast('That clash is no longer on the bill, so here is tonight\u2019s instead.'), 400); return null }
   if (A.comic === B.comic) { setTimeout(() => toast('That clash pits a comic against themselves, so here is tonight\u2019s instead.'), 400); return null }
@@ -2459,6 +2562,14 @@ function friendLine(a, b, winner) {
   const agree = fw.id === winner, who = sharedRound.invite?.inviter?.username
   if (who) return { agree, text: agree ? `You agree with ${who}: ${fw.comic}.` : `${who} picked ${fw.comic}.` }
   return { agree, text: agree ? `You agreed with your friend: ${fw.comic}.` : `You disagreed. Your friend picked ${fw.comic}.` }
+}
+// #watch/<id>: the clip plays first, against a kindred clip that passes the hard rules (two comics, desktop never
+// vertical, fair lengths, never chat or unplayable); a link the user chose, so a finished clip may play (a rewatch)
+function watchOpponent(A) {
+  const ok = CLIPS.filter((c) => c.id !== A.id && c.comic !== A.comic && servable(c) && !isChat(c) && !isUnplayable(c.id) && c.kind === A.kind && fairPair(A, c))
+  const fresh = ok.filter((c) => rotOK(c)), P = fresh.length ? fresh : ok
+  if (!P.length) return null
+  const fa = factsOf(A); return P.map((c) => [(relLink(A, c, fa, factsOf(c), null, 0) ? 1 : 0) + Math.random(), c]).sort((x, y) => y[0] - x[0])[0][1]
 }
 function clashURL(a, b, pick) {
   const base = IS_LOCAL ? BASE : CFG.shareBase || SHARE_BASE
@@ -2519,6 +2630,7 @@ function topicPairs() {
     const A = cs[i], B = cs[j]
     if (A.kind !== B.kind || A.comic === B.comic) continue // daily fallback: two different comics
     if (A.format === 'vertical' || B.format === 'vertical' || dailyLong(A) || dailyLong(B)) continue // the daily plays on every device: no Shorts, no uncut long sets
+    if (A.setting === 'chat' || B.setting === 'chat') continue // the fallback daily is stand-up (talk-show chat has its own lane)
     const tb = Array.isArray(B.topics) ? B.topics : []
     const shared = (Array.isArray(A.topics) ? A.topics : []).filter((t) => tb.includes(t)).sort()
     if (shared.length) out.push({ a: A.id, b: B.id, topic: shared[0] })
@@ -2527,7 +2639,7 @@ function topicPairs() {
 }
 function dailyFor(date) {
   if (!DAY_RE.test(String(date || ''))) return null
-  const e = DAILY.find((x) => x && x.date === date && BYID[x.a] && BYID[x.b] && x.a !== x.b && BYID[x.a].comic !== BYID[x.b].comic)
+  const e = DAILY.find((x) => x && x.date === date && BYID[x.a] && BYID[x.b] && x.a !== x.b && BYID[x.a].comic !== BYID[x.b].comic && !isChat(BYID[x.a]) && !isChat(BYID[x.b])) // (tally: chat clips aren't on its catalogue either)
   if (e) return { date, title: e.title || '', blurb: e.blurb || '', a: e.a, b: e.b, topic: e.topic || '', editorial: true }
   const P = topicPairs(); if (!P.length) return null
   const p = P[hashStr(date) % P.length]
@@ -3293,7 +3405,7 @@ function chartHTML(c, own, who) {
     <div class="up-chart"><div class="up-radar">${chartSVG([{ dims: c.dims, band: c.band, color: CHART_COLORS[0] }], { size: 400, title: (who || 'Your') + ' humour chart' })}</div>
     <div class="up-legend">${c.adjacent ? `<p class="up-adj"><b>${c.adjacent.pct}%</b> ${esc(c.adjacent.short)}-adjacent</p>` : ''}
       <div class="up-dims">${dimRows(c)}</div>
-      ${c.funniest ? `<p class="up-fun"><span class="eyebrow">Funniest to ${own ? 'you' : 'them'}</span><a href="https://www.youtube.com/watch?v=${esc(c.funniest.id)}" target="_blank" rel="noopener">\u201c${esc(c.funniest.title)}\u201d</a> <span class="muted">${esc(c.funniest.comic)}</span></p>` : ''}
+      ${c.funniest ? `<p class="up-fun"><span class="eyebrow">Funniest to ${own ? 'you' : 'them'}</span><a href="#watch/${esc(encodeURIComponent(c.funniest.id))}">\u201c${esc(c.funniest.title)}\u201d</a> <span class="muted">${esc(c.funniest.comic)}</span></p>` : ''}
       ${arr(c.ops).length ? `<div class="up-ops"><span class="eyebrow">Favourite moves</span>${c.ops.slice(0, 4).map((o) => `<span class="chip">${esc(o.label)} <b>${o.v}</b></span>`).join('')}</div>` : ''}
       ${sty.length ? `<div class="up-stys">${sty.map((s) => `<div class="up-sty"><span>${s.lo}</span><i><b style="left:${c.sty[s.k]}%"></b></i><span>${s.hi}</span></div>`).join('')}</div>` : ''}
       ${c.serverLine ? `<p class="muted small">From ${own ? 'your' : 'their'} rewinds: ${esc(c.serverLine)}</p>` : ''}

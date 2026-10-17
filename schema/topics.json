@@ -1,0 +1,199 @@
+{
+ "_note": "Funnier controlled topic vocabulary v1. Ids are slash paths (root/branch/leaf). A clip may carry any node; heats and compilations select on leaves (nodes with no children). Keywords are matched case-insensitively on word boundaries against the cleaned clip title, then the YouTube description snippet / Shorts description+keywords (metadata only, never transcripts). See TAGS.md.",
+ "version": 1,
+ "tree": {
+  "relationships": {
+   "kw": ["relationship", "relationships", "girlfriend", "boyfriend", "partner", "couples?", "soulmates?", "in love", "romance", "romantic", "valentine'?s?", "pareja", "novia", "novio", "Beziehung", "Freundin"],
+   "dating": {
+    "kw": ["dating", "date", "dates", "single", "singles", "flirting", "flirt", "pick up girls", "hit on", "catcall(ed)?", "friend zon(e|ed|ing)", "ligar", "drague", "one-night-stand", "hooking up", "hookups?", "date movies"],
+    "apps": {"kw": ["tinder", "dating apps?", "hinge", "bumble", "grindr", "online dating", "dating profile", "perfil"]},
+    "first-dates": {"kw": ["first dates?", "first date"]},
+    "age-gaps": {"kw": ["older women", "older men", "cougars?", "younger (women|men|girlfriend)", "age gap"]}
+   },
+   "breakups": {"kw": ["break ?ups?", "breaking up", "broke up", "dumped", "heartbreak", "ex-boyfriend", "ex-girlfriend", "ex-wife", "your ex", "my ex", "exes", "stay friends with your ex"]},
+   "cheating": {"kw": ["cheat(ing|ed|s)?", "affair", "adultery", "unfaithful", "open relationships?", "infidel"]},
+   "men-vs-women": {"kw": ["men vs\\.? women", "women vs\\.? men", "men and women", "boys vs girls", "women's movement", "feminis(m|t)", "double standards?", "male privilege", "frauenlogik", "sexism", "girls are", "women are", "men are", "what women want", "nice guys"]},
+   "friendship": {"kw": ["friends?hip", "best friend", "platonic friends?", "group chats?", "my friends", "hanging out"]}
+  },
+  "marriage": {
+   "kw": ["marriage", "married", "marry", "husbands?", "wife", "wives", "spouse", "matrimonio", "esposa"],
+   "weddings": {"kw": ["weddings?", "proposal", "engaged", "engagement", "bride", "honeymoon"]},
+   "divorce": {"kw": ["divorced?", "child of divorce", "custody"]},
+   "in-laws": {"kw": ["in-laws?", "mother-in-law", "father-in-law", "suegra"]}
+  },
+  "sex": {
+   "kw": ["sex", "sexy", "sexual", "horny", "bang(ed|ing)?", "orgasms?", "porn", "porno", "kinks?", "fetish(es)?", "pegging", "anal", "virgin(ity)?", "condoms?", "erection", "penis", "p\\*nis", "d\\*cks?", "vagina", "boobs?", "breast implants", "strippers?", "sluttiest", "fingered", "fist", "s e x", "gloryhole", "sex shops?"],
+   "porn": {"kw": ["porn", "porno", "porn endings"]},
+   "kinks": {"kw": ["kinks?", "fetish(es)?", "foot fetish", "pegging", "anal beads", "bdsm", "n\\*crophilia"]},
+   "stds-contraception": {"kw": ["std'?s?", "stds", "condoms?", "birth control", "vasectomy", "the pill"]}
+  },
+  "family": {
+   "kw": ["family", "families", "familia", "relatives", "cousins?", "uncles?", "aunts?", "funcles?", "family feud"],
+   "parents": {
+    "kw": ["parents", "padres", "Eltern", "strict asian parents", "indian parents", "boomer parents"],
+    "mums": {"kw": ["mom", "mum", "mother", "momma", "moms", "mums", "mommy", "mama", "mamá", "my mom", "mothers day", "mother's day"]},
+    "dads": {"kw": ["dad", "dads", "father", "fathers day", "father's day", "papá", "papa", "my dad"]}
+   },
+   "siblings": {"kw": ["siblings?", "brothers?", "sisters?", "nephew", "niece", "twins"]},
+   "grandparents": {"kw": ["grandma", "grandpa", "grandmother", "grandfather", "grandparents", "nana", "abuela"]},
+   "holidays": {"kw": ["christmas", "thanksgiving", "hanukkah", "easter", "new year'?s?", "holidays?", "navidad", "diwali", "eid", "halloween", "birthday"]}
+  },
+  "kids": {
+   "kw": ["kids?", "children", "child", "son", "sons", "daughters?", "baby", "babies", "toddlers?", "niños", "hijos", "Kinder", "teen moms?", "fatherhood", "motherhood"],
+   "pregnancy-birth": {"kw": ["pregnan(t|cy)", "giving birth", "gave birth", "childbirth", "labor", "miscarriage", "ivf", "trying to have kids", "fertile"]},
+   "parenting": {"kw": ["parenting", "raising (kids|our kids)", "putting your kids to sleep", "discipline", "fatherhood", "motherhood", "being a (dad|mom)", "as a parent", "career day"]},
+   "teenagers": {"kw": ["teen(ager)?s?", "teenage", "high school kids", "gen z kids", "my teen"]}
+  },
+  "childhood": {
+   "kw": ["childhood", "growing up", "when i was a kid", "as a kid", "infancia", "recess", "90s kid"],
+   "bullies": {"kw": ["bull(y|ies|ied)"]},
+   "kids-tv-toys": {"kw": ["cartoons?", "kids movies", "toys?", "pi[nñ]ata", "dora the explorer", "clifford", "heidi", "abeja maya", "peppa pig", "pepper pig", "shrek", "barbie", "disney"]}
+  },
+  "school": {
+   "kw": ["school", "schools", "escuela", "Schule"],
+   "teachers": {"kw": ["teachers?", "pt teacher", "preschool", "teaching"]},
+   "college": {"kw": ["college", "university", "uni", "students?", "engineering colleges?", "law school", "frat"]},
+   "exams": {"kw": ["exams?", "homework", "grades"]}
+  },
+  "work": {
+   "kw": ["work", "working", "job", "jobs", "career", "trabajo", "Arbeit", "employ(ed|ment)"],
+   "bosses-office": {"kw": ["boss", "bosses", "office", "coworkers?", "co-workers?", "corporate", "work(ing)? from home", "workday", "meetings?", "email lists?", "per my previous email", "job interview", "entrevista de trabajo"]},
+   "service-jobs": {"kw": ["waiters?", "waitress", "retail", "clothes store", "mcdonald'?s", "nail salon", "hooters", "uber driver", "delivery (guy|driver)", "papa john'?s", "movers", "pharmacy", "pharmacist", "plumb(er|ing)", "exterminator", "fire ?fighters?", "babysitter"]},
+   "unemployment": {"kw": ["unemploy(ed|ment)", "got fired", "get fired", "getting fired", "lost (your|my) job", "quitting", "day job"]}
+  },
+  "money": {
+   "kw": ["money", "rich", "poor", "broke", "cheap", "dinero", "Geld", "\\$\\d+", "cash", "cheque", "lottery", "taxes", "debt", "national debt", "financial", "loaded", "expensive", "prices", "inflation", "tariffs", "rent"],
+   "poverty": {"kw": ["poor", "poverty", "broke", "ghetto", "welfare", "food stamps", "growing up poor", "trash white", "homeless(ness)?"]},
+   "wealth": {"kw": ["rich", "rich people", "millionaire", "billionaire", "loaded", "lottery winners?", "rich boy"]},
+   "shopping": {"kw": ["shopping", "costco", "walmart", "ikea", "amazon", "trader joe'?s", "urban outfitters", "ross dress for less", "bloomingdale'?s", "supermarket", "black friday", "mall"]}
+  },
+  "religion": {
+   "kw": ["religion", "religious", "god", "jesus", "church", "bible", "pray(er|ers|ing)?", "faith", "devil", "satan", "atheis(m|t)", "religión", "dios", "pope", "priests?", "ten commandments", "noah", "jehovah"],
+   "christianity": {"kw": ["christians?", "catholics?", "protestants?", "church", "jesus", "bible", "pope", "priests?", "nuns?", "baptis[mt]", "mormons?", "jehovah", "choir"]},
+   "islam": {"kw": ["muslims?", "islam(ic|ophobia)?", "allah", "mosque", "ramadan", "hijab", "burqa", "eid"]},
+   "judaism": {"kw": ["jews?", "jewish", "judaism", "rabbi", "synagogue", "bar mitzvah", "hanukkah", "kosher", "antisemitism", "holocaust"]},
+   "atheism": {"kw": ["atheis(m|ts?)", "dial an atheist", "no god", "lost his religion"]}
+  },
+  "identity": {
+   "kw": ["identity"],
+   "race": {
+    "kw": ["race", "racism", "racist", "racial", "race card", "white people", "black people", "n-word", "n\\*\\*\\*as", "niggaz", "diversity", "segregation", "desegregation", "slavery", "civil rights", "white privilege", "white guilt", "profiled", "minority", "ethnic", "stereotypes?", "racist-ish", "fairness creams"],
+    "black": {"kw": ["black (people|guy|dudes|women|woman|kid|man|men|friends|male|nascar|national anthem|astronaut|magician)", "african american", "i'm black", "being black", "ghetto"]},
+    "white": {"kw": ["white (people|guy|guys|women|woman|kids|girls|privilege|guilt|drama|party|chicks)", "white-latino", "basic white girls", "white woman tears", "rednecks?", "hillbilly", "super white"]},
+    "asian": {"kw": ["asians?", "asian (people|women|parents|president)", "chinese", "japanese", "korean", "vietnamese", "filipino", "thai", "indians? are"]},
+    "latino": {"kw": ["latinos?", "latinas?", "mexicans?", "hispanic", "cubans?", "puerto ricans?", "dominicans?", "colombians?", "mexican relatives", "chicano", "latino culture"]},
+    "middle-eastern": {"kw": ["arabs?", "arabic", "iranians?", "persians?", "middle east", "lebanon", "palestin(e|ian)", "muslims?", "egypt"]},
+    "mixed-race": {"kw": ["mixed[- ]race", "biracial", "half (black|white|asian|chinese|mexican)", "interracial", "white & chinese"]}
+   },
+   "immigration": {"kw": ["immigra(nt|nts|tion)", "deported", "border", "refugees?", "citizenship", "green card", "visa", "fresh off the boat", "just off the boat", "immigration test"]},
+   "lgbtq": {
+    "kw": ["lgbtq?\\+?", "queer", "pride parades?", "coming out", "came out", "gaydar", "homophob(ic|ia|es)", "homofobia", "homosexuality", "drag race"],
+    "gay": {"kw": ["gay", "gays", "gay marriage", "gaydar", "straight vs\\.?", "lesbians?", "bisexual"]},
+    "trans": {"kw": ["trans", "transgender", "nonbinary", "non-binary", "pronouns", "what a woman is", "a woman is"]}
+   },
+   "nationality": {
+    "kw": ["americans?", "british", "brits?", "english", "irish", "scottish", "scots", "welsh", "australians?", "aussies?", "canadians?", "new zealand(ers)?", "kiwis?", "indians?", "germans?", "french", "italians?", "spanish", "españa", "swiss", "swedes?", "danish", "norwegians?", "russians?", "nigerians?", "south africans?", "jamaican", "armenians?", "latvian", "cornish", "yorkshire(man)?", "geordie"],
+    "americans": {"kw": ["americans?", "america", "american (people|guys?|women|men|culture|holidays|accents?|invention)", "u\\.s\\.", "united states", "redneck", "the south", "southern"]},
+    "british-irish": {"kw": ["british", "brits?", "britain", "england", "english people", "irish", "scottish", "scots", "welsh", "cornish", "yorkshire(man)?", "brexit", "the british empire", "british class system", "geordie", "the queen", "royal family"]},
+    "other-nationalities": {"kw": ["canadians?", "new zealand(ers)?", "kiwis?", "australians?", "aussies?", "germans?", "french (people|guys?|women)", "the french", "italians?", "swedes?", "swedish", "danish", "norwegians?", "russians?", "soviet", "nigerians?", "south africans?", "jamaicans?", "armenians?", "latvians?", "indians", "pakistanis?", "iranians?", "persians?", "mexicans?", "cubans?", "dominicans?", "puerto ricans?", "chinese people", "koreans?", "filipinos?", "malaysians?", "singaporeans?", "swiss"]},
+    "accents-language": {"kw": ["accents?", "language", "languages", "bilingual", "learning (french|mandarin|spanish|english)", "english vs\\.?", "curse words", "speak american", "pakistani accent", "spelling", "translat(or|e|ion)", "duo ?lingo", "der, die, das", "grammar", "subtitles"]}
+   },
+   "gender": {"kw": ["gender", "masculin(e|ity)", "feminin(e|ity)", "being a woman", "being a man", "manly", "men show love", "tank top confidence", "tomboy", "female comedian", "let us be men"]}
+  },
+  "drugs": {
+   "kw": ["drugs?", "getting high", "so high", "high as", "drogas", "Drogen", "addiction", "addict", "rehab", "sober", "sobriety", "relapse", "intervention"],
+   "weed": {"kw": ["weed", "marijuana", "pot", "stoner", "edibles?", "gummies", "420", "smoking pot", "anti pot ads", "legalizing drugs"]},
+   "alcohol": {"kw": ["alcohol(ic|ism)?", "drunk", "drunkest", "drinking", "drinks?", "beer", "whiskey", "wine", "wine snobbery", "booze", "hangover", "pub", "club soda", "dry january", "botellón", "jagermeister", "jägermeister", "kebab on a night out", "stop drinking"]},
+   "hard-drugs": {"kw": ["cocaine", "coke", "crack", "crackhead", "heroin", "meth", "molly", "ecstasy", "acid", "shrooms?", "mushrooms?", "psychedelics?", "lsd", "adderall", "benadryl", "robitussin", "pills?", "tylenol", "ozempic", "opioids?"]},
+   "smoking": {"kw": ["smok(ing|er|ers)", "cigarettes?", "cigars?", "vap(e|ing)", "giving up smoking"]}
+  },
+  "food": {
+   "kw": ["food", "eat(ing)?", "eats", "hungry", "comida", "Essen", "snacks?", "cooking", "cook", "cooked"],
+   "restaurants": {"kw": ["restaurants?", "waiters?", "menus?", "fast food", "mcdonald'?s", "kfc", "chick-fil-a", "chipotle", "taco bell", "jack in the box", "papa john'?s", "waffle house", "nando'?s", "tgif", "pizza", "sushi", "lasagna", "bubble tea", "starbucks", "coffee", "hot wing"]},
+   "diets": {"kw": ["diets?", "dieting", "keto", "vegan", "vegans?", "vegetarian", "veggie", "gluten", "health food", "lactose intoleran(t|ce)", "intermittent fasting", "ayuno", "juices?", "zumos", "raisins", "peanut allergies", "allerg(y|ies)"]},
+   "cooking": {"kw": ["cooking", "cook", "home-cooked", "kitchen", "recipes?", "air fryer", "biscuits?", "grill(ing)?"]}
+  },
+  "travel": {
+   "kw": ["travel(l?ing)?", "trips?", "vacation", "holiday abroad", "tourists?", "viaje", "Reise", "abroad", "on the road"],
+   "flying": {"kw": ["fly(ing)?", "flights?", "airports?", "airlines?", "planes?", "pilots?", "first class", "tsa", "spirit airlines", "flight attendants?", "airline safety", "airport sushi", "avião", "flughafen", "jet lag"]},
+   "hotels": {"kw": ["hotels?", "motels?", "airbnb", "air bnb", "self-catering"]},
+   "driving-transport": {"kw": ["driving", "drivers?", "drive", "cars?", "uber", "lyft", "taxi", "taxis", "bus", "buses", "subway", "train", "trains", "motorways?", "traffic", "road rage", "parking", "car insurance", "dmv", "mopeds?", "speeding", "women drivers", "florida drivers", "bus driver", "roller skating"]}
+  },
+  "places": {
+   "kw": [],
+   "us": {"kw": ["texas", "florida", "new york", "nyc", "los angeles", "jersey", "new jersey", "boston", "chicago", "ohio", "oklahoma", "alaska", "mississippi", "wisconsin", "oregon", "portland", "seattle", "philly", "philadelphia", "houston", "dallas", "austin", "new orleans", "nashville", "michigan", "minneapolis", "spokane", "indy", "indiana", "las vegas", "vegas", "san francisco", "oakland", "miami", "atlanta", "georgia", "kentucky", "louisville", "tennessee", "alabama", "orange county", "santa monica", "hollywood", "brooklyn", "the bronx", "queens", "manhattan", "rockland county", "new haven", "connecticut", "boise", "california", "arizona", "colorado", "fort worth", "pasadena", "times square"]},
+   "uk-ireland": {"kw": ["london", "scotland", "glasgow", "edinburgh", "aberdeen", "wales", "cardiff", "manchester", "liverpool", "salford", "newcastle", "birmingham", "belfast", "dublin", "ireland", "cornwall", "yorkshire", "benidorm", "minehead", "uk"]},
+   "world": {"kw": ["australia", "canada", "mexico", "france", "paris", "germany", "berlin", "italy", "rome", "colosseum", "spain", "españa", "japan", "china", "india", "dubai", "iran", "lebanon", "iceland", "sweden", "oslo", "lisbon", "amsterdam", "europe", "africa", "nigeria", "israel", "egypt", "jamaica", "brazil", "argentina", "switzerland", "schweizer", "down under"]}
+  },
+  "animals": {
+   "kw": ["animals?", "animales", "Tiere", "pets?", "zoo", "wildlife", "nature"],
+   "dogs": {"kw": ["dogs?", "puppy", "puppies", "pit ?bulls?", "dachshund", "bernese", "rescue dog", "psycho dog", "small dog"]},
+   "cats": {"kw": ["cats?", "kittens?", "cat cafes?", "cat guy", "homeless cats", "indoor cats"]},
+   "wildlife": {"kw": ["bears?", "sharks?", "lions?", "tigers?", "gorillas?", "monkeys?", "chimps?", "kangaroos?", "birds?", "geese", "goose", "squirrels?", "snakes?", "spiders?(?!-man)", "whales?", "horses?", "cows?", "deer", "bigfoot", "big foot", "safari", "crabs?", "crustacean", "bees?", "rats?", "roaches?", "pests?", "worms?", "dinosaurs?", "tiranosaurio", "mermaid", "donkey"]}
+  },
+  "health": {
+   "kw": ["health", "healthy", "illness", "salud", "Gesundheit", "medical", "medicine"],
+   "body-weight": {"kw": ["fat", "fatties", "obese", "weight", "losing weight", "weight loss", "skinny", "thick", "diet", "plus-sized", "body positivity", "fat jokes", "big girls", "fattest", "gym", "fitness", "workouts?", "yoga", "marathon", "outta shape", "ozempic", "tits", "breast", "bald", "going bald", "losing your hair", "facelift", "spray tans?", "waxing", "waxed", "waxer", "brazilian wax", "short guy", "ugly", "hot guys", "hot people", "beautiful people"]},
+   "mental-health": {"kw": ["mental health", "therapy", "therapist", "depress(ion|ed)", "anxiety", "panic attacks?", "adhd", "autism", "autistic", "ocd", "bipolar", "medicated", "trauma", "mindfulness", "insomnia", "sleep paralysis", "mental disorders", "breakdown", "crying", "psychiatr(ist|y)", "suicid(e|al)"]},
+   "doctors-hospitals": {"kw": ["doctors?", "hospitals?", "nurses?", "surgery", "healthcare", "health ?care", "colonoscopy", "dentist", "emergency room", "prescriptions?", "pharmacy", "united healthcare", "massages?", "covid tests?", "misdiagnosed", "vasectomy", "kidney", "hospital system"]},
+   "illness-disability": {"kw": ["cancer", "disab(led|ility|ilities)", "wheelchair", "amputee", "blind", "deaf", "tourette'?s", "seizure", "hearing loss", "special needs", "covid", "corona(virus)?", "pandemic", "omicron", "hantavirus", "bird flu", "flu", "gripa", "aids", "hiv", "prostate", "dwarf", "midget", "stroke", "sleepwalking", "lisp"]}
+  },
+  "death": {
+   "kw": ["death", "dead", "dying", "died", "muerte", "Tod", "funerals?", "graves?", "afterlife", "dead people", "dead mom", "death bed", "half dead"],
+   "funerals-grief": {"kw": ["funerals?", "grief", "grieving", "eulogy", "cemetery", "coping with a family tragedy", "dead mom", "death bed", "my dad died", "dead people"]},
+   "suicide": {"kw": ["suicid(e|al)"]},
+   "murder-killing": {"kw": ["murder(ed|s|er)?", "killers?", "serial killers?", "shoot(ing|er)s?", "shot", "mass shootings?", "school shooter", "assassinat", "gas chamber", "death penalty", "death row"]}
+  },
+  "politics": {
+   "kw": ["politics", "political", "politicians?", "polític[ao]s?", "Politik", "government", "democracy", "vote", "voting", "elections?", "president", "congress", "parliament", "liberals?", "conservatives?", "left-wing", "right-wing", "the left", "maga", "woke", "pc culture", "cancel(led)? culture"],
+   "trump": {"kw": ["trump", "donald trump", "melania", "maga", "make (india|america) great again"]},
+   "us-politics": {"kw": ["biden", "kamala", "obama", "clinton", "bush", "george bush", "ted cruz", "mitch mcconnell", "rfk", "george santos", "charlie kirk", "jan(uary)? 6th", "white house", "2nd amendment", "second amendment", "supreme court", "lbj", "de blasio", "fauci", "kennedy"]},
+   "uk-politics": {"kw": ["brexit", "rishi sunak", "boris", "tories", "tory", "labour", "nhs", "norman lamont", "thatcher", "royal family", "the queen", "monarchy", "prince andrew", "prince charles", "princess diana", "british empire"]},
+   "guns": {"kw": ["guns?", "gun control", "gunpoint", "shooting", "nra", "2nd amendment"]},
+   "war-military": {"kw": ["war", "military", "army", "soldiers?", "navy", "marines?", "seal team", "nuclear", "bombs?", "terror(ism|ists?)", "war on terror", "hitler", "nazis?", "world war", "propaganda", "recruiting", "arms trade", "veterans?", "hormuz", "oppenheimer"]},
+   "free-speech": {"kw": ["free(dom of)? speech", "cancel(led|lation)?", "offensive (jokes)?", "offend(ed|s)?", "can't make those jokes", "pc culture", "woke", "outraged", "self censor", "problematic", "too far"]}
+  },
+  "technology": {
+   "kw": ["technology", "tech", "internet", "online", "computers?", "tecnología"],
+   "phones": {"kw": ["phones?", "iphones?", "android", "smartphones?", "texting", "texts?", "text messages?", "calculator", "phone addiction", "dial phones", "cold call", "group chats?", "facetime", "selfies?"]},
+   "social-media": {"kw": ["social media", "instagram", "tiktok(er)?", "facebook", "twitter", "youtube comments", "youtubers?", "influencers?", "internet comments", "comments", "posting", "selfies?", "followers", "wikipedia", "googl(e|ing)", "memes?", "internet hate", "trolls?"]},
+   "ai-gadgets": {"kw": ["\\bai\\b", "artificial intelligence", "robots?", "chatgpt", "alexa", "siri", "smart home", "gadgets?", "apps?", "video games?", "gaming", "metal gear solid", "wifi", "drones?", "elon", "zuck", "snuggies?"]}
+  },
+  "aging": {
+   "kw": ["aging", "ageing", "getting older", "old age", "old people", "old men", "old lady", "elderly", "retire(d|ment)", "turning \\d+", "turns? 40", "thirties", "your 20s", "your thirties", "midlife", "menopause", "being 40", "hitting 40", "seniors?", "nursing home", "bucket list"],
+   "generations": {"kw": ["millennials?", "gen ?z", "boomers?", "generation x", "gen x", "kids these days", "zoomers?", "my generation", "back in my day", "young people", "20 year olds"]}
+  },
+  "crime": {
+   "kw": ["crime", "criminals?", "illegal", "lawyers?", "courtroom", "jail", "arrested", "crimen"],
+   "police": {"kw": ["police", "cops?", "policía", "polizei", "sheriff", "fbi", "pulled over", "traffic stop", "profiled", "police called"]},
+   "prison": {"kw": ["prison", "jail", "inmates?", "san quentin", "death row", "prison relations", "why i went to jail"]},
+   "theft-violence": {"kw": ["stole", "steal(ing)?", "stolen", "robbed", "robbery", "theft", "thief", "mugged", "shoplifting", "fights?", "fighting", "bar fight", "brawl", "beat(down| him)", "attacked", "gangsters?", "gang members", "gang mentality", "gangs", "mafia", "kidnapped", "carjack(ed)?", "arsonist", "louvre robbery", "scam(s|med)?"]},
+   "true-crime": {"kw": ["true crime", "murder shows", "serial killers?", "dahmer", "to catch a predator", "epstein", "diddy", "luigi mangione", "lindsay clancy"]}
+  },
+  "sports": {
+   "kw": ["sports?", "athletes?", "deportes?", "Sport", "olympics?"],
+   "football-soccer": {"kw": ["soccer", "football", "fútbol", "world cup", "premier league", "neymar", "soccer guys", "football is wife"]},
+   "american-sports": {"kw": ["nfl", "super ?bowl", "american football", "nba", "basketball", "baseball", "nascar", "hockey", "knicks", "dallas cowboys", "jerry jones", "kobe", "caitlyn clark", "klay thompson", "golf", "ufc", "wrestling", "prowrestling", "boxing", "tyson", "cornhole"]},
+   "fitness": {"kw": ["gym", "fitness", "work(ing)? ?out", "marathon", "running", "yoga", "crossfit", "indoor skydiving", "skating", "skateboarding", "hikers?", "hiking", "lawn bowls", "step aerobics", "swimming", "pools?", "camping"]}
+  },
+  "pop-culture": {
+   "kw": ["celebrit(y|ies)", "famous", "fame", "hollywood", "movies?", "films?", "television", "music", "songs?", "concerts?", "pop culture"],
+   "celebrities": {"kw": ["celebrit(y|ies)", "will smith", "jada", "kanye", "drake", "taylor swift", "beyonc[eé]", "michael jackson", "tupac", "kardashian", "bradley cooper", "ryan gosling", "johnny depp", "sylvester stallone", "mick jagger", "paul mccartney", "david bowie", "jimmy kimmel", "oprah", "matthew perry", "mathew perry", "brad pitt", "charlie sheen", "megan thee stallion", "bad bunny", "fetty wap", "flo rida", "fergie", "ishowspeed", "harvey weinstein", "vince mcmahon", "savannah guthrie", "jimmy savile", "hawking", "lily phillips", "julia roberts", "ellen", "neymar"]},
+   "movies-tv": {"kw": ["movies?", "films?", "cinema", "tv shows?", "television", "star wars", "transformers", "ghostbusters", "superman", "spider-man", "the lion king", "paranormal activity", "scary movies", "50 shades", "titanic", "the notebook", "reality tv", "family feud", "game of thrones", "drag race", "tiger king", "the oscars", "barbie", "oppenheimer", "harry potter", "jar-jar", "robocop", "afv", "home videos", "documentar(y|ies)", "diddy doc", "true crime", "murder shows", "glee", "daytime tv", "blockbusters", "metal gear solid", "80's movie villain", "kids movies"]},
+   "music": {"kw": ["music", "songs?", "singing", "sings", "rap( music)?", "rappers?", "hip ?hop", "country music", "heavy metal", "metal music", "techno", "regueton", "reggaeton", "karaoke", "concerts?", "music festivals?", "band", "bands", "marching bands?", "drummers?", "dire straits", "green day", "limp bizkit", "bongos", "choir", "national anthem", "blues", "anthem", "dj", "musical"]}
+  },
+  "everyday": {
+   "kw": [],
+   "home-neighbours": {"kw": ["house", "apartments?", "housemates?", "roommates?", "neighbou?rs?", "neighbo(u)?rhood", "landlords?", "renting", "rental", "movers", "bed", "king sized bed", "cleaning", "laundry", "chores", "diy", "doin' up the house", "toilets?", "public toilets", "bathrooms?", "bar bathrooms", "showers?", "hoa", "homeowners"]},
+   "weather-seasons": {"kw": ["weather", "rain", "snow", "shoveling snow", "cold", "heat", "summer", "winter", "hurricanes?", "tornados?", "earthquakes?", "fires?", "la fires", "climate", "global warming", "saving the planet", "climate refugees", "wind"]},
+   "sleep": {"kw": ["sleep(ing|walking)?", "naps?", "napping", "insomnia", "morning people", "9:00am", "bedtime", "sleep paralysis"]},
+   "manners-etiquette": {"kw": ["etiquette", "manners", "polite", "rude", "hugs?", "greeting", "small talk", "party", "parties", "awkward", "embarrass(ing|ed|es)?", "slow walkers", "pet peeves?", "annoying", "complain(ing|ts?)?", "whinging", "moaning", "lies", "lying", "liars?", "eavesdropping", "fan mail"]}
+  },
+  "comedy-life": {
+   "kw": [],
+   "hecklers": {"kw": ["heckl(e|er|ers|ed|ing)", "drunk girl", "drunk guy", "unruly crowd", "crazy heckler", "audience (leaves|member|members)", "walks on stage", "charge the stage", "attacked on stage", "throws off my set", "your heckle"]},
+   "bombing-gigs": {"kw": ["bomb(ed|ing)", "hell gig", "corporate roast", "worst gig", "open mic", "joke writing"]},
+   "roasts": {"kw": ["roast(s|ed|ing)?", "roastmaster", "torching"]}
+  }
+ }
+}
