@@ -139754,64 +139754,6 @@
   }
  },
  {
-  "id": "N-2_VxKvWws",
-  "comic": "Abandoman",
-  "title": "Abandoman: Pirate Radio - Autumn 2018 tour",
-  "channel": "Show And Tell",
-  "kind": "human",
-  "media": "youtube",
-  "sec": 66,
-  "dur": 66,
-  "checked": "2026-10-19",
-  "style": [],
-  "topics": [],
-  "tagsSource": "fg-persona",
-  "special_ref": null,
-  "special_id": null,
-  "setting": "stand-up",
-  "format": "horizontal",
-  "carrier": "unofficial",
-  "fg": "abandoman",
-  "region": "uk",
-  "via": "funnygraph-expand-2026-10-19:fg-youtube+r2-manifest",
-  "views": 80,
-  "transcript": true,
-  "words_timed": true,
-  "tags": {
-   "v": 1,
-   "topics": [],
-   "premise": [
-    "Pirate Radio",
-    0.6,
-    "title"
-   ],
-   "style": [],
-   "setting": [
-    "stand-up",
-    0.5,
-    "rule"
-   ],
-   "crowdwork": false,
-   "lang": [
-    "en",
-    0.85,
-    "rule"
-   ],
-   "year": [
-    2018,
-    0.75,
-    "title"
-   ],
-   "era": "2010s",
-   "band": "short",
-   "rating": [
-    "unknown",
-    0,
-    "rule"
-   ]
-  }
- },
- {
   "id": "c4Twf7jIN_g",
   "comic": "Sarah Lewis",
   "title": "Sarah Lewis - The Pub Corner Poet's",
@@ -139986,62 +139928,6 @@
    "year": null,
    "era": null,
    "band": "mid",
-   "rating": [
-    "unknown",
-    0,
-    "rule"
-   ]
-  }
- },
- {
-  "id": "AQqbh1GqDXw",
-  "comic": "Sarah Millican",
-  "title": "Sarah Millican: Late Bloomer - New Stand-Up Special | Out Now!",
-  "channel": "Sarah Millican",
-  "kind": "human",
-  "media": "youtube",
-  "sec": 63,
-  "dur": 63,
-  "checked": "2026-10-19",
-  "style": [
-   "observational"
-  ],
-  "topics": [],
-  "tagsSource": "fg-persona",
-  "special_ref": null,
-  "special_id": null,
-  "setting": "stand-up",
-  "format": "horizontal",
-  "carrier": "own",
-  "fg": "sarah-millican",
-  "region": "uk",
-  "via": "funnygraph-expand-2026-10-19:fg-youtube+r2-manifest:title-attributed",
-  "views": 26340,
-  "transcript": true,
-  "words_timed": true,
-  "tags": {
-   "v": 1,
-   "topics": [],
-   "premise": [
-    "Late Bloomer",
-    0.6,
-    "title"
-   ],
-   "style": [],
-   "setting": [
-    "special",
-    0.75,
-    "rule"
-   ],
-   "crowdwork": false,
-   "lang": [
-    "en",
-    0.85,
-    "rule"
-   ],
-   "year": null,
-   "era": null,
-   "band": "short",
    "rating": [
     "unknown",
     0,
@@ -145514,60 +145400,6 @@
   }
  },
  {
-  "id": "o_UaSL_AWWo",
-  "comic": "Alfie Moore",
-  "title": "Alfie Moore - A Face for Radio Tour | Wed 4 Jun",
-  "channel": "Mercury Theatre",
-  "kind": "human",
-  "media": "youtube",
-  "sec": 43,
-  "dur": 43,
-  "checked": "2026-10-19",
-  "style": [],
-  "topics": [],
-  "tagsSource": "fg-persona",
-  "special_ref": null,
-  "special_id": null,
-  "setting": "stand-up",
-  "format": "horizontal",
-  "carrier": "unofficial",
-  "fg": "alfie-moore",
-  "region": "uk",
-  "via": "funnygraph-expand-2026-10-19:fg-youtube+r2-manifest",
-  "views": 914,
-  "transcript": true,
-  "words_timed": true,
-  "tags": {
-   "v": 1,
-   "topics": [],
-   "premise": [
-    "A Face for Radio Tour",
-    0.6,
-    "title"
-   ],
-   "style": [],
-   "setting": [
-    "stand-up",
-    0.5,
-    "rule"
-   ],
-   "crowdwork": false,
-   "lang": [
-    "en",
-    0.85,
-    "rule"
-   ],
-   "year": null,
-   "era": null,
-   "band": "short",
-   "rating": [
-    "unknown",
-    0,
-    "rule"
-   ]
-  }
- },
- {
   "id": "g5571junGxQ",
   "comic": "Alfie Moore",
   "title": "Alfie Moore - A Face for Radio | Hazlitt Theatre | 9 May 2025",
@@ -145783,64 +145615,6 @@
    ],
    "year": null,
    "era": null,
-   "band": "short",
-   "rating": [
-    "unknown",
-    0,
-    "rule"
-   ]
-  }
- },
- {
-  "id": "fPKrkAyQ9jI",
-  "comic": "Alun Cochrane",
-  "title": "ALUN COCHRANE: ALUNISH COCHRANISH 2018 Tour (Stand Comedy Club)",
-  "channel": "The Stand Comedy Club",
-  "kind": "human",
-  "media": "youtube",
-  "sec": 47,
-  "dur": 47,
-  "checked": "2026-10-19",
-  "style": [],
-  "topics": [],
-  "tagsSource": "fg-persona",
-  "special_ref": null,
-  "special_id": null,
-  "setting": "stand-up",
-  "format": "horizontal",
-  "carrier": "unofficial",
-  "fg": "alun-cochrane",
-  "region": "uk",
-  "via": "funnygraph-expand-2026-10-19:fg-youtube+r2-manifest",
-  "views": 874,
-  "transcript": true,
-  "words_timed": true,
-  "tags": {
-   "v": 1,
-   "topics": [],
-   "premise": [
-    "ALUNISH COCHRANISH 2018 Tour (Stand Comedy Club)",
-    0.6,
-    "title"
-   ],
-   "style": [],
-   "setting": [
-    "club",
-    0.75,
-    "title"
-   ],
-   "crowdwork": false,
-   "lang": [
-    "en",
-    0.85,
-    "rule"
-   ],
-   "year": [
-    2018,
-    0.75,
-    "title"
-   ],
-   "era": "2010s",
    "band": "short",
    "rating": [
     "unknown",
@@ -165410,66 +165184,6 @@
   }
  },
  {
-  "id": "7nWS2QX0wvE",
-  "comic": "Aurie Styla",
-  "title": "Aurie Styla's Just Like That Tour | Manchester",
-  "channel": "LF Ent",
-  "kind": "human",
-  "media": "youtube",
-  "sec": 61,
-  "dur": 61,
-  "checked": "2026-10-19",
-  "style": [],
-  "topics": [],
-  "tagsSource": "fg-persona",
-  "special_ref": null,
-  "special_id": null,
-  "setting": "stand-up",
-  "format": "horizontal",
-  "carrier": "unofficial",
-  "fg": "aurie-styla",
-  "region": "uk",
-  "via": "funnygraph-expand-2026-10-19:fg-youtube+r2-manifest",
-  "views": 59,
-  "transcript": true,
-  "words_timed": true,
-  "tags": {
-   "v": 1,
-   "topics": [
-    [
-     "places/uk-ireland",
-     0.8,
-     "title"
-    ]
-   ],
-   "premise": [
-    "Just Like That Tour",
-    0.6,
-    "title"
-   ],
-   "style": [],
-   "setting": [
-    "stand-up",
-    0.5,
-    "rule"
-   ],
-   "crowdwork": false,
-   "lang": [
-    "en",
-    0.85,
-    "rule"
-   ],
-   "year": null,
-   "era": null,
-   "band": "short",
-   "rating": [
-    "unknown",
-    0,
-    "rule"
-   ]
-  }
- },
- {
   "id": "hL_p0oJSKPY",
   "comic": "Brian Gallagher",
   "title": "Massage Therapy School | Brian Gallagher | Craic Den Comedy Club",
@@ -180940,68 +180654,6 @@
    ],
    "era": "2000s",
    "band": "mid",
-   "rating": [
-    "unknown",
-    0,
-    "rule"
-   ]
-  }
- },
- {
-  "id": "IVqdSoTHD5s",
-  "comic": "Louis C.K.",
-  "title": "Robert Kelly and Louis CK on RK\u2019s new special KILL BOX",
-  "channel": "Louis C.K.",
-  "kind": "human",
-  "media": "youtube",
-  "sec": 342,
-  "dur": 342,
-  "checked": "2026-10-19",
-  "style": [
-   "dark",
-   "self-deprecating",
-   "storytelling"
-  ],
-  "topics": [],
-  "tagsSource": "fg-persona",
-  "special_ref": null,
-  "special_id": null,
-  "setting": "stand-up",
-  "format": "horizontal",
-  "carrier": "own",
-  "fg": "louis-ck",
-  "region": "us",
-  "via": "funnygraph-expand-2026-10-19:fg-youtube",
-  "views": 46208,
-  "year": 2022,
-  "needsCut": true,
-  "tags": {
-   "v": 1,
-   "topics": [],
-   "premise": [
-    "Robert Kelly and Louis CK on RK\u2019s new special KILL BOX",
-    0.6,
-    "title"
-   ],
-   "style": [],
-   "setting": [
-    "special",
-    0.75,
-    "rule"
-   ],
-   "crowdwork": false,
-   "lang": [
-    "en",
-    0.85,
-    "rule"
-   ],
-   "year": [
-    2022,
-    0.8,
-    "rule"
-   ],
-   "era": "2020s",
-   "band": "long",
    "rating": [
     "unknown",
     0,

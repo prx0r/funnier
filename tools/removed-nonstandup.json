@@ -1321,6 +1321,48 @@
    "why": "promo",
    "at": "2026-10-18",
    "by": "standup-audit:manual"
+  },
+  {
+   "id": "N-2_VxKvWws",
+   "comic": "Abandoman",
+   "title": "Abandoman: Pirate Radio - Autumn 2018 tour",
+   "channel": "Show And Tell",
+   "why": "promo: tour trailer (corpus expansion review 2026-10-19)"
+  },
+  {
+   "id": "AQqbh1GqDXw",
+   "comic": "Sarah Millican",
+   "title": "Sarah Millican: Late Bloomer - New Stand-Up Special | Out Now!",
+   "channel": "Sarah Millican",
+   "why": "promo: new-special ad (corpus expansion review 2026-10-19)"
+  },
+  {
+   "id": "o_UaSL_AWWo",
+   "comic": "Alfie Moore",
+   "title": "Alfie Moore - A Face for Radio Tour | Wed 4 Jun",
+   "channel": "Mercury Theatre",
+   "why": "promo: tour date (corpus expansion review 2026-10-19)"
+  },
+  {
+   "id": "fPKrkAyQ9jI",
+   "comic": "Alun Cochrane",
+   "title": "ALUN COCHRANE: ALUNISH COCHRANISH 2018 Tour (Stand Comedy Club)",
+   "channel": "The Stand Comedy Club",
+   "why": "promo: tour trailer (corpus expansion review 2026-10-19)"
+  },
+  {
+   "id": "7nWS2QX0wvE",
+   "comic": "Aurie Styla",
+   "title": "Aurie Styla's Just Like That Tour | Manchester",
+   "channel": "LF Ent",
+   "why": "promo: tour trailer (corpus expansion review 2026-10-19)"
+  },
+  {
+   "id": "IVqdSoTHD5s",
+   "comic": "Louis C.K.",
+   "title": "Robert Kelly and Louis CK on RK’s new special KILL BOX",
+   "channel": "Louis C.K.",
+   "why": "chat: two comics discussing a special (corpus expansion review 2026-10-19)"
   }
  ]
 }
