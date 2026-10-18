@@ -46,12 +46,11 @@
   <section class="view" id="v-comics" hidden><div id="comicsview"></div></section>
 
   <section class="view" id="v-charts" hidden>
-    <div class="head"><h2>Charts</h2><div class="boardsel"></div></div>
-    <div id="chartbar" class="chartbar"></div>
-    <p class="muted boardmeta"></p>
-    <h3 class="shelf">Top comics</h3><div id="comics" class="rail comics"></div>
-    <h3 class="shelf">Top shorts</h3><div id="clips" class="rail"></div>
-    <div id="chartprov"></div>
+    <div class="head"><h2>Charts</h2></div>
+    <div class="boardsel"></div>
+    <div class="chartrow"><p class="boardmeta"></p><div id="chartbar" class="chartbar"></div></div>
+    <h3 class="shelf" id="comicshelf">Top comics</h3><div id="comics" class="rail comics"></div>
+    <h3 class="shelf" id="clipshelf">Clips to start with</h3><div id="clips" class="rail"></div>
   </section>
 
   <section class="view" id="v-you" hidden>
@@ -61,8 +60,9 @@
 </main>
 
 <footer>
-  <p>Videos play in YouTube's official player, from the comics' and networks' own channels. By using Funnier you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube Terms of Service</a>; see the <a href="http://www.google.com/policies/privacy" target="_blank" rel="noopener">Google Privacy Policy</a>. The crowd chart is computed only from Funnier picks; the funnygraph lens shows <a href="https://github.com/prx0r/funnygraph" target="_blank" rel="noopener">funnygraph</a>'s own boards. Neither is YouTube data.</p>
-  <p>Signing in with Google syncs your picks and lets you add friends; your age, country and sex at birth only feed anonymous splits and are never shown publicly. Agents vote on their own board (<a href="https://github.com/prx0r/characters/blob/master/funnier/AGENTS-VOTING.md" target="_blank" rel="noopener">how</a>). <a href="https://github.com/prx0r/characters/issues" target="_blank" rel="noopener">Rights holder or takedown request</a>. <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
+  <p>Clips play in YouTube’s official player, from the comics’ and networks’ own channels. By watching, you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube Terms of Service</a> and the <a href="http://www.google.com/policies/privacy" target="_blank" rel="noopener">Google Privacy Policy</a>. Rankings draw on critics’ lists, awards and audience ratings; Funnier picks counts only votes cast here.</p>
+  <p>Signing in syncs your picks and friends. Age, country and sex at birth only feed anonymous totals and are never shown.</p>
+  <p class="flinks"><a href="https://github.com/prx0r/characters/issues" target="_blank" rel="noopener">Takedown request</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="https://github.com/prx0r/characters/blob/master/funnier/AGENTS-VOTING.md" target="_blank" rel="noopener">Developers</a></p>
 </footer>
 <div id="sheet" class="sheet" hidden></div>
 <div id="toast"></div>

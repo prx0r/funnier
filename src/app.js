@@ -47,7 +47,7 @@ let LANE = LS.get('lane', 'human'), BOARDKIND = 'all'
 // funnygraph (github.com/prx0r/funnygraph) owns comic identity, region, tier and its own ranking boards. The deploy syncs its
 // latest boards into data/funnygraph/boards.json (tools/sync-funnygraph.mjs); the site renders whatever that says, as a lens
 // separate from Funnier's own crowd Bradley-Terry chart. Loaded lazily (Charts / a profile).
-let COMICSRC = null, FG = null, FGP = null, LENS = 'crowd', FGBOARD = 'house', REGION = 'all', FGPICK = {}, FGPROF = null, FGPROFP = null
+let COMICSRC = null, FG = null, FGP = null, LENS = 'fg', FGBOARD = 'house', REGION = 'all', FGPICK = {}, FGPROF = null, FGPROFP = null
 // ---------- feeds + region scope (src/feeds.js) ----------
 // FEED: trending (default) | foryou | underdog | vibes | cat:<slug>. SCOPE: 'global' or a funnygraph region key; every feed's
 // candidate pool (and openPair) is filtered by it. Both remembered on the device and synced to the account (users.scope/feed).
@@ -1712,80 +1712,128 @@ function bindFullscreen() {
 
 // ---------- charts ----------
 const thumb = (id) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
+const winPct = (r) => (r && r.bouts ? Math.round((100 * (r.wins || 0)) / r.bouts) + '% wins' : '')
 function clipTile(c, i, extra) {
   const k = BYID[c.id] || c
   const img = k.media === 'youtube' ? `<img loading="lazy" src="${thumb(k.id)}" alt="">` : `<div class="comicposter" style="aspect-ratio:16/9"><b>${esc(k.comic)}</b></div>`
   const href = '#watch/' + encodeURIComponent(k.id) // plays on the site, never on YouTube
   const wm = watchMark(k.id)
   return `<a class="tile${wm.cls}" href="${href}"${wm.title ? ` title="${esc(wm.title)}"` : ''}>${i != null ? `<span class="num">${i + 1}</span>` : ''}
-    <div class="poster">${img}${wm.html}<div class="cap"><b>${esc(k.title)}</b><span>${esc(k.comic)}${extra ? ' · ' + extra : ''}</span></div></div></a>`
+    <div class="poster">${img}${wm.html}<div class="cap"><b>${esc(k.title)}</b><span>${esc(k.comic)}${extra ? ' · ' + esc(extra) : ''}</span></div></div></a>`
 }
+// a poster: a rights-cleared portrait when we have one, else the comic's first clip frame (zoomed past YouTube's letterbox bars)
+function posterStyle(name) {
+  const first = name ? CLIPS.find((k) => k.comic === name && k.media === 'youtube') : null, ph = name ? photoOf(COMICS[name]) : ''
+  if (ph) return { cls: ' photo', st: `style="background-image:linear-gradient(180deg,rgba(7,7,10,0) 35%,rgba(7,7,10,.92) 88%),url(${esc(ph)})"` }
+  if (first) return { cls: ' yt', st: `style="--img:url(${thumb(first.id)})"` }
+  return { cls: ' noimg', st: '' }
+}
+const nameCls = (n) => (String(n).length > 16 ? ' long' : '')
 function comicTile(c, i, extra) {
-  const first = CLIPS.find((k) => k.comic === c.comic && k.media === 'youtube')
-  const bg = first ? `style="background-image:linear-gradient(180deg,rgba(7,7,10,.1),rgba(7,7,10,.95) 75%),url(${thumb(first.id)})"` : ''
-  return `<div class="tile"><span class="num">${i + 1}</span><div class="poster comicposter" ${bg}><b>${esc(c.comic)}</b><span class="rating">${extra}</span></div></div>`
+  const ps = posterStyle(c.comic)
+  return `<a class="tile${i == null ? ' nonum' : ''}" href="#comic/${slugOf(c.comic)}">${i != null ? `<span class="num">${i + 1}</span>` : ''}<div class="poster comicposter${ps.cls}" ${ps.st}><b class="${nameCls(c.comic).trim()}">${esc(c.comic)}</b>${extra ? `<span class="rating">${esc(extra)}</span>` : ''}</div></a>`
+}
+// what a fan sees under a name on each board: a star rating on Fan favourites, otherwise only where they're from
+function fgSub(id, val) {
+  const g = FG.people[id] || {}
+  const v = FGBOARD === 'peoples' && typeof val === 'number' ? `\u2605 ${val.toFixed(1)}` : null
+  const where = g.r && g.r !== 'us' ? shortRegion(g.r) : null
+  return [v, where].filter(Boolean).join(' · ')
 }
 function fgTile(id, rank, val, i) {
-  const name = fgName(id), g = FG.people[id] || {}, first = name ? CLIPS.find((k) => k.comic === name && k.media === 'youtube') : null
-  const ph = name ? photoOf(COMICS[name]) : '', img = ph || (first ? thumb(first.id) : '')
-  const bg = img ? `style="background-image:linear-gradient(180deg,rgba(7,7,10,.1),rgba(7,7,10,.95) 75%),url(${img})"` : ''
-  const sub = [val != null ? val : null, g.t === 'indie' ? 'indie' : null, g.r && g.r !== 'us' ? (FG.regionLabel?.[g.r] || g.r) : null].filter((x) => x != null).join(' · ')
-  const inner = `<span class="num">${rank ?? '\u2014'}</span><div class="poster comicposter${img ? '' : ' noimg'}" ${bg}><b>${esc(g.n || id)}</b><span class="rating">${esc(sub)}</span>${name ? '' : '<span class="noclip">No clips yet</span>'}</div>`
+  const name = fgName(id), g = FG.people[id] || {}, ps = posterStyle(name), sub = fgSub(id, val), n = g.n || name || ''
+  const inner = `<span class="num">${i + 1}</span><div class="poster comicposter${ps.cls}" ${ps.st}><b class="${nameCls(n).trim()}">${esc(n)}</b>${sub ? `<span class="rating">${esc(sub)}</span>` : ''}${name ? '' : '<span class="noclip">Clips coming soon</span>'}</div>`
   return name ? `<a class="tile" href="#comic/${slugOf(name)}">${inner}</a>` : `<div class="tile">${inner}</div>`
 }
-function lensBar() {
-  return `<div class="lanes lens" role="tablist" aria-label="Ranking lens">${[['crowd', 'Funnier crowd'], ['fg', 'funnygraph']].map(([k, l]) => `<button type="button" role="tab" data-lens="${k}" class="${LENS === k ? 'on' : ''}" aria-selected="${LENS === k}">${l}</button>`).join('')}</div>`
+// public names for the boards (display only: the data keys and files keep their pipeline names)
+const CHART_COPY = {
+  house: ['The Greatest', 'The comics who define stand-up.'],
+  peoples: ['Fan favourites', 'The specials audiences rate highest.'],
+  consensus: ['Critics\u2019 consensus', 'Where critics, audiences and awards agree.'],
+  canon: ['All-time canon', 'The names critics and awards keep coming back to.'],
+  kings: ['Style kings', 'The best at every kind of funny.'],
+  era: ['By era', 'Who ruled each generation of stand-up.'],
+  under: ['Underrated', 'Loved by the people who\u2019ve seen them, still under the radar.'],
+  over: ['Overrated', 'Huge audiences, more divided reviews.'],
+  crowd: ['Funnier picks', 'Voted here, one double feature at a time.'],
+}
+const CHART_ORDER = ['house', 'peoples', 'consensus', 'canon', 'kings', 'era', 'under', 'over']
+const ERA_NAME = { pioneers: 'Pioneers', seventies: 'The \u201970s', 'eighties-boom': 'The \u201980s', nineties: 'The \u201990s', aughts: 'The 2000s', tens: 'The 2010s', twenties: 'Right now' }
+const chartName = (k, b) => CHART_COPY[k]?.[0] || b?.label || k
+const groupName = (board, g) => (board === 'era' && ERA_NAME[g.k]) || g.label || g.k
+function fgBoardList() {
+  if (!FG) return []
+  const has = ([, b]) => (Array.isArray(b?.rows) && b.rows.length) || (Array.isArray(b?.groups) && b.groups.some((g) => g?.rows?.length))
+  const rank = (k) => { const i = CHART_ORDER.indexOf(k); return i < 0 ? 99 : i }
+  return Object.entries(FG.boards).filter(has).sort((x, y) => rank(x[0]) - rank(y[0]))
+}
+const curChart = () => (LENS === 'crowd' ? 'crowd' : FGBOARD)
+const shelves = (a, b) => { const x = $('#comicshelf'), y = $('#clipshelf'); if (x) x.textContent = a; if (y) y.textContent = b }
+function paintChartTabs() {
+  const keys = [...fgBoardList().map(([k, b]) => [k, chartName(k, b)]), ['crowd', CHART_COPY.crowd[0]]]
+  const cur = curChart()
+  document.querySelectorAll('.boardsel').forEach((x) => {
+    x.innerHTML = `<div class="chartseg" role="tablist" aria-label="Charts">${keys.map(([k, l]) => `<button type="button" role="tab" data-chart="${esc(k)}" class="${cur === k ? 'on' : ''}" aria-selected="${cur === k}">${esc(l)}</button>`).join('')}</div>`
+    x.querySelectorAll('[data-chart]').forEach((btn) => (btn.onclick = () => { const k = btn.dataset.chart; if (k === 'crowd') LENS = 'crowd'; else { LENS = 'fg'; FGBOARD = k } paintBoards() }))
+    const on = x.querySelector('.chartseg .on'), seg = x.querySelector('.chartseg')
+    if (on && seg) { const l = on.offsetLeft - 16, r = on.offsetLeft + on.offsetWidth - seg.clientWidth + 16; if (l < seg.scrollLeft) seg.scrollLeft = l; else if (r > seg.scrollLeft) seg.scrollLeft = r }
+    const fade = () => { x.classList.toggle('more', !!seg && seg.scrollLeft + seg.clientWidth < seg.scrollWidth - 4); x.classList.toggle('lft', !!seg && seg.scrollLeft > 4) }
+    if (seg) { seg.onscroll = fade; fade(); try { new ResizeObserver(() => { fade(); const o2 = seg.querySelector('.on'); if (o2 && o2.offsetLeft + o2.offsetWidth > seg.clientWidth) seg.scrollLeft = o2.offsetLeft - 16 }).observe(seg) } catch {} }
+  })
 }
 function paintBoards() {
   const metas = document.querySelectorAll('.boardmeta'), bar = $('#chartbar')
   const repaint = () => paintBoards()
+  $('#chartprov') && ($('#chartprov').innerHTML = '')
   if (LENS === 'fg') return paintFGBoards(metas, bar, repaint)
-  const sel = `<div class="lanes">${[['all', 'Everyone'], ['human', 'Humans'], ['agent', 'Agents']].map(([k, l]) => `<button data-board="${k}" class="${BOARDKIND === k ? 'on' : ''}">${l}</button>`).join('')}</div>`
-  document.querySelectorAll('.boardsel').forEach((x) => (x.innerHTML = sel))
-  document.querySelectorAll('[data-board]').forEach((x) => (x.onclick = () => { BOARDKIND = x.dataset.board; paintBoards() }))
+  paintChartTabs()
+  const kinds = [['all', 'Everyone'], ['human', 'People'], ['agent', 'AI judges']].filter(([k]) => k === 'all' || BOARD?.boards?.[k]?.votes)
+  if (!kinds.some(([k]) => k === BOARDKIND)) BOARDKIND = 'all'
+  const who = kinds.length > 1 ? `<label class="fscope fgpick"><select id="crowdkind" aria-label="Whose picks">${kinds.map(([k, l]) => `<option value="${k}"${BOARDKIND === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>` : ''
   const bd = BOARD?.boards?.[BOARDKIND]
   const names = [...new Set(CLIPS.map((c) => c.comic))]
-  if (bar) { bar.innerHTML = lensBar() + regionBar(names.map((n) => placeOf(n)), repaint); bindLens(bar); bindRegion(bar, repaint) }
+  if (bar) { bar.innerHTML = who + regionBar(names.map((n) => placeOf(n)), repaint); bindRegion(bar, repaint); const ck = bar.querySelector('#crowdkind'); if (ck) ck.onchange = () => { BOARDKIND = ck.value; repaint() } }
   const inRegion = (n) => regionOK(placeOf(n))
-  $('#chartprov') && ($('#chartprov').innerHTML = '')
   if (!bd || !bd.votes) {
-    metas.forEach((m) => (m.textContent = BOARDKIND === 'agent' ? 'No agent picks yet. Agents vote through the AT Protocol API.' : 'The chart opens with the first published picks. Until then, here is everything in rotation.'))
+    metas.forEach((m) => (m.textContent = 'This chart fills in as people vote. Settle a double feature to add yours.'))
+    shelves('In rotation', 'Clips to start with')
     const comics = names.filter(inRegion)
-    $('#comics').innerHTML = comics.map((k, i) => comicTile({ comic: k }, i, CLIPS.filter((c) => c.comic === k).length + ' shorts')).join('') || '<p class="muted">No comics from here yet.</p>'
-    $('#clips').innerHTML = CLIPS.filter((c) => servable(c) && !isChat(c) && inRegion(c.comic)).map((c) => clipTile(c, null, c.channel)).join('')
+    $('#comics').innerHTML = comics.map((k) => comicTile({ comic: k }, null, null)).join('') || '<p class="muted">No comics from here yet.</p>'
+    $('#clips').innerHTML = CLIPS.filter((c) => servable(c) && !isChat(c) && inRegion(c.comic)).slice(0, 24).map((c) => clipTile(c, null, null)).join('')
     return
   }
   const ago = Math.max(0, Math.round((Date.now() - Date.parse(BOARD.updated)) / 60000))
-  metas.forEach((m) => (m.textContent = `${bd.votes} picks from ${bd.voters} account${bd.voters === 1 ? '' : 's'} · Bradley-Terry ratings with 95% ranges · updated ${isNaN(ago) ? 'recently' : ago + ' min ago'}`))
-  const rng = (r) => (r.lo != null ? ` (${Math.round(r.lo)}–${Math.round(r.hi)})` : '')
-  $('#comics').innerHTML = bd.comics.filter((c) => c.bouts && inRegion(c.comic)).map((c, i) => comicTile(c, i, Math.round(c.elo) + rng(c))).join('') || '<p class="muted">No rated comics from here yet.</p>'
-  $('#clips').innerHTML = bd.clips.filter((c) => c.bouts && BYID[c.id] && servable(BYID[c.id]) && inRegion(BYID[c.id].comic)).slice(0, 10).map((c, i) => clipTile(c, i, Math.round(c.elo))).join('')
+  const when = isNaN(ago) ? 'recently' : ago < 60 ? `${ago || 1} min ago` : ago < 1440 ? `${Math.round(ago / 60)} h ago` : `${Math.round(ago / 1440)} d ago`
+  shelves('Top comics', 'Top clips')
+  metas.forEach((m) => (m.textContent = `${bd.votes.toLocaleString()} pick${bd.votes === 1 ? '' : 's'} from ${bd.voters.toLocaleString()} ${bd.voters === 1 ? 'person' : 'people'}. Updated ${when}.`))
+  $('#comics').innerHTML = bd.comics.filter((c) => c.bouts && inRegion(c.comic)).map((c, i) => comicTile(c, i, winPct(c))).join('') || '<p class="muted">No rated comics from here yet.</p>'
+  $('#clips').innerHTML = bd.clips.filter((c) => c.bouts && BYID[c.id] && servable(BYID[c.id]) && inRegion(BYID[c.id].comic)).slice(0, 10).map((c, i) => clipTile(c, i, winPct(c))).join('')
 }
-function bindLens(root) { root.querySelectorAll('[data-lens]').forEach((b) => (b.onclick = () => { LENS = b.dataset.lens; paintBoards() })) }
 function paintFGBoards(metas, bar, repaint) {
   if (!FG) {
-    metas.forEach((m) => (m.textContent = 'Loading funnygraph\u2019s boards\u2026'))
-    if (bar) { bar.innerHTML = lensBar(); bindLens(bar) }
-    loadFG().then(() => { if (LENS !== 'fg') return; if (FG) paintBoards(); else { metas.forEach((m) => (m.textContent = 'funnygraph\u2019s boards are unavailable right now. The Funnier crowd chart is unaffected.')); $('#comics').innerHTML = ''; $('#clips').innerHTML = '' } })
+    metas.forEach((m) => (m.textContent = ''))
+    paintChartTabs(); if (bar) bar.innerHTML = ''
+    $('#comics').innerHTML = '<div class="railskel"><i></i><i></i><i></i><i></i></div>'; $('#clips').innerHTML = ''
+    loadFG().then(() => { if (LENS !== 'fg') return; if (!FG) LENS = 'crowd'; paintBoards() }) // no boards today: fall back to Funnier picks
     return
   }
-  const boards = Object.entries(FG.boards).filter(([, b]) => (Array.isArray(b?.rows) && b.rows.length) || (Array.isArray(b?.groups) && b.groups.some((g) => g?.rows?.length)))
+  const boards = fgBoardList()
   if (!boards.some(([k]) => k === FGBOARD)) FGBOARD = boards[0]?.[0] || 'house'
-  document.querySelectorAll('.boardsel').forEach((x) => (x.innerHTML = `<div class="lanes">${boards.map(([k, b]) => `<button data-fgboard="${k}" class="${FGBOARD === k ? 'on' : ''}">${esc(b.label || k)}</button>`).join('')}</div>`))
-  document.querySelectorAll('[data-fgboard]').forEach((x) => (x.onclick = () => { FGBOARD = x.dataset.fgboard; paintBoards() }))
+  paintChartTabs()
   const B0 = FG.boards[FGBOARD] || { rows: [] }, groups = Array.isArray(B0.groups) ? B0.groups.filter((g) => Array.isArray(g?.rows) && g.rows.length) : null
   // Style kings / By era: one board per style or generation, picked from a slim select beside the region filter
   if (groups && !groups.some((g) => g.k === FGPICK[FGBOARD])) FGPICK[FGBOARD] = groups[0]?.k
   const G = groups ? groups.find((g) => g.k === FGPICK[FGBOARD]) : null
   const B = G ? { ...B0, rows: G.rows } : B0
-  const pick = groups ? `<label class="fscope fgpick" title="${esc(B0.label || '')}"><select id="fgpick" aria-label="${esc(B0.label || 'Board')}">${groups.map((g) => `<option value="${esc(g.k)}"${g.k === FGPICK[FGBOARD] ? ' selected' : ''}>${esc(g.label)}</option>`).join('')}</select></label>` : ''
-  if (bar) { bar.innerHTML = lensBar() + pick + regionBar(Object.values(FG.people).map((p) => ({ r: p.r, c: p.c })), repaint); bindLens(bar); bindRegion(bar, repaint); const ps = bar.querySelector('#fgpick'); if (ps) ps.onchange = () => { FGPICK[FGBOARD] = ps.value; repaint() } }
-  metas.forEach((m) => (m.textContent = `${B.blurb || ''} A separate lens from the Funnier crowd chart: funnygraph\u2019s board, not Funnier picks.`))
+  const label = chartName(FGBOARD, B0)
+  const pick = groups ? `<label class="fscope fgpick"><select id="fgpick" aria-label="${esc(label)}">${groups.map((g) => `<option value="${esc(g.k)}"${g.k === FGPICK[FGBOARD] ? ' selected' : ''}>${esc(groupName(FGBOARD, g))}</option>`).join('')}</select></label>` : ''
+  if (bar) { bar.innerHTML = pick + regionBar(Object.values(FG.people).map((p) => ({ r: p.r, c: p.c })), repaint); bindRegion(bar, repaint); const ps = bar.querySelector('#fgpick'); if (ps) ps.onchange = () => { FGPICK[FGBOARD] = ps.value; repaint() } }
+  metas.forEach((m) => (m.textContent = CHART_COPY[FGBOARD]?.[1] || ''))
+  shelves('Top comics', 'Clips to start with')
   const rows = B.rows.filter(([id]) => FG.people[id] && regionOK(placeOf(null, id))).slice(0, 40)
-  $('#comics').innerHTML = rows.map(([id, rank, val], i) => fgTile(id, rank, val, i)).join('') || '<p class="muted">No comics from here on this board yet.</p>'
+  $('#comics').innerHTML = rows.map(([id, rank, val], i) => fgTile(id, rank, val, i)).join('') || '<p class="muted">No one from here on this chart yet.</p>'
   const top = rows.map(([id]) => fgName(id)).filter(Boolean)
-  $('#clips').innerHTML = top.flatMap((n) => CLIPS.filter((c) => c.comic === n && servable(c) && !isChat(c)).slice(0, 2)).slice(0, 16).map((c) => clipTile(c, null, c.comic)).join('') || '<p class="muted">No shorts yet for the comics on this board.</p>'
-  $('#chartprov') && ($('#chartprov').innerHTML = fgProv(((B0.label || FGBOARD) + (G ? ': ' + G.label : '')).toLowerCase() + (B0.ref ? ' (ref)' : '')))
+  $('#clips').innerHTML = top.flatMap((n) => CLIPS.filter((c) => c.comic === n && servable(c) && !isChat(c)).slice(0, 2)).slice(0, 16).map((c) => clipTile(c, null, null)).join('') || '<p class="muted">Clips for this chart are on their way.</p>'
 }
 
 // ---------- feeds strip, region scope, categories (src/feeds.js) ----------
@@ -1996,7 +2044,6 @@ function fgName(id) {
   for (const [n, P] of Object.entries(COMICS)) if (P?.fgId === id || (!P?.fgId && P?.slug === id)) return n
   const n = FG?.people?.[id]?.n; return n && CLIPS.some((c) => c.comic === n) ? n : null
 }
-const fgProv = (label) => FG?.source?.sha7 ? `<p class="prov">funnygraph ${esc(label)} · <a href="${esc(FG.source.url || 'https://github.com/prx0r/funnygraph')}" target="_blank" rel="noopener">${esc(FG.source.sha7)}</a></p>` : ''
 
 // ---------- comics ----------
 // rights-cleared portraits (Wikimedia Commons, CC BY / BY-SA / CC0 / PD) committed under site/img, with attribution
@@ -2031,69 +2078,79 @@ function paintComics() {
     if (name) return paintProfile(el, name)
   }
   const shown = names.filter((n) => regionOK(placeOf(n)))
-  el.innerHTML = `<div class="head"><h2>Comics</h2></div><p class="muted">Tap a comic for their profile, best-rated shorts and head-to-heads.</p>
+  el.innerHTML = `<div class="head"><h2>Comics</h2></div><p class="muted lede">Stand-up\u2019s finest, and the clips that prove it.</p>
     <div class="chartbar">${regionBar(names.map((n) => placeOf(n)))}</div>
     <div class="grid">${shown.map((n) => { const st = comicStats(n), first = st.clips.find((k) => k.media === 'youtube')
-      const ph = photoOf(COMICS[n]), fb = first ? thumb(first.id) : ''
+      const ph = photoOf(COMICS[n]), fb = first ? thumb(first.id) : '', where = COMICS[n]?.region && COMICS[n].region !== 'us' ? shortRegion(COMICS[n].region) : ''
+      const line = [st.crowd ? winPct(st.crowd) : `${st.clips.length} clip${st.clips.length === 1 ? '' : 's'}`, where].filter(Boolean).join(' · ')
       return `<a class="ccard" href="#comic/${slugOf(n)}"><div class="cimg">${ph || fb ? `<img class="cphoto${ph ? '' : ' yt'}" src="${esc(ph || fb)}" alt="${esc(n)}" loading="lazy" decoding="async"${ph && fb ? ` onerror="this.onerror=null;this.classList.add('yt');this.src='${esc(fb)}'"` : ''}>` : ''}</div>
-        <div class="ctext"><b>${esc(n)}</b><span>${esc(COMICS[n]?.tagline || '')}</span><em>${st.crowd ? Math.round(st.crowd.elo) + ' crowd rating' : st.clips.length + ' shorts'}${COMICS[n]?.region && COMICS[n].region !== 'us' && COMICS[n].regionLabel ? ' · ' + esc(COMICS[n].regionLabel) : ''}</em></div></a>` }).join('')}
-      <div class="ccard soon"><div class="cimg ai"></div><div class="ctext"><b>AI comedians</b><span>In rehearsal. Soon you'll train your own and premiere them here.</span><em>Coming soon</em></div></div>
+        <div class="ctext"><b>${esc(n)}</b><span>${esc(COMICS[n]?.tagline || '')}</span><em>${esc(line)}</em></div></a>` }).join('')}
+      <div class="ccard soon"><div class="cimg ai"></div><div class="ctext"><b>AI comedians</b><span>In rehearsal. Soon you\u2019ll train your own and premiere them here.</span><em>Coming soon</em></div></div>
     </div>`
   bindRegion(el, paintComics)
 }
-// the two lenses on one line: Funnier's crowd rating is Funnier picks; funnygraph's ranks are its own boards
-function fgLine(P) {
-  const f = P?.fg; if (!f) return ''
-  const bits = [f.house ? `House #${f.house}` : null, f.consensus ? `Consensus #${f.consensus}` : null, f.canon ? `Canon #${f.canon}` : null, f.peoples ? `People\u2019s #${f.peoples}` : null].filter(Boolean)
-  if (!bits.length && !P.tier) return ''
-  const sha = COMICSRC?.sha7
-  return `<p class="lensline"><span>Crowd rating is Funnier picks.</span> <span>funnygraph${P.tier === 'indie' ? ' (indie)' : ''}: ${bits.join(' · ') || 'not ranked yet'}${sha ? ` · <a href="https://github.com/prx0r/funnygraph/tree/${encodeURIComponent(sha)}/rankings" target="_blank" rel="noopener">${esc(sha)}</a>` : ''}</span></p>`
+// a profile's facts in plain words: funnygraph's generation tags read as eras
+const ERA_FACT = { Pioneers: 'Pioneer', 'Seventies club boom': '\u201970s club boom', 'Eighties boom': '\u201980s boom', 'Nineties alt + HBO': '\u201990s alt scene', Aughts: '2000s', 'Tens Netflix/podcast': '2010s', 'Twenties KT/streaming': '2020s' }
+const factText = (f) => ERA_FACT[f] || f
+const titleCase = (t) => String(t).replace(/(^|[\s-])([a-z])/g, (m, a, b) => a + b.toUpperCase()).replace(/-/g, ' ')
+// the hero stats: only numbers a fan reads at a glance, never a placeholder
+function profileStats(P, st) {
+  const out = []
+  if (P.fg?.house) out.push([`#${P.fg.house}`, 'The Greatest'])
+  if (P.fg?.peoples) out.push([`#${P.fg.peoples}`, 'Fan favourites'])
+  if (st.crowd?.bouts) out.push([Math.round((100 * (st.crowd.wins || 0)) / st.crowd.bouts) + '%', 'Win rate on Funnier'])
+  const n = st.clips.filter((c) => servable(c)).length
+  if (n) out.push([n, n === 1 ? 'Clip' : 'Clips'])
+  return out.length ? `<div class="stats">${out.slice(0, 4).map(([v, l]) => `<div><b>${esc(String(v))}</b><span>${esc(l)}</span></div>`).join('')}</div>` : ''
 }
 function paintProfile(el, name) {
   const P = COMICS[name] || {}, st = comicStats(name), first = st.clips.find((k) => k.media === 'youtube')
-  const rng = st.crowd?.lo != null ? ` <small>${Math.round(st.crowd.lo)}–${Math.round(st.crowd.hi)}</small>` : ''
-  el.innerHTML = `<a class="back" href="#comics">← All comics</a>
-    ${(() => { const ph = photoOf(P), fb = first ? thumb(first.id) : ''; return `<section class="hero${ph ? ' hasphoto' : ''}">${ph || fb ? `<img class="heroimg${ph ? '' : ' yt'}" src="${esc(ph || fb)}" alt="" decoding="async"${ph && fb ? ` onerror="this.onerror=null;this.classList.add('yt');this.src='${esc(fb)}'"` : ''}>` : ''}` })()}
-      <div class="hinner"><span class="eyebrow">Comedian</span><h1>${esc(name)}</h1><p class="tag">${esc(P.tagline || '')}</p>
-      <div class="facts">${(P.facts || []).map((f) => `<span>${esc(f)}</span>`).join('')}</div>
-      <div class="stats"><div><b>${st.crowd ? Math.round(st.crowd.elo) + rng : '—'}</b><span>Crowd rating</span></div><div><b>${st.mine ?? '—'}</b><span>Your model</span></div>${P.fg?.house ? `<div><b>#${P.fg.house}</b><span>funnygraph house</span></div>` : ''}<div><b>${st.clips.length}</b><span>Shorts</span></div></div>
-      ${fgLine(P)}
+  const tags = [...new Set([...st.styles, ...(Array.isArray(P.styleTags) ? P.styleTags : [])].map((t) => titleCase(t)))]
+  const h2h = Object.entries(st.h2h).sort((a, b) => b[1].n - a[1].n).slice(0, 8)
+  const clipsOK = st.rated.filter(({ c }) => servable(BYID[c.id] || c))
+  const links = Object.entries(P.links || {}).map(([k, u]) => `<a class="btn ghost" href="${esc(u)}" target="_blank" rel="noopener">${esc(titleCase(k))}</a>`).join(' ')
+  el.innerHTML = `<a class="back" href="#comics">\u2190 All comics</a>
+    ${(() => { const ph = photoOf(P), fb = first ? `https://i.ytimg.com/vi/${first.id}/sddefault.jpg` : ''; return `<section class="hero${ph ? ' hasphoto' : ''}">${ph || fb ? `<img class="heroimg${ph ? '' : ' yt'}" src="${esc(ph || fb)}" alt="" decoding="async"${ph && fb ? ` onerror="this.onerror=null;this.classList.add('yt');this.src='${esc(fb)}'"` : ''}>` : ''}` })()}
+      <div class="hinner"><span class="eyebrow">Stand-up</span><h1>${esc(name)}</h1>${P.tagline ? `<p class="tag">${esc(P.tagline)}</p>` : ''}
+      ${(P.facts || []).length ? `<div class="facts">${P.facts.map((f) => `<span>${esc(factText(f))}</span>`).join('')}</div>` : ''}
+      ${profileStats(P, st)}
       <div class="fgbadges" id="fgbadges"></div>
-      <div class="styles">${[...new Set([...st.styles, ...(Array.isArray(P.styleTags) ? P.styleTags : [])])].map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</div></div></section>${photoCredit(P)}
-    <div class="cols"><div><h3>About</h3><p class="${P.bio ? '' : 'muted'}" id="cbio">${P.bio ? esc(P.bio) : P.fgId ? '' : 'Profile coming soon.'}</p>
+      ${tags.length ? `<div class="styles">${tags.map((t) => `<span class="tagpill">${esc(t)}</span>`).join('')}</div>` : ''}</div></section>${photoCredit(P)}
+    <div class="cols${h2h.length ? '' : ' one'}"><div id="aboutcol"${P.bio || P.fgId || links ? '' : ' hidden'}><h3>About</h3><p id="cbio"${P.bio ? '' : ' hidden'}>${P.bio ? esc(P.bio) : ''}</p>
       <p class="fansof" id="fansof" hidden></p>
-      ${Object.entries(P.links || {}).map(([k, u]) => `<a class="btn ghost" href="${esc(u)}" target="_blank" rel="noopener">${esc(k)}</a>`).join(' ')}</div>
-      <div><h3>Head-to-head</h3>${Object.keys(st.h2h).length ? `<div class="bars">${Object.entries(st.h2h).map(([o, r]) => `<div class="barrow"><span>vs ${esc(o)}</span><div class="track"><i style="left:0;width:${(100 * r.w) / r.n}%"></i></div><span class="v">${Math.round((100 * r.w) / r.n)}% · ${r.n}</span></div>`).join('')}</div>` : '<p class="muted">No matchups yet. Every pick involving this comic shows up here.</p>'}</div></div>
+      ${links ? `<p class="plinks">${links}</p>` : ''}</div>
+      ${h2h.length ? `<div><h3>Head-to-head</h3><div class="bars">${h2h.map(([o, r]) => `<div class="barrow"><span>vs ${esc(o)}</span><div class="track"><i style="left:0;width:${(100 * r.w) / r.n}%"></i></div><span class="v">${Math.round((100 * r.w) / r.n)}%</span></div>`).join('')}</div></div>` : ''}</div>
     ${specialsHTML(P.specials)}
     <div id="fgspecials"></div>
-    <h3 class="shelf">Best-rated shorts</h3><div class="rail">${st.rated.filter(({ c }) => servable(BYID[c.id] || c)).map(({ c, r }, i) => clipTile(c, r ? i : null, r ? Math.round(r.elo) : c.channel)).join('') || '<p class="muted">This comic\u2019s clips are vertical Shorts, which play on phones.</p>'}</div>`
+    ${clipsOK.length ? `<h3 class="shelf">Best clips</h3><div class="rail">${clipsOK.map(({ c, r }, i) => clipTile(c, null, r ? winPct(r) : null)).join('')}</div>` : ''}`
   bindSpecials(el)
   scrollTo({ top: 0 })
   if (P.fgId) loadFGProfiles().then(() => { if (el.querySelector('h1')?.textContent === name) paintFGProfile(el, name, P) })
 }
-// funnygraph detail on a comic page: style-king + verdict-gap badges, a Wikidata bio line, For fans of, and the comic's
-// specials (title, year, IMDb rating; never transcripts). A special links only to an on-site clip of it.
+// the richer detail on a comic page: style crowns, an underrated badge, a one-line bio, For fans of, and the comic's
+// specials (title, year, rating; never transcripts). A special links only to an on-site clip of it.
+const GAP_BADGE = { 'massively underrated': 'Seriously underrated', underrated: 'Underrated' }
 function paintFGProfile(el, name, P) {
-  const X = FGPROF?.comics?.[P.fgId]; if (!X) { const b = el.querySelector('#cbio'); if (b && !b.textContent) { b.textContent = 'Profile coming soon.'; b.classList.add('muted') } return }
-  const badges = [...(X.kings || []).map(([, label, rank]) => `<span class="fgbadge king" title="funnygraph style kings (reference)">${rank === 1 ? 'King' : '#' + rank} of ${esc(label.toLowerCase())}</span>`)]
-  if (Array.isArray(X.gap) && typeof X.gap[0] === 'number') {
-    const [g, band] = X.gap, txt = `${g > 0 ? '+' : g < 0 ? '\u2212' : ''}${Math.abs(g).toFixed(2)}`
-    const cls = band && /under/.test(band) ? ' under' : band && /over/.test(band) ? ' over' : ''
-    badges.push(`<span class="fgbadge gap${cls}" title="Verdict gap: popularity percentile minus audience percentile (funnygraph)">${esc(band ? band.charAt(0).toUpperCase() + band.slice(1) : 'Verdict gap')} (${txt})</span>`)
-  }
+  const X = FGPROF?.comics?.[P.fgId]
+  const about = el.querySelector('#aboutcol'), bio = el.querySelector('#cbio')
+  const settle = () => { if (about && bio?.hidden && el.querySelector('#fansof')?.hidden && !about.querySelector('.plinks')) about.hidden = true }
+  if (!X) return settle()
+  const badges = [...(X.kings || []).map(([, label, rank]) => `<span class="fgbadge king">${rank === 1 ? `King of ${esc(label.toLowerCase())}` : `#${rank} in ${esc(label.toLowerCase())}`}</span>`)]
+  if (Array.isArray(X.gap) && GAP_BADGE[X.gap[1]]) badges.push(`<span class="fgbadge gap under">${GAP_BADGE[X.gap[1]]}</span>`)
   const bx = el.querySelector('#fgbadges'); if (bx) bx.innerHTML = badges.join('')
-  const bio = el.querySelector('#cbio')
-  if (bio && !P.bio) { if (X.bio) { bio.innerHTML = `${esc(X.bio)} <small class="src">Wikidata</small>`; bio.classList.remove('muted') } else { bio.textContent = 'Profile coming soon.'; bio.classList.add('muted') } }
+  if (bio && !P.bio && X.bio) { bio.textContent = X.bio; bio.hidden = false }
   const fans = (X.fans || []).filter(([id, n]) => typeof n === 'string' && n !== name)
   const fx = el.querySelector('#fansof')
-  if (fx && fans.length) { fx.hidden = false; fx.innerHTML = `<span>For fans of</span> ${fans.map(([id, n]) => { const fn = fgName(id); return fn ? `<a href="#comic/${esc(slugOf(fn))}">${esc(fn)}</a>` : `<b>${esc(n)}</b>` }).join('<i>\u00b7</i>')}` }
-  if (X.own) for (const [id, r] of Object.entries(X.own)) { const card = el.querySelector(`.sp[data-sp="${CSS.escape ? CSS.escape(id) : id}"] .spdist`); if (card && typeof r === 'number' && !card.querySelector('.imdb')) card.insertAdjacentHTML('beforeend', `<span class="imdb"> \u00b7 IMDb ${r.toFixed(1)}</span>`) }
+  if (fx && fans.length) { fx.hidden = false; fx.innerHTML = `<span class="lbl">For fans of</span> ${fans.map(([id, n]) => { const fn = fgName(id); return `<span class="fn">${fn ? `<a href="#comic/${esc(slugOf(fn))}">${esc(fn)}</a>` : `<b>${esc(n)}</b>`}</span>` }).join(' ')}` }
+  if (about && (!bio?.hidden || fans.length)) about.hidden = false
+  settle()
+  if (X.own) for (const [id, r] of Object.entries(X.own)) { const card = el.querySelector(`.sp[data-sp="${CSS.escape ? CSS.escape(id) : id}"] .spdist`); if (card && typeof r === 'number' && !card.querySelector('.imdb')) card.insertAdjacentHTML('beforeend', `<span class="imdb"> \u00b7 \u2605 ${r.toFixed(1)}</span>`) }
   const sp = (X.sp || []).filter((s) => Array.isArray(s) && typeof s[0] === 'string')
   const box = el.querySelector('#fgspecials')
   if (box && sp.length) {
     const row = ([t, y, r, clip, full]) => { const k = clip && BYID[clip] && servable(BYID[clip]) ? clip : null
-      return `<li><span class="fgsy">${y ? esc(String(y)) : ''}</span><b>${esc(t)}</b>${typeof r === 'number' ? `<span class="fgsr">IMDb ${r.toFixed(1)}</span>` : ''}${k ? `<a class="fgsw" href="#watch/${encodeURIComponent(k)}">${full ? 'Watch' : 'Clip'}</a>` : ''}</li>` }
-    box.innerHTML = `<h3 class="shelf">${Array.isArray(P.specials) && P.specials.length ? 'More specials' : 'Specials'}</h3><ul class="fgsp">${sp.map(row).join('')}</ul><p class="muted small">From funnygraph${FGPROF.sha7 ? ' \u00b7 ' + esc(FGPROF.sha7) : ''}. Ratings are IMDb\u2019s.</p>`
+      return `<li><span class="fgsy">${y ? esc(String(y)) : ''}</span><b>${esc(t)}</b><span class="fgsr">${typeof r === 'number' ? `<i aria-hidden="true">\u2605</i> ${r.toFixed(1)}` : ''}</span>${k ? `<a class="fgsw" href="#watch/${encodeURIComponent(k)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>${full ? 'Watch' : 'Clip'}</a>` : '<span class="fgsw none"></span>'}</li>` }
+    box.innerHTML = `<h3 class="shelf">${Array.isArray(P.specials) && P.specials.length ? 'More specials' : 'Specials'}</h3><ul class="fgsp">${sp.map(row).join('')}</ul>`
   }
 }
 
@@ -2190,7 +2247,7 @@ function paintYou() {
   const acc = last.length ? Math.round((100 * last.filter((p) => p.hit).length) / last.length) : null
   const comics = Object.entries(MODEL.r).map(([k, x]) => ({ k, elo: Math.round(1500 + SCALE * x) })).sort((a, b) => b.elo - a.elo)
   const lo = Math.min(...comics.map((c) => c.elo)) - 40, hi = Math.max(...comics.map((c) => c.elo)) + 40
-  const bars = comics.map((c) => `<div class="barrow"><span>${esc(c.k)}</span><div class="track"><i style="left:0;width:${(100 * (c.elo - lo)) / (hi - lo)}%"></i></div><span class="v">${c.elo}</span></div>`).join('')
+  const bars = comics.map((c) => `<div class="barrow"><span>${esc(c.k)}</span><div class="track"><i style="left:0;width:${(100 * (c.elo - lo)) / (hi - lo)}%"></i></div><span class="v"></span></div>`).join('')
   // learned traits
   const dur = LS.get('dur', {})
   let longW = 0, longN = 0, lnW = 0, lnN = 0
@@ -2276,7 +2333,7 @@ function openPortSheet() {
     const p = myPassport(), named = signedIn() && USER?.username, pub = visLocal().profile === 'public', imp = LS.get('enginePrior', null)
     sh.innerHTML = `<div class="sheetcard portsheet" role="dialog" aria-modal="true" aria-labelledby="pth"><button type="button" class="sheetx" data-ob="close" aria-label="Close">×</button>
       <h2 id="pth">Port my humour</h2>
-      <p class="muted">Your Humour Passport: the weights of your model (${esc(PASSPORT_SCHEMA)}), what they mean, and how sure it is. ${p ? `${p.n.votes} vote${p.n.votes === 1 ? '' : 's'} · ${esc(p.type.full)} · version <code>${esc(p.hash)}</code>` : ''}</p>
+      <p class="muted">Your Humour Passport: what your model has learned about your sense of humour, and how sure it is. ${p ? `${p.n.votes} vote${p.n.votes === 1 ? '' : 's'} · ${esc(p.type.full)}` : ''}</p>
       <div class="pt-acts"><button type="button" class="dhbtn" data-pt="json">Download JSON</button><button type="button" class="dhghost" data-pt="prompt">Copy for ChatGPT / Claude</button>
         ${agent && me ? '<button type="button" class="dhghost" data-pt="bsky">Publish to my Bluesky repo</button>' : ''}<label class="dhghost pt-imp">Import a passport<input type="file" accept="application/json,.json" data-pt="file" hidden></label></div>
       <label class="pt-opt"><input type="checkbox" data-pt="votes"${LS.get('passportVotes', false) === true ? ' checked' : ''}> Include my raw vote history (off by default)</label>
@@ -3583,7 +3640,7 @@ async function paintChar(el, id) {
   const empty = own && !n ? `<section class="up-sec"><p class="muted">${esc(ch.name)} has no taste yet. ${training ? 'You are training them now: every pick in the screening shapes their model, not yours.' : 'Tap \u201cTrain as ' + esc(ch.name) + '\u201d, then vote the way they would laugh.'} <a href="#">Go to the screening</a></p></section>` : ''
   const P = { own, sub: own ? id : null, passport: p, charAs: { name: ch.name, bio: ch.bio } }
   el.innerHTML = `<div class="up up-charpage">${hero}${empty}${modelHTML(p, 'c' + id, ch.name + '\u2019s')}${vers}${own ? `<section class="up-sec">${timelineHTML(12, id) || '<p class="muted small">Every pick you make as them will show here: what it changed and why.</p>'}</section>
-    <section class="up-sec"><p class="muted small">Prompt them: the Worker has no AI key yet, so \u201cPrompt them\u201d hands their humour payload to ChatGPT or Claude. <b>Perform this set</b> (voice and video) arrives with the characters2 pipeline. <button type="button" class="linkbtn" data-act="delchar" data-id="${esc(id)}">Delete ${esc(ch.name)}</button></p></section>` : ''}</div>`
+    <section class="up-sec"><p class="muted small">\u201cPrompt them\u201d hands their sense of humour to the AI assistant of your choice. Live performances are coming soon. <button type="button" class="linkbtn" data-act="delchar" data-id="${esc(id)}">Delete ${esc(ch.name)}</button></p></section>` : ''}</div>`
   bindProfile(el, P)
 }
 async function forkChar(id, parentPassport) {
