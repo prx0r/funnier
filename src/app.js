@@ -298,6 +298,7 @@ function timingWeight(v) {
 }
 function voteWeight(v) {
   let w = timingWeight(v)
+  if (v?.lowWatch) w *= 0.5 // picked before both clips were watched enough: still a vote, just a lighter one
   // "Not funny -> next" on clip ONE, then a vote: picking clip TWO confirms it (x1.2), picking ONE anyway is a soft pick (x0.6).
   // Skipping clip TWO to the ballot is the mirror image.
   if (v && v.leftSkipped && !v.rightSkipped) w = v.winner === v.b ? Math.max(w, LS_WIN_W) : Math.min(w, LS_LOSE_W)
@@ -1481,16 +1482,10 @@ async function vote(side) {
   const fl = friendLine(a, b, v.winner)
   if (fl) { v.friend = fl.agree ? 'agree' : 'disagree'; const fe = q('.friendres'); if (fe) { fe.textContent = fl.text; fe.classList.add('on', fl.agree ? 'agree' : 'disagree') } }
   if (v.daily) loadDailyResults().then(() => { paintDaily(); const w = $('#why .rcworld'); const D = dailyFor(v.daily); if (w && D) w.innerHTML = worldLine(D) }).catch(() => {})
-  // the watch minimum still applies: both clips at least ~30s (or to the end)
+  // every pick counts (user rule 2026-10-18: tapping Funnier is the vote). A pick made before both clips were watched
+  // ~30s (or to the end) is kept but marked lowWatch, which halves its weight in the on-device model.
   const okL = screens.L?.skipped || screens.L?.enough(), okR = screens.R?.skipped || screens.R?.enough()
-  if (!(okL && okR) || (screens.L?.skipped && screens.R?.skipped)) {
-    LS.set('partials', [...LS.get('partials', []), v].slice(-300))
-    toast('It only counts when both clips were watched for 30s or to the end.')
-    askWhy(v, true, fl)
-    scheduleAdvance(fl ? 2400 : v.daily ? 1600 : 700)
-    paintDaily(); paintHistory()
-    return
-  }
+  if (!(okL && okR) || (screens.L?.skipped && screens.R?.skipped)) { v.lowWatch = 1; v.basis = 'partial'; v.weight = Math.round(100 * voteWeight(v)) / 100 }
   if (TRAIN_AS && charGet(TRAIN_AS)) { // training a character: the pick trains ITS model, not yours, and is not published
     const cid = TRAIN_AS, ch = charGet(cid)
     v.as = cid
@@ -1507,9 +1502,8 @@ async function vote(side) {
   engineLearn({ kind: 'vote', a: a.id, b: b.id, winner: v.winner, p: Math.round(1000 * (side === 'L' ? prediction.p : 1 - prediction.p)) / 1000, hit: prediction.side === side,
     rewound: (side === 'L' ? v.leftSeekTargets : v.rightSeekTargets)?.length ? v.winner : null })
   const dur = LS.get('dur', {}); dur[a.id] = screens.L.dur(); dur[b.id] = screens.R.dur(); LS.set('dur', dur)
-  const guess = MODEL && MODEL.n >= 3 ? (prediction.side === side ? ' Your model called it.' : ' Your model guessed the other one.') : ''
   scheduleAdvance(fl ? 2400 : v.daily ? 1600 : reduced() ? 300 : 900)
-  askWhy(v, false, fl, guess.trim())
+  askWhy(v, false, fl)
   if (agent) {
     try { await publish(v) }
     catch { LS.set('queue', [...LS.get('queue', []), v]); toast('Saved. It\u2019ll publish when Bluesky responds.') }
@@ -2766,7 +2760,6 @@ async function holdWhile(fn) {
 }
 
 // ---------- after-vote result card: result, world split (daily), "Send to a friend", why-chips ----------
-const WHY = ['Smarter', 'Weirder', 'Darker', 'Better delivery', 'More relatable', 'Better payoff']
 let whyT
 function askWhy(v, shareOnly, fl, guess) {
   const box = $('#why'); if (!box) return
@@ -2774,16 +2767,15 @@ function askWhy(v, shareOnly, fl, guess) {
   const D = v.daily ? dailyFor(v.daily) : null
   const pick = v.winner === v.a ? 'a' : 'b', inv = sharedRound?.invite && sharedRound.key === pairKey(v.a, v.b) ? sharedRound.invite : null
   const text = shareText(A, B, pick)
-  box.innerHTML = `<p class="rchead"><b>${shareOnly ? 'Noted, but it didn\u2019t count' : esc(W?.comic || '') + ' takes it.'}</b>${!shareOnly && guess ? `<span class="muted">${esc(guess)}</span>` : ''}${fl ? `<span class="${fl.agree ? 'agree' : 'disagree'}">${esc(fl.text)}</span>` : ''}</p>
+  box.innerHTML = `<p class="rchead"><b>${shareOnly && guess ? esc(guess) : esc(W?.comic || '') + ' takes it.'}</b>${fl ? `<span class="${fl.agree ? 'agree' : 'disagree'}">${esc(fl.text)}</span>` : ''}</p>
     <div class="rcsplit" aria-live="polite">${D ? `<p class="rcworld">${worldLine(D)}</p>` : ''}</div>
     <div class="rcfriends" hidden></div>
-    <div class="rcshare"><button type="button" class="rcsend" data-sh="native">Share ↗</button><a class="rcalt" data-sh="wa" href="${esc(waURL(text, clashURL(A, B, pick)))}" target="_blank" rel="noopener">WhatsApp</a><button type="button" class="rcalt" data-sh="copy">Copy link</button></div>
+    <div class="rcshare"><button type="button" class="rcsend" data-sh="native">Send to a friend ↗</button></div>
     ${inv && !inv.self && !inv.friends && inv.inviter?.username ? `<button type="button" class="rcadd" data-sh="add">${avatarHTML(inv.inviter)}Add ${esc(inv.inviter.username)} as a friend</button>` : ''}
-    ${shareOnly ? '' : `<div class="rcwhy"><span>Why was it funnier?</span>${WHY.map((w) => `<button type="button" data-why>${w}</button>`).join('')}</div>`}
-    ${!shareOnly && LS.get('votes', []).length >= 5 ? '<button type="button" class="rctaste" data-sh="taste">Share your taste ↗</button>' : ''}`
+`
   let sharing = false
   const hideIn = (ms) => { clearTimeout(whyT); whyT = setTimeout(() => { if (!sharing) box.classList.remove('on') }, ms) }
-  box.classList.add('on'); hideIn(signedIn() ? 7000 : 5000)
+  box.classList.add('on'); hideIn(signedIn() ? 4500 : 3500)
   box.onpointerenter = () => clearTimeout(whyT); box.onpointerleave = () => hideIn(2500)
   box.onfocusin = () => clearTimeout(whyT)
   const linkP = shareLink(A, B, pick)
@@ -2791,19 +2783,11 @@ function askWhy(v, shareOnly, fl, guess) {
   linkP.then((u) => { if (wa) wa.href = waURL(text, u) })
   const hold = async (fn) => { sharing = true; clearTimeout(whyT); await holdWhile(fn); sharing = false; hideIn(1500) }
   box.querySelector('[data-sh="native"]').onclick = (e) => { e.stopPropagation(); hold(() => shareClash(A, B, pick)) }
-  box.querySelector('[data-sh="copy"]').onclick = async (e) => { e.stopPropagation(); const u = await linkP; toast((await copyText(u)) ? 'Link copied. Your friend sees your pick only after they vote.' : 'Copy this link: ' + u) }
   if (wa) wa.onclick = (e) => { e.stopPropagation(); clearTimeout(advT); advT = null }
   const add = box.querySelector('[data-sh="add"]')
   if (add) add.onclick = (e) => { e.stopPropagation(); clearTimeout(advT); advT = null; addFriend(inv, add) }
   const tst = box.querySelector('[data-sh="taste"]')
   if (tst) tst.onclick = (e) => { e.stopPropagation(); hold(() => openShareStudio('chart')) }
-  box.querySelectorAll('button[data-why]').forEach((b) => (b.onclick = (e) => {
-    e.stopPropagation()
-    const votes = LS.get('votes', []); const last = votes.find((x) => x.createdAt === v.createdAt)
-    if (last) { last.why = b.textContent; LS.set('votes', votes); if (signedIn()) api('/votes', { method: 'POST', body: { votes: [apiVote(last)] } }).catch(() => {}) }
-    const q2 = LS.get('queue', []); const lq = q2.find((x) => x.createdAt === v.createdAt); if (lq) { lq.why = b.textContent; LS.set('queue', q2) }
-    box.classList.remove('on'); toast('Noted. Your model will use that.'); paintHistory()
-  }))
   // invite bookkeeping: this open voted; signed-out friends get added when they sign in
   if (inv && !inv.self) {
     if (inv.open_id != null) api(`/invites/${encodeURIComponent(inv.code)}/voted`, { method: 'POST', body: { open_id: inv.open_id } }).catch(() => {})
