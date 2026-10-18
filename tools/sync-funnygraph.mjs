@@ -53,8 +53,9 @@ async function main() {
   const ref = head?.sha
   // ---- boards ----
   let changed = false
-  if (ref && ref !== prevMeta.sha) {
+  if (ref) { // a new funnygraph commit refetches every file; same commit: only files this site has never had (a newly added board)
     for (const [file, ok] of Object.entries(VALIDATE)) {
+      if (ref === prevMeta.sha && fs.existsSync(path.join(FGDIR, file))) continue
       const d = await getJSON(rawUrl(ref, file))
       if (d == null || !ok(d)) { errors.push(`${file}: ${d == null ? 'unreachable' : 'schema check failed'}; kept last good`); continue }
       writeJSON(path.join(FGDIR, file), SLIM[file] ? SLIM[file](d) : d)
