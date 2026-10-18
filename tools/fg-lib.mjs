@@ -60,10 +60,70 @@ export function slimGraph(g) {
     tags: personaTags(g),
     // auto/indie drafts carry machine placeholders ('Stand-up voice with N words...'), never shown as a card line
     deal: /draft/.test(String(g.identity?.archetype || '')) ? null : str(g.identity?.deal, 300), premise: /draft/.test(String(g.identity?.archetype || '')) ? null : str(g.identity?.premise, 300),
-    bio: { dob: str(bio.dob, 10), dod: str(bio.dod, 10), birthplace: str(bio.birthplace, 80), citizenship: str(bio.citizenship, 80) },
+    bio: { dob: str(bio.dob, 10), dod: str(bio.dod, 10), birthplace: str(bio.birthplace, 80), citizenship: str(bio.citizenship, 80),
+      occupations: (Array.isArray(bio.occupations) ? bio.occupations : []).map((o) => str(o, 40)).filter(Boolean).slice(0, 6), source: /wikidata/i.test(String(bio.source || '')) ? 'wikidata' : null },
+    specials: ratedSpecials(g),
     website: str(g.website?.url, 200),
     channels: chans,
   }
+}
+
+// IMDb-rated specials from the graph (specials_rated), metadata only: title, year, rating, votes, standout. No transcript
+// paths. funnygraph's IMDb matcher also attached unrelated titles ('RED', '$', 'Nö'), so a row is kept only when its
+// title names the comic (surname, or the whole name for one-word names).
+export function namesComic(title, name) {
+  const parts = String(name || '').trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const sur = parts.length > 1 ? parts[parts.length - 1].replace(/[^a-z0-9]/g, '') : String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  if (!sur || sur.length < 2) return false
+  const t = String(title || '').toLowerCase()
+  return t.replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).includes(sur) || t.replace(/[^a-z0-9]/g, '').includes(String(name).toLowerCase().replace(/[^a-z0-9]/g, ''))
+}
+export function ratedSpecials(g) {
+  const name = String(g?.name || '').trim()
+  const seen = new Set()
+  return (Array.isArray(g?.specials_rated) ? g.specials_rated : []).map((r) => {
+    const raw = str(r?.title || r?.special, 160); if (!raw || num(r.imdb_rating ?? r.rating) == null) return null // IMDb-matched rows only
+    if (!namesComic(raw, name)) return null
+    const t = specialTitle(raw, name); if (!t || !/[a-z]/i.test(t.title)) return null
+    const year = Number.isInteger(r.year) && r.year > 1940 && r.year < 2100 ? r.year : t.year
+    const k = normTitle(t.title); if (seen.has(k)) return null; seen.add(k)
+    return { t: t.title, y: year || null, r: num(r.imdb_rating ?? r.rating), v: num(r.imdb_votes ?? r.votes), st: r.standout ? 1 : 0 }
+  }).filter(Boolean).slice(0, 20)
+}
+export const normTitle = (t) => String(t).toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '')
+const smartCase = (t) => (/[a-z]/.test(t) ? t : t.toLowerCase().replace(/(^|[\s(\-\u2013:/"\u201c])([a-z])/g, (m, a, b) => a + b.toUpperCase()))
+// 'JIM JEFFERIES: INTOLERANT (2020) \u2013 FULL TRANSCRIPT' -> { title: 'Intolerant', year: 2020 }. Null for anything that
+// is not '<Name>: <Title> (<year>)' shaped (scenes, monologues, episodes, translations): those are not specials.
+export function specialTitle(raw, name, needPrefix = false) {
+  let s = String(raw || '').replace(/\s+/g, ' ').trim()
+  if (!s || /testo|traduc|transcri[cç][aã]o|scene\b|episode|monologue/i.test(s.replace(/\b(full )?transcript\b/gi, ''))) return null
+  s = s.replace(/\s*[\u2013\u2014|-]\s*(full\s+)?transcript\s*$/i, '').replace(/\s*\|\s*transcript\s*$/i, '').replace(/\s+transcript\s*$/i, '').trim()
+  const m = s.match(/^(.*?):\s*(.+)$/)
+  const nm = normTitle(name)
+  let head = null, body = s
+  const sur = normTitle(String(name).trim().split(/\s+/).pop() || '')
+  if (m && normTitle(m[1]).length && ((sur.length >= 2 && normTitle(m[1]).includes(sur)) || nm.includes(normTitle(m[1])))) { head = m[1]; body = m[2] }
+  if (needPrefix && !head) return null
+  const y = body.match(/\s*\((\d{4})\)\s*$/)
+  const year = y ? +y[1] : null
+  body = body.replace(/\s*\((\d{4})\)\s*$/, '').trim()
+  if (needPrefix && !year) return null
+  if (!body || body.length > 90 || normTitle(body) === nm) return head && year ? { title: smartCase(body || head), year } : null
+  return { title: smartCase(body), year }
+}
+// data/r2/site_manifest.json carries transcript links and word counts; Funnier keeps only each special's title + year
+export function slimManifest(d) {
+  const out = {}
+  for (const [id, v] of Object.entries(d?.comedians || {})) {
+    if (!/^[a-z0-9-]+$/.test(id) || !Array.isArray(v?.specials)) continue
+    const name = str(v.name, 120) || id, seen = new Set(), sp = []
+    for (const s of v.specials) {
+      const t = specialTitle(s?.title, name, true); if (!t) continue
+      const k = normTitle(t.title); if (seen.has(k)) continue; seen.add(k); sp.push([t.title, t.year])
+    }
+    if (sp.length) out[id] = sp.slice(0, 20)
+  }
+  return { comedians: out }
 }
 
 // ---- schema checks (shape only; values are funnygraph's to change) ----
@@ -81,7 +141,12 @@ export const VALIDATE = {
   'rankings/bits.json': (d) => Array.isArray(d) && d.every((r) => r && typeof r.bit === 'string' && typeof r.comedian_id === 'string'),
   'rankings/neighbors.json': (d) => d && typeof d === 'object' && !Array.isArray(d) && Object.values(d).every((v) => Array.isArray(v)),
   'rankings/spotlight.json': (d) => d && typeof d === 'object' && !Array.isArray(d),
+  'rankings/metrics.json': (d) => idRows(rowsOf(d), 20) && rowsOf(d).every((r) => r.gap_value == null || typeof r.gap_value === 'number'),
+  'rankings/by_generation.json': (d) => d && typeof d === 'object' && !Array.isArray(d) && Object.values(d).every((v) => idRows(v, 0)),
+  'data/r2/site_manifest.json': (d) => d && typeof d === 'object' && d.comedians && typeof d.comedians === 'object' && !Array.isArray(d.comedians),
 }
+// files published in a slimmed form (no prose, no transcript links)
+export const SLIM = { 'rankings/bits.json': (d) => slimBits(d), 'data/r2/site_manifest.json': (d) => slimManifest(d) }
 export const REQUIRED = ['rankings/ratings.json']
 export const validGraph = (g) => !!slimGraph(g)
 

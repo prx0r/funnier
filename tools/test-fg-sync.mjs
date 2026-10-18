@@ -4,8 +4,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { VALIDATE, slimGraph, slimBits, personaTags } from './fg-lib.mjs'
-import { mergeComics, buildBundle } from './sync-funnygraph.mjs'
+import { VALIDATE, slimGraph, slimBits, personaTags, specialTitle, slimManifest, ratedSpecials } from './fg-lib.mjs'
+import { mergeComics, buildBundle, extraBoards, buildProfiles, bioLine, gapText } from './sync-funnygraph.mjs'
 let fails = 0
 const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++ }
 
@@ -69,4 +69,37 @@ ok(pc.comics['Norm Macdonald']?.fgId === 'norm-macdonald' && pc.source.sha7 === 
 const fresh = fs.mkdtempSync(path.join(os.tmpdir(), 'pub0-'))
 execFileSync(process.execPath, ['tools/sync-funnygraph.mjs', '.', fresh], { env: { ...process.env, FG_SYNC_OFFLINE: '1' }, stdio: 'pipe' })
 ok(Object.keys(JSON.parse(fs.readFileSync(path.join(fresh, 'comics.json'), 'utf8')).comics).length >= 6 && !fs.existsSync(path.join(fresh, 'data', 'funnygraph', 'boards.json')), 'offline + no history: Funnier-owned comics.json still published, no fake boards')
+
+// ---- comic boards (style kings, verdict gap, eras) + profile detail ----
+ok(JSON.stringify(specialTitle('JIM JEFFERIES: INTOLERANT (2020) \u2013 FULL TRANSCRIPT', 'Jim Jefferies', true)) === '{"title":"Intolerant","year":2020}', 'special titles: name prefix, year and transcript suffix stripped, all-caps fixed')
+ok(specialTitle('Kevin Hart: Gun Compartment Scene', 'Kevin Hart', true) === null && specialTitle('GEORGE CARLIN: JAMMING (1992) \u2013 Testo italiano completo', 'George Carlin', true) === null, 'scenes and translations are not specials')
+const man = slimManifest({ comedians: { 'drew-michael': { name: 'Drew Michael', specials: [{ title: 'Drew Michael: Red Blue Green (2021) | Transcript', transcript_url: 'https://x.r2.cloudflarestorage.com/secret.json', n_words: 9000, transcript_preview: 'lines' }] } } })
+ok(JSON.stringify(man) === '{"comedians":{"drew-michael":[["Red Blue Green",2021]]}}', 'site_manifest slimmed to title + year: no transcript links, previews or word counts')
+const rs = ratedSpecials({ name: 'Bill Hicks', specials_rated: [{ title: 'Bill Hicks: Relentless', year: 1992, imdb_rating: 8.5, imdb_votes: 2756, standout: true, transcript: 'x.txt' }, { title: 'RED', year: 2010, imdb_rating: 7, imdb_votes: 341534 }, { title: 'Stewart Lee - Live', special: 'live' }] })
+ok(rs.length === 1 && rs[0].t === 'Relentless' && rs[0].r === 8.5 && !('transcript' in rs[0]), 'rated specials: IMDb mismatches that do not name the comic dropped, no transcript path')
+ok(VALIDATE['data/r2/site_manifest.json']({ comedians: {} }) && !VALIDATE['rankings/metrics.json']([{ comedian_id: 'a', name: 'A', gap_value: 'x' }]), 'metrics + manifest schema checks')
+const P3 = { a: { n: 'A' }, b: { n: 'B' }, c: { n: 'C' }, d: { n: 'D' } }
+const xb = extraBoards(P3, { observational: [{ type_rank: 2, comedian_id: 'b', name: 'B', legacy: 90.4 }, { type_rank: 1, comedian_id: 'a', name: 'A', legacy: 98.9 }, { type_rank: 3, comedian_id: 'zz', name: 'ZZ' }] },
+  [{ comedian_id: 'a', name: 'A', gap_value: 0.83, overrated: 'massively overrated' }, { comedian_id: 'b', name: 'B', gap_value: -0.7, overrated: 'massively underrated' }, { comedian_id: 'c', name: 'C', gap_value: -0.1, overrated: 'accurately rated' }, { comedian_id: 'd', name: 'D', gap_value: null }],
+  { nineties: [{ gen_rank: 1, comedian_id: 'c', name: 'C', score: 8.25 }] })
+ok(xb.kings.groups[0].k === 'observational' && xb.kings.groups[0].rows[0][0] === 'a' && xb.kings.groups[0].rows[0][2] === 'Legacy 99' && xb.kings.groups[0].rows.length === 2, 'style kings: funnygraph type order, unknown comics dropped')
+ok(xb.over.rows[0][0] === 'a' && xb.over.rows[0][2] === '+0.83 \u00b7 massively overrated' && xb.under.rows.map((r) => r[0]).join() === 'b,c' && xb.under.rows[1][2] === '\u22120.10', 'verdict gap boards: copied values + bands, null gap left out, accurate band not printed')
+ok(xb.era.groups[0].label === 'Nineties' && xb.kings.ref && xb.under.ref, 'era picker; reference boards flagged ref')
+ok(bioLine({ source: 'wikidata', occupations: ['actor', 'stand-up comedian', 'television actor'], birthplace: 'Canton', citizenship: 'United States' }) === 'Stand-up comedian and actor, born in Canton, United States.' && bioLine({ occupations: ['x'] }) === null, 'Wikidata bio line (' + bioLine({ source: 'wikidata', occupations: ['actor', 'stand-up comedian', 'television actor'], birthplace: 'Canton', citizenship: 'United States' }) + ')')
+{ const pd = fs.mkdtempSync(path.join(os.tmpdir(), 'fgp-')); fs.mkdirSync(path.join(pd, 'rankings'), { recursive: true }); fs.mkdirSync(path.join(pd, 'data', 'r2'), { recursive: true })
+  const PW = (f, v) => fs.writeFileSync(path.join(pd, f), JSON.stringify(v))
+  PW('rankings/neighbors.json', { 'bill-burr': [{ comedian_id: 'norm-macdonald', sim: 0.5 }, { comedian_id: 'bot', sim: 0.4 }, { comedian_id: 'nobody', sim: 0.3 }] })
+  PW('data/r2/site_manifest.json', man.comedians ? { comedians: { 'bill-burr': [['Paper Tiger', 2019], ['The Philadelphia Incident', 2006]] } } : {})
+  PW('rankings/specials.json', [{ special: 'Bill Burr: Let It Go', year: 2010, comedian_id: 'bill-burr', rating: 8.3 }, { special: 'N\u00f4', year: 1998, comedian_id: 'bill-burr', rating: 6.9 }])
+  PW('rankings/metrics.json', [{ comedian_id: 'bill-burr', name: 'Bill Burr', gap_value: 0.112, overrated: 'accurately rated' }])
+  const RC = { 'bill-burr': { id: 'bill-burr', name: 'Bill Burr', bio: { source: 'wikidata', occupations: ['comedian'], birthplace: 'Canton' }, specials: [{ t: 'Paper Tiger', y: 2019, r: 8, v: 13449, st: 1 }] }, 'norm-macdonald': s, bot: { id: 'bot', name: 'Bot', synthetic: true } }
+  const merged = { comics: { 'Bill Burr': { fgId: 'bill-burr', slug: 'bill-burr' }, 'Norm Macdonald': { fgId: 'norm-macdonald' } } }
+  const clipsP = [{ id: 'FBKWxJehH7Q', comic: 'Bill Burr', title: 'Bill Burr: Paper Tiger | Netflix', media: 'youtube', carrier: 'licensed', dur: 300 }, { id: 'zzz', comic: 'Bill Burr', title: 'Philadelphia Incident fan upload', media: 'youtube', carrier: 'unofficial' }]
+  const pr = buildProfiles({ sha: 'abcdef1234' }, { comedians: RC }, { people: { 'bill-burr': { n: 'Bill Burr' } }, boards: { kings: { groups: [{ k: 'rant', label: 'Rant', rows: [['bill-burr', 3, null]] }] } } }, merged, clipsP, pd)
+  const BB = pr.comics['bill-burr']
+  ok(BB.sp.map((x) => x[0]).join('|') === 'Paper Tiger|Let It Go|The Philadelphia Incident' && BB.sp[0][2] === 8, 'profile specials: graph + curated + manifest merged, deduped, newest first, bogus IMDb match dropped (' + BB.sp.map((x) => x[0]).join('|') + ')')
+  ok(BB.sp[0][3] === 'FBKWxJehH7Q' && BB.sp[0][4] === 0 && BB.sp[2].length === 3, 'a special links only to an official on-site clip of it (unofficial uploads never)')
+  ok(!JSON.stringify(pr).match(/transcript|r2\.cloudflarestorage|scraps/i), 'profiles carry no transcript text or links')
+  ok(BB.fans.length === 1 && BB.fans[0][1] === 'Norm Macdonald' && BB.bio === 'Comedian, born in Canton.' && BB.kings[0][1] === 'Rant' && BB.gap[1] === 'accurately rated', 'For fans of (synthetic + unknown dropped), bio, style king badge, verdict gap')
+}
 console.log(fails ? `${fails} FAILED` : 'ALL PASS'); process.exit(fails ? 1 : 0)

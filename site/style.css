@@ -1023,3 +1023,25 @@ body.in-theatre .feedbar,body.chrome-hidden .feedbar{opacity:0;pointer-events:no
 @media (max-width:640px){.feedbar{gap:6px;height:28px;top:6px}.fchip{padding:6px 10px}.fscope{padding:3px 7px}.fscope select{max-width:62px}
   /* phones: the face-off cards start at the top of the stage, so they give up 34px of height (no shift) for the strip */
   #arena .intro{padding-top:calc(clamp(10px,2vh,18px) + 30px)}}
+/* funnygraph detail on comic pages: badges, bio source, For fans of, specials list (metadata only) */
+.fgbadges{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+.fgbadges:empty{display:none}
+.fgbadge{font:600 11px var(--mono,monospace);letter-spacing:.04em;padding:4px 9px;border-radius:999px;border:1px solid var(--line);color:var(--text);background:rgba(19,19,25,.55)}
+.fgbadge.king{border-color:rgba(232,190,90,.55);color:var(--gold)}
+.fgbadge.gap.under{border-color:rgba(110,200,150,.5);color:#9fe0b8}
+.fgbadge.gap.over{border-color:rgba(230,110,100,.5);color:#f2a39b}
+.fgbadge.gap:not(.under):not(.over){color:var(--muted)}
+#cbio .src{font:500 10px var(--mono,monospace);letter-spacing:.05em;color:var(--muted);text-transform:uppercase;margin-left:4px}
+.fansof{margin:4px 0 14px;line-height:1.9;color:var(--muted)}
+.fansof span{font:600 11px var(--mono,monospace);letter-spacing:.06em;text-transform:uppercase;margin-right:6px}
+.fansof a,.fansof b{color:var(--text);font-weight:600;text-decoration:none;white-space:nowrap}
+.fansof a:hover{text-decoration:underline}
+.fansof i{font-style:normal;opacity:.45;margin:0 7px}
+.fgsp{list-style:none;margin:6px 0 4px;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:2px 24px}
+.fgsp li{display:flex;align-items:baseline;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.fgsp .fgsy{font:500 11px var(--mono,monospace);color:var(--muted);min-width:34px}
+.fgsp b{flex:1;font-weight:600}
+.fgsp .fgsr{font:600 11px var(--mono,monospace);color:var(--gold);white-space:nowrap}
+.fgsp .fgsw{font:700 11px var(--mono,monospace);letter-spacing:.05em;text-transform:uppercase;color:var(--text);border:1px solid var(--line);border-radius:999px;padding:3px 9px;text-decoration:none}
+.spdist .imdb{color:var(--gold)}
+@media (max-width:640px){.fscope.fgpick select{max-width:170px}}

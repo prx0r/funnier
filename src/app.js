@@ -47,7 +47,7 @@ let LANE = LS.get('lane', 'human'), BOARDKIND = 'all'
 // funnygraph (github.com/prx0r/funnygraph) owns comic identity, region, tier and its own ranking boards. The deploy syncs its
 // latest boards into data/funnygraph/boards.json (tools/sync-funnygraph.mjs); the site renders whatever that says, as a lens
 // separate from Funnier's own crowd Bradley-Terry chart. Loaded lazily (Charts / a profile).
-let COMICSRC = null, FG = null, FGP = null, LENS = 'crowd', FGBOARD = 'house', REGION = 'all'
+let COMICSRC = null, FG = null, FGP = null, LENS = 'crowd', FGBOARD = 'house', REGION = 'all', FGPICK = {}, FGPROF = null, FGPROFP = null
 // ---------- feeds + region scope (src/feeds.js) ----------
 // FEED: trending (default) | foryou | underdog | vibes | cat:<slug>. SCOPE: 'global' or a funnygraph region key; every feed's
 // candidate pool (and openPair) is filtered by it. Both remembered on the device and synced to the account (users.scope/feed).
@@ -1730,7 +1730,7 @@ function fgTile(id, rank, val, i) {
   const ph = name ? photoOf(COMICS[name]) : '', img = ph || (first ? thumb(first.id) : '')
   const bg = img ? `style="background-image:linear-gradient(180deg,rgba(7,7,10,.1),rgba(7,7,10,.95) 75%),url(${img})"` : ''
   const sub = [val != null ? val : null, g.t === 'indie' ? 'indie' : null, g.r && g.r !== 'us' ? (FG.regionLabel?.[g.r] || g.r) : null].filter((x) => x != null).join(' · ')
-  const inner = `<span class="num">${rank}</span><div class="poster comicposter${img ? '' : ' noimg'}" ${bg}><b>${esc(g.n || id)}</b><span class="rating">${esc(sub)}</span>${name ? '' : '<span class="noclip">No clips yet</span>'}</div>`
+  const inner = `<span class="num">${rank ?? '\u2014'}</span><div class="poster comicposter${img ? '' : ' noimg'}" ${bg}><b>${esc(g.n || id)}</b><span class="rating">${esc(sub)}</span>${name ? '' : '<span class="noclip">No clips yet</span>'}</div>`
   return name ? `<a class="tile" href="#comic/${slugOf(name)}">${inner}</a>` : `<div class="tile">${inner}</div>`
 }
 function lensBar() {
@@ -1769,18 +1769,23 @@ function paintFGBoards(metas, bar, repaint) {
     loadFG().then(() => { if (LENS !== 'fg') return; if (FG) paintBoards(); else { metas.forEach((m) => (m.textContent = 'funnygraph\u2019s boards are unavailable right now. The Funnier crowd chart is unaffected.')); $('#comics').innerHTML = ''; $('#clips').innerHTML = '' } })
     return
   }
-  const boards = Object.entries(FG.boards).filter(([, b]) => Array.isArray(b?.rows) && b.rows.length)
+  const boards = Object.entries(FG.boards).filter(([, b]) => (Array.isArray(b?.rows) && b.rows.length) || (Array.isArray(b?.groups) && b.groups.some((g) => g?.rows?.length)))
   if (!boards.some(([k]) => k === FGBOARD)) FGBOARD = boards[0]?.[0] || 'house'
   document.querySelectorAll('.boardsel').forEach((x) => (x.innerHTML = `<div class="lanes">${boards.map(([k, b]) => `<button data-fgboard="${k}" class="${FGBOARD === k ? 'on' : ''}">${esc(b.label || k)}</button>`).join('')}</div>`))
   document.querySelectorAll('[data-fgboard]').forEach((x) => (x.onclick = () => { FGBOARD = x.dataset.fgboard; paintBoards() }))
-  const B = FG.boards[FGBOARD] || { rows: [] }
-  if (bar) { bar.innerHTML = lensBar() + regionBar(Object.values(FG.people).map((p) => ({ r: p.r, c: p.c })), repaint); bindLens(bar); bindRegion(bar, repaint) }
+  const B0 = FG.boards[FGBOARD] || { rows: [] }, groups = Array.isArray(B0.groups) ? B0.groups.filter((g) => Array.isArray(g?.rows) && g.rows.length) : null
+  // Style kings / By era: one board per style or generation, picked from a slim select beside the region filter
+  if (groups && !groups.some((g) => g.k === FGPICK[FGBOARD])) FGPICK[FGBOARD] = groups[0]?.k
+  const G = groups ? groups.find((g) => g.k === FGPICK[FGBOARD]) : null
+  const B = G ? { ...B0, rows: G.rows } : B0
+  const pick = groups ? `<label class="fscope fgpick" title="${esc(B0.label || '')}"><select id="fgpick" aria-label="${esc(B0.label || 'Board')}">${groups.map((g) => `<option value="${esc(g.k)}"${g.k === FGPICK[FGBOARD] ? ' selected' : ''}>${esc(g.label)}</option>`).join('')}</select></label>` : ''
+  if (bar) { bar.innerHTML = lensBar() + pick + regionBar(Object.values(FG.people).map((p) => ({ r: p.r, c: p.c })), repaint); bindLens(bar); bindRegion(bar, repaint); const ps = bar.querySelector('#fgpick'); if (ps) ps.onchange = () => { FGPICK[FGBOARD] = ps.value; repaint() } }
   metas.forEach((m) => (m.textContent = `${B.blurb || ''} A separate lens from the Funnier crowd chart: funnygraph\u2019s board, not Funnier picks.`))
   const rows = B.rows.filter(([id]) => FG.people[id] && regionOK(placeOf(null, id))).slice(0, 40)
   $('#comics').innerHTML = rows.map(([id, rank, val], i) => fgTile(id, rank, val, i)).join('') || '<p class="muted">No comics from here on this board yet.</p>'
   const top = rows.map(([id]) => fgName(id)).filter(Boolean)
   $('#clips').innerHTML = top.flatMap((n) => CLIPS.filter((c) => c.comic === n && servable(c) && !isChat(c)).slice(0, 2)).slice(0, 16).map((c) => clipTile(c, null, c.comic)).join('') || '<p class="muted">No shorts yet for the comics on this board.</p>'
-  $('#chartprov') && ($('#chartprov').innerHTML = fgProv((B.label || FGBOARD).toLowerCase()))
+  $('#chartprov') && ($('#chartprov').innerHTML = fgProv(((B0.label || FGBOARD) + (G ? ': ' + G.label : '')).toLowerCase() + (B0.ref ? ' (ref)' : '')))
 }
 
 // ---------- feeds strip, region scope, categories (src/feeds.js) ----------
@@ -1962,6 +1967,12 @@ function loadFG() {
     .then((j) => (FG = j && j.boards && j.people && typeof j.people === 'object' ? j : null)).catch(() => (FG = null))
   return FGP
 }
+// profile detail (specials, for fans of, Wikidata bio, badges): data/funnygraph/profiles.json, fetched on the first comic page
+function loadFGProfiles() {
+  if (!FGPROFP) FGPROFP = fetch('data/funnygraph/profiles.json', { cache: 'no-cache' }).then((r) => (r && r.ok !== false ? r.json() : null))
+    .then((j) => (FGPROF = j && j.comics && typeof j.comics === 'object' ? j : { comics: {} })).catch(() => (FGPROF = { comics: {} }))
+  return FGPROFP
+}
 const CONT_LABEL = { 'north-america': 'North America', europe: 'Europe', asia: 'Asia', africa: 'Africa', oceania: 'Oceania', 'south-america': 'Latin America' }
 // a comic's place: comics.json (merged from funnygraph on deploy), else the funnygraph roster by id
 function placeOf(name, id) {
@@ -2047,14 +2058,43 @@ function paintProfile(el, name) {
       <div class="facts">${(P.facts || []).map((f) => `<span>${esc(f)}</span>`).join('')}</div>
       <div class="stats"><div><b>${st.crowd ? Math.round(st.crowd.elo) + rng : '—'}</b><span>Crowd rating</span></div><div><b>${st.mine ?? '—'}</b><span>Your model</span></div>${P.fg?.house ? `<div><b>#${P.fg.house}</b><span>funnygraph house</span></div>` : ''}<div><b>${st.clips.length}</b><span>Shorts</span></div></div>
       ${fgLine(P)}
+      <div class="fgbadges" id="fgbadges"></div>
       <div class="styles">${[...new Set([...st.styles, ...(Array.isArray(P.styleTags) ? P.styleTags : [])])].map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</div></div></section>${photoCredit(P)}
-    <div class="cols"><div><h3>About</h3><p class="${P.bio ? '' : 'muted'}">${P.bio ? esc(P.bio) : 'Profile coming soon. Bio, influences and specials will live here.'}</p>
+    <div class="cols"><div><h3>About</h3><p class="${P.bio ? '' : 'muted'}" id="cbio">${P.bio ? esc(P.bio) : P.fgId ? '' : 'Profile coming soon.'}</p>
+      <p class="fansof" id="fansof" hidden></p>
       ${Object.entries(P.links || {}).map(([k, u]) => `<a class="btn ghost" href="${esc(u)}" target="_blank" rel="noopener">${esc(k)}</a>`).join(' ')}</div>
       <div><h3>Head-to-head</h3>${Object.keys(st.h2h).length ? `<div class="bars">${Object.entries(st.h2h).map(([o, r]) => `<div class="barrow"><span>vs ${esc(o)}</span><div class="track"><i style="left:0;width:${(100 * r.w) / r.n}%"></i></div><span class="v">${Math.round((100 * r.w) / r.n)}% · ${r.n}</span></div>`).join('')}</div>` : '<p class="muted">No matchups yet. Every pick involving this comic shows up here.</p>'}</div></div>
     ${specialsHTML(P.specials)}
+    <div id="fgspecials"></div>
     <h3 class="shelf">Best-rated shorts</h3><div class="rail">${st.rated.filter(({ c }) => servable(BYID[c.id] || c)).map(({ c, r }, i) => clipTile(c, r ? i : null, r ? Math.round(r.elo) : c.channel)).join('') || '<p class="muted">This comic\u2019s clips are vertical Shorts, which play on phones.</p>'}</div>`
   bindSpecials(el)
   scrollTo({ top: 0 })
+  if (P.fgId) loadFGProfiles().then(() => { if (el.querySelector('h1')?.textContent === name) paintFGProfile(el, name, P) })
+}
+// funnygraph detail on a comic page: style-king + verdict-gap badges, a Wikidata bio line, For fans of, and the comic's
+// specials (title, year, IMDb rating; never transcripts). A special links only to an on-site clip of it.
+function paintFGProfile(el, name, P) {
+  const X = FGPROF?.comics?.[P.fgId]; if (!X) { const b = el.querySelector('#cbio'); if (b && !b.textContent) { b.textContent = 'Profile coming soon.'; b.classList.add('muted') } return }
+  const badges = [...(X.kings || []).map(([, label, rank]) => `<span class="fgbadge king" title="funnygraph style kings (reference)">${rank === 1 ? 'King' : '#' + rank} of ${esc(label.toLowerCase())}</span>`)]
+  if (Array.isArray(X.gap) && typeof X.gap[0] === 'number') {
+    const [g, band] = X.gap, txt = `${g > 0 ? '+' : g < 0 ? '\u2212' : ''}${Math.abs(g).toFixed(2)}`
+    const cls = band && /under/.test(band) ? ' under' : band && /over/.test(band) ? ' over' : ''
+    badges.push(`<span class="fgbadge gap${cls}" title="Verdict gap: popularity percentile minus audience percentile (funnygraph)">${esc(band ? band.charAt(0).toUpperCase() + band.slice(1) : 'Verdict gap')} (${txt})</span>`)
+  }
+  const bx = el.querySelector('#fgbadges'); if (bx) bx.innerHTML = badges.join('')
+  const bio = el.querySelector('#cbio')
+  if (bio && !P.bio) { if (X.bio) { bio.innerHTML = `${esc(X.bio)} <small class="src">Wikidata</small>`; bio.classList.remove('muted') } else { bio.textContent = 'Profile coming soon.'; bio.classList.add('muted') } }
+  const fans = (X.fans || []).filter(([id, n]) => typeof n === 'string' && n !== name)
+  const fx = el.querySelector('#fansof')
+  if (fx && fans.length) { fx.hidden = false; fx.innerHTML = `<span>For fans of</span> ${fans.map(([id, n]) => { const fn = fgName(id); return fn ? `<a href="#comic/${esc(slugOf(fn))}">${esc(fn)}</a>` : `<b>${esc(n)}</b>` }).join('<i>\u00b7</i>')}` }
+  if (X.own) for (const [id, r] of Object.entries(X.own)) { const card = el.querySelector(`.sp[data-sp="${CSS.escape ? CSS.escape(id) : id}"] .spdist`); if (card && typeof r === 'number' && !card.querySelector('.imdb')) card.insertAdjacentHTML('beforeend', `<span class="imdb"> \u00b7 IMDb ${r.toFixed(1)}</span>`) }
+  const sp = (X.sp || []).filter((s) => Array.isArray(s) && typeof s[0] === 'string')
+  const box = el.querySelector('#fgspecials')
+  if (box && sp.length) {
+    const row = ([t, y, r, clip, full]) => { const k = clip && BYID[clip] && servable(BYID[clip]) ? clip : null
+      return `<li><span class="fgsy">${y ? esc(String(y)) : ''}</span><b>${esc(t)}</b>${typeof r === 'number' ? `<span class="fgsr">IMDb ${r.toFixed(1)}</span>` : ''}${k ? `<a class="fgsw" href="#watch/${encodeURIComponent(k)}">${full ? 'Watch' : 'Clip'}</a>` : ''}</li>` }
+    box.innerHTML = `<h3 class="shelf">${Array.isArray(P.specials) && P.specials.length ? 'More specials' : 'Specials'}</h3><ul class="fgsp">${sp.map(row).join('')}</ul><p class="muted small">From funnygraph${FGPROF.sha7 ? ' \u00b7 ' + esc(FGPROF.sha7) : ''}. Ratings are IMDb\u2019s.</p>`
+  }
 }
 
 // ---------- specials: Letterboxd-style log, kept on this device ----------

@@ -13,9 +13,19 @@ Nothing funnygraph owns is committed to this repo's master branch.
    by_continent,specials,bits,neighbors,spotlight}.json` (bits: metadata only, no prose) and every
    `comedians/<id>/comedian-graph.json` whose git blob changed since the last run (slimmed: identity, region, tier,
    persona tags, channels; no sets, transcripts, bits or essays).
+   Also `rankings/{metrics,by_generation}.json` and `data/r2/site_manifest.json` (slimmed to each special's title + year:
+   no transcript links, previews or word counts).
 3. Checks each file's shape (`tools/fg-lib.mjs` VALIDATE). A missing or malformed file keeps the last good copy.
 4. Writes into the published site (gh-pages): `data/funnygraph/meta.json` (sha, sync time, per-file status, errors),
    `data/funnygraph/boards.json` (the slim bundle the site reads), `data/funnygraph/roster.json`, `data/funnygraph/rankings/*`.
+   `boards.json` also carries the comic boards in the Charts tab's funnygraph lens: **Style kings** (`by_type`, a style
+   picker), **Most underrated / Most overrated** (the verdict gap in `metrics.json`: popularity pct − audience pct, with
+   funnygraph's band) and **By era** (`by_generation`, a generation picker). Values and bands are copied, never recomputed;
+   positions are list order, not house ranks. They are reference boards (provenance says "ref").
+   `data/funnygraph/profiles.json` (lazy-loaded by a comic page, Funnier comics only): specials (title, year, IMDb rating
+   from the graph's `specials_rated` filtered to titles naming the comic, `rankings/specials.json`, the R2 manifest; never
+   transcripts; a special links only to an official own/licensed upload of it already in clips.json, played on-site),
+   For fans of (`neighbors.json`), a Wikidata bio line, style-king (top 3) and verdict-gap badges.
 5. Generates the published `comics.json`: Funnier-owned fields from `site/comics.json` + funnygraph identity and ranks.
    Name → id: `fg-map.json` (exceptions), then the `site/comics.json` slug, then a clip's `fg` field, then the slugified name.
 
